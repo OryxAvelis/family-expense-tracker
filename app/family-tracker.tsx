@@ -35,6 +35,16 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -109,6 +119,16 @@ type Product = {
   external_source?: string | null;
   external_id?: string | null;
   purchase_count: number;
+  has_orders: number;
+};
+
+type ProductFormDraft = {
+  nameFr: string;
+  nameAr: string;
+  nameEn: string;
+  category: string;
+  unit: string;
+  price: string;
 };
 
 type CarrefourProduct = {
@@ -210,6 +230,11 @@ const words = {
     imageInvalid: "Choisissez une image JPG, PNG ou WebP.",
     imageTooLarge: "L’image ne doit pas dépasser 5 Mo.",
     invalidPrice: "Saisissez un prix valide.",
+    editProduct: "Modifier le produit",
+    deleteProduct: "Supprimer le produit",
+    deleteProductHelp: "Il disparaîtra du catalogue, mais l’historique des achats sera conservé.",
+    confirmDelete: "Supprimer",
+    unitLocked: "L’unité est verrouillée après la première commande.",
     monthlyTotal: "Total dépensé ce mois",
     boughtOnly: "Uniquement les produits achetés",
     delivery: "Livraison",
@@ -294,6 +319,11 @@ const words = {
     imageInvalid: "اختر صورة JPG أو PNG أو WebP.",
     imageTooLarge: "يجب ألا تتجاوز الصورة 5 ميغا.",
     invalidPrice: "أدخل سعراً صالحاً.",
+    editProduct: "تعديل المنتج",
+    deleteProduct: "حذف المنتج",
+    deleteProductHelp: "سيختفي من الكتالوج، لكن سيبقى سجل المشتريات محفوظاً.",
+    confirmDelete: "حذف",
+    unitLocked: "تُقفل الوحدة بعد أول طلب.",
     monthlyTotal: "مجموع مصاريف هذا الشهر",
     boughtOnly: "المنتجات التي تم شراؤها فقط",
     delivery: "المشتريات",
@@ -378,6 +408,11 @@ const words = {
     imageInvalid: "Choose a JPG, PNG, or WebP image.",
     imageTooLarge: "The image must be 5 MB or smaller.",
     invalidPrice: "Enter a valid price.",
+    editProduct: "Edit product",
+    deleteProduct: "Remove product",
+    deleteProductHelp: "It will disappear from the catalog, but purchase history will be kept.",
+    confirmDelete: "Remove",
+    unitLocked: "The unit is locked after the first order.",
     monthlyTotal: "Total spent this month",
     boughtOnly: "Bought products only",
     delivery: "Purchasing",
@@ -477,6 +512,18 @@ function ProductImage({
     } catch {
       safeRemoteImage = null;
     }
+  }
+
+  if (!safeRemoteImage && position === "none") {
+    return (
+      <div
+        role="img"
+        aria-label={name}
+        className={`grid place-items-center bg-primary/8 text-primary ${className}`}
+      >
+        <PackagePlus className="size-1/3" />
+      </div>
+    );
   }
 
   return (
@@ -1772,8 +1819,8 @@ function AdminDashboard({
   currentMonth: string;
   productPrices: Record<number, string>;
   setProductPrices: React.Dispatch<React.SetStateAction<Record<number, string>>>;
-  newProduct: { nameFr: string; nameAr: string; nameEn: string; category: string; unit: string; price: string };
-  setNewProduct: React.Dispatch<React.SetStateAction<{ nameFr: string; nameAr: string; nameEn: string; category: string; unit: string; price: string }>>;
+  newProduct: ProductFormDraft;
+  setNewProduct: React.Dispatch<React.SetStateAction<ProductFormDraft>>;
   addDialogOpen: boolean;
   setAddDialogOpen: (value: boolean) => void;
   parsePrice: (value: string) => number;
@@ -1783,11 +1830,28 @@ function AdminDashboard({
   language: Language;
 }) {
   const [newProductImage, setNewProductImage] = useState<File | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editProduct, setEditProduct] = useState<ProductFormDraft>({
+    nameFr: "",
+    nameAr: "",
+    nameEn: "",
+    category: "food",
+    unit: "pièce",
+    price: "",
+  });
+  const [editProductImage, setEditProductImage] = useState<File | null>(null);
+  const [removeEditProductImage, setRemoveEditProductImage] = useState(false);
+  const [productToRemove, setProductToRemove] = useState<Product | null>(null);
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const editImageInputRef = useRef<HTMLInputElement>(null);
   const newProductImagePreview = useMemo(
     () => (newProductImage ? URL.createObjectURL(newProductImage) : null),
     [newProductImage],
+  );
+  const editProductImagePreview = useMemo(
+    () => (editProductImage ? URL.createObjectURL(editProductImage) : null),
+    [editProductImage],
   );
 
   useEffect(
@@ -1797,15 +1861,25 @@ function AdminDashboard({
     [newProductImagePreview],
   );
 
+  useEffect(
+    () => () => {
+      if (editProductImagePreview) URL.revokeObjectURL(editProductImagePreview);
+    },
+    [editProductImagePreview],
+  );
+
   const clearNewProductImage = () => {
     setNewProductImage(null);
     if (imageInputRef.current) imageInputRef.current.value = "";
   };
 
-  const selectNewProductImage = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const selectProductImage = (
+    event: React.ChangeEvent<HTMLInputElement>,
+    setImage: (image: File | null) => void,
+  ) => {
     const image = event.currentTarget.files?.[0] ?? null;
     if (!image) {
-      setNewProductImage(null);
+      setImage(null);
       return;
     }
     if (!PRODUCT_IMAGE_TYPES.includes(image.type)) {
@@ -1818,7 +1892,50 @@ function AdminDashboard({
       event.currentTarget.value = "";
       return;
     }
-    setNewProductImage(image);
+    setImage(image);
+  };
+
+  const uploadProductImage = async (image: File) => {
+    const formData = new FormData();
+    formData.set("image", image);
+    const uploadResponse = await fetch("/api/products/images", {
+      method: "POST",
+      body: formData,
+    });
+    const uploadPayload = (await uploadResponse.json().catch(() => ({}))) as {
+      imageUrl?: string;
+      error?: string;
+    };
+    if (uploadResponse.status === 401) {
+      window.location.replace("/connexion");
+      return null;
+    }
+    if (!uploadResponse.ok || !uploadPayload.imageUrl) {
+      throw new Error(uploadPayload.error || "Envoi de l’image impossible.");
+    }
+    return uploadPayload.imageUrl;
+  };
+
+  const openProductEditor = (product: Product) => {
+    setEditProduct({
+      nameFr: product.name_fr,
+      nameAr: product.name_ar,
+      nameEn: product.name_en,
+      category: product.category,
+      unit: product.unit,
+      price: (product.unit_price_cents / 100).toFixed(2),
+    });
+    setEditProductImage(null);
+    setRemoveEditProductImage(false);
+    if (editImageInputRef.current) editImageInputRef.current.value = "";
+    setEditingProduct(product);
+  };
+
+  const closeProductEditor = () => {
+    setEditingProduct(null);
+    setEditProductImage(null);
+    setRemoveEditProductImage(false);
+    if (editImageInputRef.current) editImageInputRef.current.value = "";
   };
 
   const submitNewProduct = async (event: FormEvent) => {
@@ -1833,24 +1950,9 @@ function AdminDashboard({
     setImageUploadBusy(true);
     try {
       if (newProductImage) {
-        const formData = new FormData();
-        formData.set("image", newProductImage);
-        const uploadResponse = await fetch("/api/products/images", {
-          method: "POST",
-          body: formData,
-        });
-        const uploadPayload = (await uploadResponse.json()) as {
-          imageUrl?: string;
-          error?: string;
-        };
-        if (uploadResponse.status === 401) {
-          window.location.replace("/connexion");
-          return;
-        }
-        if (!uploadResponse.ok || !uploadPayload.imageUrl) {
-          throw new Error(uploadPayload.error || "Envoi de l’image impossible.");
-        }
-        uploadedImageUrl = uploadPayload.imageUrl;
+        const imageUrl = await uploadProductImage(newProductImage);
+        if (!imageUrl) return;
+        uploadedImageUrl = imageUrl;
       }
 
       const ok = await act(
@@ -1873,6 +1975,52 @@ function AdminDashboard({
     } finally {
       setImageUploadBusy(false);
     }
+  };
+
+  const submitEditedProduct = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!editingProduct) return;
+    const unitPriceCents = parsePrice(editProduct.price);
+    if (!Number.isInteger(unitPriceCents) || unitPriceCents <= 0) {
+      toast.error(t.invalidPrice);
+      return;
+    }
+
+    setImageUploadBusy(true);
+    try {
+      const uploadedImageUrl = editProductImage
+        ? await uploadProductImage(editProductImage)
+        : null;
+      if (editProductImage && !uploadedImageUrl) return;
+
+      const ok = await act(
+        {
+          action: "edit_product",
+          actorRole: "admin",
+          productId: editingProduct.id,
+          ...editProduct,
+          unitPriceCents,
+          removeImage: removeEditProductImage,
+          ...(uploadedImageUrl ? { imageUrl: uploadedImageUrl } : {}),
+        },
+        "Produit mis à jour.",
+      );
+      if (ok) closeProductEditor();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Envoi de l’image impossible.");
+    } finally {
+      setImageUploadBusy(false);
+    }
+  };
+
+  const removeProduct = async () => {
+    const product = productToRemove;
+    if (!product) return;
+    const ok = await act(
+      { action: "remove_product", actorRole: "admin", productId: product.id },
+      "Produit supprimé du catalogue.",
+    );
+    if (ok) setProductToRemove(null);
   };
 
   return (
@@ -1999,7 +2147,7 @@ function AdminDashboard({
                         accept="image/jpeg,image/png,image/webp"
                         className="sr-only"
                         aria-describedby="new-product-image-hint"
-                        onChange={selectNewProductImage}
+                        onChange={(event) => selectProductImage(event, setNewProductImage)}
                       />
                       <div className="flex min-h-8 items-center justify-between gap-3">
                         <p id="new-product-image-hint" className="text-xs text-muted-foreground">
@@ -2050,7 +2198,7 @@ function AdminDashboard({
 
           <div className="grid gap-3 md:grid-cols-2">
             {data.products.map((product) => (
-              <article key={product.id} className="flex items-center gap-4 rounded-2xl border border-border bg-card p-3">
+              <article key={product.id} className="flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-card p-3">
                 <ProductImage position={product.image_position} imageUrl={product.image_url} name={productName(product)} className="size-16 shrink-0 rounded-xl" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold">{productName(product)}</p>
@@ -2058,7 +2206,7 @@ function AdminDashboard({
                     {product.package_size || `1 ${product.unit}`} · {t[product.category as keyof CopySet] ?? product.category}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex w-full items-center justify-end gap-2 border-t border-border/70 pt-3 xl:w-auto xl:border-0 xl:pt-0">
                   <Input
                     aria-label={`${t.price}: ${productName(product)}`}
                     inputMode="decimal"
@@ -2076,10 +2224,177 @@ function AdminDashboard({
                   >
                     <Check />
                   </Button>
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    className="rounded-xl border-border"
+                    disabled={busy || imageUploadBusy}
+                    onClick={() => openProductEditor(product)}
+                    aria-label={`${t.editProduct}: ${productName(product)}`}
+                    title={t.editProduct}
+                  >
+                    <Pencil />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    disabled={busy || imageUploadBusy}
+                    onClick={() => setProductToRemove(product)}
+                    aria-label={`${t.deleteProduct}: ${productName(product)}`}
+                    title={t.deleteProduct}
+                  >
+                    <Trash2 />
+                  </Button>
                 </div>
               </article>
             ))}
           </div>
+
+          <Dialog
+            open={Boolean(editingProduct)}
+            onOpenChange={(open) => {
+              if (!open && !busy && !imageUploadBusy) closeProductEditor();
+            }}
+          >
+            <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-x-hidden overflow-y-auto rounded-3xl border-border bg-card">
+              {editingProduct && (
+                <form onSubmit={(event) => void submitEditedProduct(event)}>
+                  <DialogHeader>
+                    <DialogTitle>{t.editProduct}</DialogTitle>
+                    <DialogDescription>{productName(editingProduct)}</DialogDescription>
+                  </DialogHeader>
+                  <div className="my-6 grid gap-4">
+                    <div className="grid gap-2">
+                      <p className="text-sm font-medium">{t.productImage}</p>
+                      <label
+                        htmlFor="edit-product-image"
+                        className="group relative grid min-h-36 cursor-pointer place-items-center overflow-hidden rounded-2xl border border-dashed border-primary/35 bg-primary/[0.035] text-center transition-colors hover:border-primary/60 hover:bg-primary/[0.065]"
+                      >
+                        {editProductImagePreview ? (
+                          <>
+                            <span
+                              role="img"
+                              aria-label={editProduct.nameFr || t.productImage}
+                              className="absolute inset-0 bg-contain bg-center bg-no-repeat"
+                              style={{ backgroundImage: `url("${editProductImagePreview}")` }}
+                            />
+                            <span className="absolute inset-x-3 bottom-3 rounded-xl bg-background/90 px-3 py-2 text-sm font-medium shadow-sm backdrop-blur">
+                              {t.changeImage}
+                            </span>
+                          </>
+                        ) : !removeEditProductImage &&
+                          (editingProduct.image_url || editingProduct.image_position !== "none") ? (
+                          <>
+                            <ProductImage
+                              position={editingProduct.image_position}
+                              imageUrl={editingProduct.image_url}
+                              name={editProduct.nameFr || productName(editingProduct)}
+                              className="absolute inset-0"
+                            />
+                            <span className="absolute inset-x-3 bottom-3 rounded-xl bg-background/90 px-3 py-2 text-sm font-medium shadow-sm backdrop-blur">
+                              {t.changeImage}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="grid justify-items-center gap-2 px-4 py-6 text-sm font-medium text-primary">
+                            <span className="grid size-11 place-items-center rounded-2xl bg-primary/10">
+                              <ImagePlus className="size-5" />
+                            </span>
+                            {t.chooseImage}
+                          </span>
+                        )}
+                      </label>
+                      <input
+                        ref={editImageInputRef}
+                        id="edit-product-image"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="sr-only"
+                        aria-describedby="edit-product-image-hint"
+                        onChange={(event) => {
+                          selectProductImage(event, (image) => {
+                            setEditProductImage(image);
+                            if (image) setRemoveEditProductImage(false);
+                          });
+                        }}
+                      />
+                      <div className="flex min-h-8 items-center justify-between gap-3">
+                        <p id="edit-product-image-hint" className="text-xs text-muted-foreground">
+                          {t.imageHint}
+                        </p>
+                        {(editProductImage ||
+                          (!removeEditProductImage &&
+                            (editingProduct.image_url || editingProduct.image_position !== "none"))) && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 rounded-lg text-muted-foreground"
+                            disabled={imageUploadBusy}
+                            onClick={() => {
+                              setEditProductImage(null);
+                              setRemoveEditProductImage(true);
+                              if (editImageInputRef.current) editImageInputRef.current.value = "";
+                            }}
+                          >
+                            <Trash2 className="size-4" /> {t.removeImage}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid gap-2"><Label htmlFor="edit-name-fr">Nom français</Label><Input id="edit-name-fr" required value={editProduct.nameFr} onChange={(event) => setEditProduct((current) => ({ ...current, nameFr: event.target.value }))} /></div>
+                    <div className="grid gap-2"><Label htmlFor="edit-name-ar">Nom arabe</Label><Input id="edit-name-ar" dir="rtl" value={editProduct.nameAr} onChange={(event) => setEditProduct((current) => ({ ...current, nameAr: event.target.value }))} /></div>
+                    <div className="grid gap-2"><Label htmlFor="edit-name-en">Nom anglais</Label><Input id="edit-name-en" value={editProduct.nameEn} onChange={(event) => setEditProduct((current) => ({ ...current, nameEn: event.target.value }))} /></div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="grid gap-2">
+                        <Label>Catégorie</Label>
+                        <Select value={editProduct.category} onValueChange={(value) => setEditProduct((current) => ({ ...current, category: value }))}>
+                          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                          <SelectContent>{categoryKeys.slice(1).map((key) => <SelectItem key={key} value={key}>{t[key]}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Unité</Label>
+                        <Select disabled={Boolean(editingProduct.has_orders)} value={editProduct.unit} onValueChange={(value) => setEditProduct((current) => ({ ...current, unit: value }))}>
+                          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                          <SelectContent><SelectItem value="L">Litre</SelectItem><SelectItem value="kg">kg</SelectItem><SelectItem value="pièce">Pièce</SelectItem></SelectContent>
+                        </Select>
+                        {Boolean(editingProduct.has_orders) && <p className="text-xs text-muted-foreground">{t.unitLocked}</p>}
+                      </div>
+                    </div>
+                    <div className="grid gap-2"><Label htmlFor="edit-price">{t.price} (DH)</Label><Input id="edit-price" inputMode="decimal" required value={editProduct.price} onChange={(event) => setEditProduct((current) => ({ ...current, price: event.target.value }))} /></div>
+                  </div>
+                  <DialogFooter>
+                    <Button type="button" variant="outline" disabled={busy || imageUploadBusy} className="rounded-xl" onClick={closeProductEditor}>{t.cancel}</Button>
+                    <Button type="submit" disabled={busy || imageUploadBusy} className="rounded-xl">{(busy || imageUploadBusy) && <Loader2 className="animate-spin" />}{t.save}</Button>
+                  </DialogFooter>
+                </form>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          <AlertDialog open={Boolean(productToRemove)} onOpenChange={(open) => !open && setProductToRemove(null)}>
+            <AlertDialogContent className="rounded-3xl border-border bg-card">
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {t.deleteProduct}{productToRemove ? ` · ${productName(productToRemove)}` : ""}
+                </AlertDialogTitle>
+                <AlertDialogDescription>{t.deleteProductHelp}</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={busy}>{t.cancel}</AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  disabled={busy}
+                  onClick={() => void removeProduct()}
+                >
+                  {busy && <Loader2 className="animate-spin" />}
+                  {t.confirmDelete}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </TabsContent>
 
         <TabsContent value="analytics">

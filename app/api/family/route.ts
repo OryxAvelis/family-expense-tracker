@@ -66,6 +66,9 @@ const HOUSE_CATALOG_PRICE_UPDATES = [
   [1, "Lait entier", 400],
   [7, "Thé vert", 2000],
 ] as const;
+const PRODUCT_CATEGORIES = ["food", "cleaning", "hygiene", "school", "household", "health"];
+const PRODUCT_IMAGE_KEY_PATTERN =
+  /^product-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/;
 
 type ActionBody = {
   action?: string;
@@ -108,10 +111,7 @@ function asProductImageUrl(value: unknown) {
   const key = parsed.searchParams.get("key") ?? "";
   const parameterNames = [...parsed.searchParams.keys()];
   const hasOnlyKey = parameterNames.length === 1 && parameterNames[0] === "key";
-  const isValidKey =
-    /^product-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/.test(
-      key,
-    );
+  const isValidKey = PRODUCT_IMAGE_KEY_PATTERN.test(key);
 
   if (
     parsed.origin !== "https://family-expenses.local" ||
@@ -123,6 +123,21 @@ function asProductImageUrl(value: unknown) {
   }
 
   return `/api/products/images?key=${encodeURIComponent(key)}`;
+}
+
+function uploadedProductImageKey(value: string | null) {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value, "https://family-expenses.local");
+    const key = parsed.searchParams.get("key") ?? "";
+    return parsed.origin === "https://family-expenses.local" &&
+      parsed.pathname === "/api/products/images" &&
+      PRODUCT_IMAGE_KEY_PATTERN.test(key)
+      ? key
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function requireRole(actualRole: FamilyRole, requiredRole: FamilyRole) {
@@ -275,8 +290,9 @@ async function readState(db: D1Database, viewer: FamilySessionUser) {
     db
       .prepare(
         `SELECT id, name_fr, name_ar, name_en, category, unit, unit_price_cents,
-                image_position, image_url, barcode, package_size, external_source,
-                external_id, purchase_count
+                 image_position, image_url, barcode, package_size, external_source,
+                 external_id, purchase_count,
+                 EXISTS(SELECT 1 FROM cart_items ci_usage WHERE ci_usage.product_id = products.id) AS has_orders
          FROM products WHERE active = 1 ORDER BY purchase_count DESC, name_fr`,
       )
       .all<{
@@ -294,6 +310,7 @@ async function readState(db: D1Database, viewer: FamilySessionUser) {
         external_source: string | null;
         external_id: string | null;
         purchase_count: number;
+        has_orders: number;
       }>(),
     db
       .prepare(
@@ -617,15 +634,112 @@ export async function POST(request: Request) {
         const unit = asText(body.unit);
         const imageUrl = asProductImageUrl(body.imageUrl);
         const unitPriceCents = asPositiveInt(body.unitPriceCents, "unitPriceCents");
-        if (!nameFr || !category || !["L", "kg", "pièce"].includes(unit)) {
+        if (!nameFr || !PRODUCT_CATEGORIES.includes(category) || !["L", "kg", "pièce"].includes(unit)) {
           throw new Error("Les informations du produit sont incomplètes.");
         }
         await db
           .prepare(
-            "INSERT INTO products (name_fr, name_ar, name_en, category, unit, unit_price_cents, image_position, image_url, active) VALUES (?, ?, ?, ?, ?, ?, '100% 100%', ?, 1)",
+            "INSERT INTO products (name_fr, name_ar, name_en, category, unit, unit_price_cents, image_position, image_url, active) VALUES (?, ?, ?, ?, ?, ?, 'none', ?, 1)",
           )
           .bind(nameFr, nameAr, nameEn, category, unit, unitPriceCents, imageUrl)
           .run();
+        break;
+      }
+
+      case "edit_product": {
+        requireRole(viewer.role, "admin");
+        const productId = asPositiveInt(body.productId, "productId");
+        const nameFr = asText(body.nameFr);
+        const nameAr = asText(body.nameAr);
+        const nameEn = asText(body.nameEn);
+        const category = asText(body.category);
+        const unit = asText(body.unit);
+        const unitPriceCents = asPositiveInt(body.unitPriceCents, "unitPriceCents");
+        const removeImage = body.removeImage === true;
+        const hasReplacementImage = body.imageUrl !== undefined && body.imageUrl !== null;
+        const replacementImageUrl = hasReplacementImage ? asProductImageUrl(body.imageUrl) : null;
+
+        if (!nameFr || !PRODUCT_CATEGORIES.includes(category) || !["L", "kg", "pièce"].includes(unit)) {
+          throw new Error("Les informations du produit sont incomplètes.");
+        }
+
+        const currentProduct = await db
+          .prepare("SELECT image_url, unit FROM products WHERE id = ? AND active = 1")
+          .bind(productId)
+          .first<{ image_url: string | null; unit: string }>();
+        if (!currentProduct) throw new Error("Produit introuvable.");
+
+        if (unit !== currentProduct.unit) {
+          const previousOrder = await db
+            .prepare("SELECT id FROM cart_items WHERE product_id = ? LIMIT 1")
+            .bind(productId)
+            .first<{ id: number }>();
+          if (previousOrder) {
+            throw new Error("L’unité ne peut plus être modifiée après la première commande.");
+          }
+        }
+
+        if (removeImage || hasReplacementImage) {
+          await db
+            .prepare(
+              "UPDATE products SET name_fr = ?, name_ar = ?, name_en = ?, category = ?, unit = ?, unit_price_cents = ?, image_url = ?, image_position = ?, updated_at = ? WHERE id = ? AND active = 1",
+            )
+            .bind(
+              nameFr,
+              nameAr,
+              nameEn,
+              category,
+              unit,
+              unitPriceCents,
+              removeImage ? null : replacementImageUrl,
+              removeImage ? "none" : "0% 0%",
+              nowIso(),
+              productId,
+            )
+            .run();
+        } else {
+          await db
+            .prepare(
+              "UPDATE products SET name_fr = ?, name_ar = ?, name_en = ?, category = ?, unit = ?, unit_price_cents = ?, updated_at = ? WHERE id = ? AND active = 1",
+            )
+            .bind(nameFr, nameAr, nameEn, category, unit, unitPriceCents, nowIso(), productId)
+            .run();
+        }
+
+        const previousImageKey = uploadedProductImageKey(currentProduct.image_url);
+        const replacementImageKey = uploadedProductImageKey(replacementImageUrl);
+        if (
+          previousImageKey &&
+          previousImageKey !== replacementImageKey &&
+          (removeImage || hasReplacementImage)
+        ) {
+          await env.BUCKET?.delete(previousImageKey).catch(() => undefined);
+        }
+        break;
+      }
+
+      case "remove_product": {
+        requireRole(viewer.role, "admin");
+        const productId = asPositiveInt(body.productId, "productId");
+        const activeCartItem = await db
+          .prepare(
+            `SELECT ci.id
+             FROM cart_items ci
+             JOIN carts c ON c.id = ci.cart_id
+             WHERE ci.product_id = ? AND c.status IN ('pending', 'ready', 'shopping')
+             LIMIT 1`,
+          )
+          .bind(productId)
+          .first<{ id: number }>();
+        if (activeCartItem) {
+          throw new Error("Ce produit est encore présent dans un panier actif.");
+        }
+
+        const result = await db
+          .prepare("UPDATE products SET active = 0, updated_at = ? WHERE id = ? AND active = 1")
+          .bind(nowIso(), productId)
+          .run();
+        if (!result.meta.changes) throw new Error("Produit introuvable.");
         break;
       }
 
