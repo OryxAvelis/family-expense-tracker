@@ -100,6 +100,31 @@ function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function asProductImageUrl(value: unknown) {
+  const imageUrl = asText(value);
+  if (!imageUrl) return null;
+
+  const parsed = new URL(imageUrl, "https://family-expenses.local");
+  const key = parsed.searchParams.get("key") ?? "";
+  const parameterNames = [...parsed.searchParams.keys()];
+  const hasOnlyKey = parameterNames.length === 1 && parameterNames[0] === "key";
+  const isValidKey =
+    /^product-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/.test(
+      key,
+    );
+
+  if (
+    parsed.origin !== "https://family-expenses.local" ||
+    parsed.pathname !== "/api/products/images" ||
+    !hasOnlyKey ||
+    !isValidKey
+  ) {
+    throw new Error("L’adresse de l’image est invalide.");
+  }
+
+  return `/api/products/images?key=${encodeURIComponent(key)}`;
+}
+
 function requireRole(actualRole: FamilyRole, requiredRole: FamilyRole) {
   if (actualRole !== requiredRole) throw new Error("Action non autorisée pour ce rôle.");
 }
@@ -590,15 +615,16 @@ export async function POST(request: Request) {
         const nameEn = asText(body.nameEn);
         const category = asText(body.category);
         const unit = asText(body.unit);
+        const imageUrl = asProductImageUrl(body.imageUrl);
         const unitPriceCents = asPositiveInt(body.unitPriceCents, "unitPriceCents");
         if (!nameFr || !category || !["L", "kg", "pièce"].includes(unit)) {
           throw new Error("Les informations du produit sont incomplètes.");
         }
         await db
           .prepare(
-            "INSERT INTO products (name_fr, name_ar, name_en, category, unit, unit_price_cents, image_position, active) VALUES (?, ?, ?, ?, ?, ?, '100% 100%', 1)",
+            "INSERT INTO products (name_fr, name_ar, name_en, category, unit, unit_price_cents, image_position, image_url, active) VALUES (?, ?, ?, ?, ?, ?, '100% 100%', ?, 1)",
           )
-          .bind(nameFr, nameAr, nameEn, category, unit, unitPriceCents)
+          .bind(nameFr, nameAr, nameEn, category, unit, unitPriceCents, imageUrl)
           .run();
         break;
       }
