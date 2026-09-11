@@ -19,6 +19,44 @@
 }
 
 :root {
+  color-scheme: light;
+  --background: #f3f8f6;
+  --foreground: #14231f;
+  --card: #ffffff;
+  --card-foreground: #14231f;
+  --popover: #ffffff;
+  --popover-foreground: #14231f;
+  --primary: #087f64;
+  --primary-foreground: #ffffff;
+  --secondary: #e4efeb;
+  --secondary-foreground: #19352d;
+  --muted: #e8f0ed;
+  --muted-foreground: #64756f;
+  --accent: #dff3ec;
+  --accent-foreground: #123c31;
+  --destructive: #d93d4d;
+  --border: #d3e0dc;
+  --input: #c8d8d2;
+  --ring: #0a9574;
+  --chart-1: #087f64;
+  --chart-2: #c67500;
+  --chart-3: #286fc4;
+  --chart-4: #8852bf;
+  --chart-5: #cf4650;
+  --radius: 0.9rem;
+  --sidebar: #10312b;
+  --sidebar-foreground: #f4fbf8;
+  --sidebar-primary: #55e5bb;
+  --sidebar-primary-foreground: #092019;
+  --sidebar-accent: #1c463d;
+  --sidebar-accent-foreground: #f4fbf8;
+  --sidebar-border: #2b524a;
+  --sidebar-ring: #55e5bb;
+  --body-glow-1: rgba(8, 127, 100, 0.12);
+  --body-glow-2: rgba(64, 224, 177, 0.08);
+}
+
+.dark {
   color-scheme: dark;
   --background: #08121a;
   --foreground: #f4f7f5;
@@ -52,6 +90,8 @@
   --sidebar-accent-foreground: #f4f7f5;
   --sidebar-border: #1b2b35;
   --sidebar-ring: #40e0b1;
+  --body-glow-1: rgba(28, 117, 121, 0.22);
+  --body-glow-2: rgba(64, 224, 177, 0.06);
 }
 
 @theme inline {
@@ -98,8 +138,8 @@
 body {
   min-height: 100vh;
   background:
-    radial-gradient(circle at 82% -10%, rgba(28, 117, 121, 0.22), transparent 31rem),
-    radial-gradient(circle at 6% 46%, rgba(64, 224, 177, 0.06), transparent 24rem),
+    radial-gradient(circle at 82% -10%, var(--body-glow-1), transparent 31rem),
+    radial-gradient(circle at 6% 46%, var(--body-glow-2), transparent 24rem),
     var(--background);
   color: var(--foreground);
   font-family: "Segoe UI Variable", "Segoe UI", Arial, Helvetica, sans-serif;

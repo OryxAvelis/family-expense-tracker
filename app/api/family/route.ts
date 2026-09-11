@@ -1,5 +1,12 @@
 import { env } from "cloudflare:workers";
 
+import {
+  FAMILY_USERS,
+  getRequestFamilyUser,
+  type FamilyRole,
+  type FamilySessionUser,
+} from "@/lib/family-auth";
+
 export const dynamic = "force-dynamic";
 
 type ActionBody = {
@@ -27,8 +34,8 @@ function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function requireRole(body: ActionBody, role: ActionBody["actorRole"]) {
-  if (body.actorRole !== role) throw new Error("Action non autorisée pour ce rôle.");
+function requireRole(actualRole: FamilyRole, requiredRole: FamilyRole) {
+  if (actualRole !== requiredRole) throw new Error("Action non autorisée pour ce rôle.");
 }
 
 async function seedIfNeeded(db: D1Database) {
@@ -41,17 +48,6 @@ async function seedIfNeeded(db: D1Database) {
   const current = new Date();
   const isoDaysAgo = (days: number) =>
     new Date(current.getTime() - days * 86_400_000).toISOString();
-
-  const users = [
-    [1, "Youssef", "youssef", "admin", "YO"],
-    [2, "Salma", "salma", "delivery", "SA"],
-    [3, "Papa", "papa", "member", "PA"],
-    [4, "Maman", "maman", "member", "MA"],
-    [5, "Amina", "amina", "member", "AM"],
-    [6, "Yassine", "yassine", "member", "YA"],
-    [7, "Sara", "sara", "member", "SR"],
-    [8, "Adam", "adam", "member", "AD"],
-  ] as const;
 
   const products = [
     [1, "Lait entier", "حليب كامل", "Whole milk", "food", "L", 850, "0% 0%", 18],
@@ -69,12 +65,12 @@ async function seedIfNeeded(db: D1Database) {
   ] as const;
 
   const statements = [
-    ...users.map((user) =>
+    ...FAMILY_USERS.map((user) =>
       db
         .prepare(
           "INSERT OR IGNORE INTO family_users (id, name, username, role, initials, active) VALUES (?, ?, ?, ?, ?, 1)",
         )
-        .bind(...user),
+        .bind(user.id, user.name, user.username, user.role, user.initials),
     ),
     ...products.map((product) =>
       db
@@ -145,18 +141,28 @@ async function seedIfNeeded(db: D1Database) {
   await db.batch(statements);
 }
 
-async function readState(db: D1Database) {
+async function readState(db: D1Database, viewer: FamilySessionUser) {
   const [users, products, carts, items, monthlyTotals] = await Promise.all([
     db
       .prepare(
         "SELECT id, name, username, role, initials FROM family_users WHERE active = 1 ORDER BY id",
       )
-      .all(),
+      .all<{ id: number; name: string; username: string; role: FamilyRole; initials: string }>(),
     db
       .prepare(
         "SELECT id, name_fr, name_ar, name_en, category, unit, unit_price_cents, image_position, purchase_count FROM products WHERE active = 1 ORDER BY purchase_count DESC, name_fr",
       )
-      .all(),
+      .all<{
+        id: number;
+        name_fr: string;
+        name_ar: string;
+        name_en: string;
+        category: string;
+        unit: string;
+        unit_price_cents: number;
+        image_position: string;
+        purchase_count: number;
+      }>(),
     db
       .prepare(
         `SELECT c.id, c.member_id, c.status, c.priority, c.created_at, c.submitted_at,
@@ -165,12 +171,12 @@ async function readState(db: D1Database) {
          JOIN family_users u ON u.id = c.member_id
          WHERE c.status != 'cancelled'
          ORDER BY
-           CASE c.status WHEN 'pending' THEN 0 WHEN 'ready' THEN 1 WHEN 'shopping' THEN 2 ELSE 3 END,
-           CASE c.priority WHEN 'urgent' THEN 0 ELSE 1 END,
+           CASE WHEN c.status IN ('pending', 'ready', 'shopping') THEN 0 ELSE 1 END,
+           CASE c.priority WHEN 'urgent' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
            c.submitted_at ASC
          LIMIT 80`,
       )
-      .all(),
+      .all<{ id: number; member_id: number; status: string; priority: string | null; submitted_at: string }>(),
     db
       .prepare(
         `SELECT ci.id, ci.cart_id, ci.product_id, ci.quantity_hundredths,
@@ -182,7 +188,7 @@ async function readState(db: D1Database) {
          WHERE c.status != 'cancelled'
          ORDER BY ci.id`,
       )
-      .all(),
+      .all<{ id: number; cart_id: number }>(),
     db
       .prepare(
         `SELECT substr(c.completed_at, 1, 7) AS month,
@@ -198,20 +204,31 @@ async function readState(db: D1Database) {
       .all(),
   ]);
 
+  const visibleCarts =
+    viewer.role === "member"
+      ? carts.results.filter((cart) => cart.member_id === viewer.id)
+      : carts.results;
+  const visibleCartIds = new Set(visibleCarts.map((cart) => cart.id));
+
   return {
-    users: users.results,
+    users:
+      viewer.role === "member"
+        ? users.results.filter((user) => user.id === viewer.id)
+        : users.results,
     products: products.results,
-    carts: carts.results,
-    items: items.results,
-    monthlyTotals: monthlyTotals.results,
+    carts: visibleCarts,
+    items: items.results.filter((item) => visibleCartIds.has(item.cart_id)),
+    monthlyTotals: viewer.role === "admin" ? monthlyTotals.results : [],
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const viewer = await getRequestFamilyUser(request);
+    if (!viewer) return Response.json({ error: "Connexion requise." }, { status: 401 });
     const db = getD1();
     await seedIfNeeded(db);
-    return Response.json(await readState(db));
+    return Response.json(await readState(db, viewer));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erreur inattendue.";
     return Response.json({ error: message }, { status: 500 });
@@ -221,13 +238,15 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as ActionBody;
+    const viewer = await getRequestFamilyUser(request);
+    if (!viewer) return Response.json({ error: "Connexion requise." }, { status: 401 });
     const db = getD1();
     await seedIfNeeded(db);
 
     switch (body.action) {
       case "submit_cart": {
-        requireRole(body, "member");
-        const memberId = asPositiveInt(body.memberId, "memberId");
+        requireRole(viewer.role, "member");
+        const memberId = viewer.id;
         const items = Array.isArray(body.items) ? body.items : [];
         if (!items.length) throw new Error("Le panier est vide.");
 
@@ -291,9 +310,9 @@ export async function POST(request: Request) {
       }
 
       case "update_cart": {
-        requireRole(body, "member");
+        requireRole(viewer.role, "member");
         const cartId = asPositiveInt(body.cartId, "cartId");
-        const memberId = asPositiveInt(body.memberId, "memberId");
+        const memberId = viewer.id;
         const items = Array.isArray(body.items) ? body.items : [];
         if (!items.length) throw new Error("Le panier est vide.");
         const cart = await db
@@ -349,9 +368,9 @@ export async function POST(request: Request) {
       }
 
       case "cancel_cart": {
-        requireRole(body, "member");
+        requireRole(viewer.role, "member");
         const cartId = asPositiveInt(body.cartId, "cartId");
-        const memberId = asPositiveInt(body.memberId, "memberId");
+        const memberId = viewer.id;
         const result = await db
           .prepare(
             "UPDATE carts SET status = 'cancelled' WHERE id = ? AND member_id = ? AND status IN ('pending', 'ready')",
@@ -363,12 +382,15 @@ export async function POST(request: Request) {
       }
 
       case "set_priority": {
-        requireRole(body, "admin");
+        requireRole(viewer.role, "admin");
         const cartId = asPositiveInt(body.cartId, "cartId");
         const priority = body.priority === "urgent" ? "urgent" : "normal";
         const result = await db
           .prepare(
-            "UPDATE carts SET status = 'ready', priority = ?, approved_at = ? WHERE id = ? AND status = 'pending'",
+            `UPDATE carts
+             SET status = CASE WHEN status = 'pending' THEN 'ready' ELSE status END,
+                 priority = ?, approved_at = ?
+             WHERE id = ? AND status IN ('pending', 'ready', 'shopping')`,
           )
           .bind(priority, nowIso(), cartId)
           .run();
@@ -377,7 +399,7 @@ export async function POST(request: Request) {
       }
 
       case "update_item": {
-        requireRole(body, "delivery");
+        requireRole(viewer.role, "delivery");
         const itemId = asPositiveInt(body.itemId, "itemId");
         const purchaseStatus =
           body.purchaseStatus === "bought" ? "bought" : "unbought";
@@ -390,7 +412,7 @@ export async function POST(request: Request) {
             `UPDATE cart_items
              SET purchase_status = ?, actual_unit_price_cents = ?
              WHERE id = ? AND cart_id IN (
-               SELECT id FROM carts WHERE status IN ('ready', 'shopping')
+               SELECT id FROM carts WHERE status IN ('pending', 'ready', 'shopping')
              )`,
           )
           .bind(purchaseStatus, actualUnitPriceCents, itemId)
@@ -398,7 +420,7 @@ export async function POST(request: Request) {
         if (!result.meta.changes) throw new Error("Cet article ne peut plus être modifié.");
         await db
           .prepare(
-            "UPDATE carts SET status = 'shopping' WHERE id = (SELECT cart_id FROM cart_items WHERE id = ?) AND status = 'ready'",
+            "UPDATE carts SET status = 'shopping' WHERE id = (SELECT cart_id FROM cart_items WHERE id = ?) AND status IN ('pending', 'ready')",
           )
           .bind(itemId)
           .run();
@@ -406,7 +428,7 @@ export async function POST(request: Request) {
       }
 
       case "finish_cart": {
-        requireRole(body, "delivery");
+        requireRole(viewer.role, "delivery");
         const cartId = asPositiveInt(body.cartId, "cartId");
         const rows = await db
           .prepare(
@@ -433,7 +455,7 @@ export async function POST(request: Request) {
             ),
           db
             .prepare(
-              "UPDATE carts SET status = 'completed', completed_at = ? WHERE id = ? AND status IN ('ready', 'shopping')",
+              "UPDATE carts SET status = 'completed', completed_at = ? WHERE id = ? AND status IN ('pending', 'ready', 'shopping')",
             )
             .bind(nowIso(), cartId),
         ]);
@@ -441,7 +463,7 @@ export async function POST(request: Request) {
       }
 
       case "update_product": {
-        requireRole(body, "admin");
+        requireRole(viewer.role, "admin");
         const productId = asPositiveInt(body.productId, "productId");
         const unitPriceCents = asPositiveInt(body.unitPriceCents, "unitPriceCents");
         await db
@@ -454,7 +476,7 @@ export async function POST(request: Request) {
       }
 
       case "add_product": {
-        requireRole(body, "admin");
+        requireRole(viewer.role, "admin");
         const nameFr = asText(body.nameFr);
         const nameAr = asText(body.nameAr);
         const nameEn = asText(body.nameEn);
@@ -477,7 +499,7 @@ export async function POST(request: Request) {
         throw new Error("Action inconnue.");
     }
 
-    return Response.json(await readState(db));
+    return Response.json(await readState(db, viewer));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erreur inattendue.";
     return Response.json({ error: message }, { status: 400 });

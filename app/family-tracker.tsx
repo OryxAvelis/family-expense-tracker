@@ -11,6 +11,8 @@ import {
   Languages,
   ListChecks,
   Loader2,
+  LogOut,
+  Moon,
   PackageCheck,
   PackagePlus,
   Pencil,
@@ -19,6 +21,7 @@ import {
   ShoppingBasket,
   ShoppingCart,
   Sparkles,
+  Sun,
   Trash2,
   UserCog,
   UserRound,
@@ -64,6 +67,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toaster } from "@/components/ui/sonner";
+import { useFamilyTheme } from "@/hooks/use-family-theme";
+import type { FamilySessionUser } from "@/lib/family-auth";
 
 type Language = "fr" | "ar" | "en";
 type Role = "member" | "admin" | "delivery";
@@ -145,11 +150,11 @@ const words = {
     estimated: "Prix actuel — modifiable par le livreur",
     cart: "Panier",
     emptyCart: "Votre panier est vide.",
-    submit: "Envoyer à l’administrateur",
+    submit: "Envoyer la commande",
     update: "Mettre à jour le panier",
     estimate: "Total estimé",
-    pending: "En attente de l’administrateur",
-    ready: "Envoyé au livreur",
+    pending: "Visible par l’admin et le livreur",
+    ready: "Priorité définie",
     shopping: "Achat en cours",
     completed: "Terminé",
     edit: "Modifier",
@@ -162,7 +167,7 @@ const words = {
     products: "Produits",
     analytics: "Analyse",
     awaiting: "Paniers à classer",
-    choosePriority: "Choisissez la priorité pour l’envoyer au livreur.",
+    choosePriority: "Déjà visible par le livreur — choisissez simplement sa priorité.",
     urgent: "Urgent",
     normal: "Normal",
     noRequests: "Aucune demande en attente.",
@@ -192,6 +197,10 @@ const words = {
     activeLimit: "3 paniers actifs maximum",
     loading: "Chargement de la maison…",
     retry: "Réessayer",
+    lightMode: "Activer le mode clair",
+    darkMode: "Activer le mode sombre",
+    logout: "Se déconnecter",
+    newOrder: "Nouvelle",
   },
   ar: {
     brand: "مصاريف العائلة",
@@ -204,11 +213,11 @@ const words = {
     estimated: "السعر الحالي — يمكن للمكلّف بالشراء تعديله",
     cart: "السلة",
     emptyCart: "سلّتك فارغة.",
-    submit: "إرسال إلى المسؤول",
+    submit: "إرسال الطلب",
     update: "تحديث السلة",
     estimate: "المجموع التقريبي",
-    pending: "في انتظار المسؤول",
-    ready: "أُرسلت للمكلّف بالشراء",
+    pending: "ظاهرة للمسؤول والمكلّف بالشراء",
+    ready: "تم تحديد الأولوية",
     shopping: "الشراء جارٍ",
     completed: "مكتملة",
     edit: "تعديل",
@@ -221,7 +230,7 @@ const words = {
     products: "المنتجات",
     analytics: "التحليل",
     awaiting: "سلال تنتظر التصنيف",
-    choosePriority: "اختر الأولوية لإرسالها للمكلّف بالشراء.",
+    choosePriority: "السلة ظاهرة بالفعل للمكلّف بالشراء — حدّد فقط أولويتها.",
     urgent: "مستعجل",
     normal: "عادي",
     noRequests: "لا توجد طلبات منتظرة.",
@@ -251,6 +260,10 @@ const words = {
     activeLimit: "3 سلال نشطة كحد أقصى",
     loading: "جارٍ تحميل بيانات البيت…",
     retry: "إعادة المحاولة",
+    lightMode: "تفعيل الوضع الفاتح",
+    darkMode: "تفعيل الوضع الداكن",
+    logout: "تسجيل الخروج",
+    newOrder: "جديدة",
   },
   en: {
     brand: "Family expenses",
@@ -263,11 +276,11 @@ const words = {
     estimated: "Current price — editable by the buyer",
     cart: "Cart",
     emptyCart: "Your cart is empty.",
-    submit: "Send to administrator",
+    submit: "Send order",
     update: "Update cart",
     estimate: "Estimated total",
-    pending: "Waiting for administrator",
-    ready: "Sent to buyer",
+    pending: "Visible to admin and buyer",
+    ready: "Priority assigned",
     shopping: "Shopping in progress",
     completed: "Completed",
     edit: "Edit",
@@ -280,7 +293,7 @@ const words = {
     products: "Products",
     analytics: "Analytics",
     awaiting: "Carts to prioritize",
-    choosePriority: "Choose a priority to send it to the buyer.",
+    choosePriority: "Already visible to the buyer — just set its priority.",
     urgent: "Urgent",
     normal: "Normal",
     noRequests: "No requests are waiting.",
@@ -310,6 +323,10 @@ const words = {
     activeLimit: "Maximum 3 active carts",
     loading: "Loading the household…",
     retry: "Retry",
+    lightMode: "Turn on light mode",
+    darkMode: "Turn on dark mode",
+    logout: "Sign out",
+    newOrder: "New",
   },
 } as const;
 
@@ -350,12 +367,18 @@ function ProductImage({
   );
 }
 
-export function FamilyTracker({ role }: { role: Role }) {
+export function FamilyTracker({
+  role,
+  currentUser,
+}: {
+  role: Role;
+  currentUser: FamilySessionUser;
+}) {
   const [data, setData] = useState<AppData | null>(null);
   const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState(false);
   const [language, setLanguage] = useState<Language>("fr");
-  const [memberId, setMemberId] = useState(3);
+  const [memberId] = useState(currentUser.id);
   const [memberView, setMemberView] = useState<"catalog" | "carts">("catalog");
   const [deliveryView, setDeliveryView] = useState<"queue" | "history">("queue");
   const [search, setSearch] = useState("");
@@ -374,39 +397,61 @@ export function FamilyTracker({ role }: { role: Role }) {
     unit: "pièce",
     price: "",
   });
+  const { theme, toggleTheme } = useFamilyTheme();
 
   const t = words[language];
+
+  const applyData = useCallback((payload: AppData) => {
+    setData(payload);
+    setDeliveryPrices(
+      Object.fromEntries(payload.items.map((item) => [item.id, (item.actual_unit_price_cents / 100).toFixed(2)])),
+    );
+    setProductPrices(
+      Object.fromEntries(payload.products.map((product) => [product.id, (product.unit_price_cents / 100).toFixed(2)])),
+    );
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
       setLoadError("");
       const response = await fetch("/api/family", { cache: "no-store" });
       const payload = (await response.json()) as AppData & { error?: string };
+      if (response.status === 401) {
+        window.location.replace("/connexion");
+        return;
+      }
       if (!response.ok) throw new Error(payload.error || "Impossible de charger les données.");
-      setData(payload);
+      applyData(payload);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Impossible de charger les données.");
     }
-  }, []);
+  }, [applyData]);
 
   useEffect(() => {
-    void loadData();
+    const initialLoad = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(initialLoad);
+  }, [loadData]);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void loadData();
+    };
+    const interval = window.setInterval(refreshWhenVisible, 8_000);
+
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [loadData]);
 
   useEffect(() => {
     document.documentElement.lang = language;
     document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
   }, [language]);
-
-  useEffect(() => {
-    if (!data) return;
-    setDeliveryPrices(
-      Object.fromEntries(data.items.map((item) => [item.id, (item.actual_unit_price_cents / 100).toFixed(2)])),
-    );
-    setProductPrices(
-      Object.fromEntries(data.products.map((product) => [product.id, (product.unit_price_cents / 100).toFixed(2)])),
-    );
-  }, [data]);
 
   const act = async (body: Record<string, unknown>, success: string) => {
     try {
@@ -417,8 +462,12 @@ export function FamilyTracker({ role }: { role: Role }) {
         body: JSON.stringify(body),
       });
       const payload = (await response.json()) as AppData & { error?: string };
+      if (response.status === 401) {
+        window.location.replace("/connexion");
+        return false;
+      }
       if (!response.ok) throw new Error(payload.error || "Action impossible.");
-      setData(payload);
+      applyData(payload);
       toast.success(success);
       return true;
     } catch (error) {
@@ -429,8 +478,15 @@ export function FamilyTracker({ role }: { role: Role }) {
     }
   };
 
-  const productName = (product: Pick<Product, "name_fr" | "name_ar" | "name_en">) =>
-    language === "ar" ? product.name_ar || product.name_fr : language === "en" ? product.name_en || product.name_fr : product.name_fr;
+  const productName = useCallback(
+    (product: Pick<Product, "name_fr" | "name_ar" | "name_en">) =>
+      language === "ar"
+        ? product.name_ar || product.name_fr
+        : language === "en"
+          ? product.name_en || product.name_fr
+          : product.name_fr,
+    [language],
+  );
 
   const money = (cents: number) => {
     const locale = language === "ar" ? "ar-MA" : language === "en" ? "en-MA" : "fr-MA";
@@ -449,9 +505,6 @@ export function FamilyTracker({ role }: { role: Role }) {
   };
 
   const itemsFor = (cartId: number) => data?.items.filter((item) => item.cart_id === cartId) ?? [];
-  const members = data?.users.filter((user) => user.role === "member") ?? [];
-  const currentMember = members.find((user) => user.id === memberId) ?? members[0];
-
   const filteredProducts = useMemo(() => {
     if (!data) return [];
     const needle = search.trim().toLocaleLowerCase();
@@ -497,7 +550,7 @@ export function FamilyTracker({ role }: { role: Role }) {
     };
 
     const context = (document as Document & { modelContext?: ModelContext }).modelContext;
-    if (!context?.registerTool || !data || !currentMember) return;
+    if (!context?.registerTool || !data || role !== "member") return;
 
     const lifecycle = new AbortController();
     const afterPaint = () =>
@@ -619,7 +672,7 @@ export function FamilyTracker({ role }: { role: Role }) {
     register({
       name: "submit_household_cart",
       title: "Submit household cart",
-      description: "Submit the currently staged cart to the family administrator for priority review.",
+      description: "Submit the currently staged cart so it appears immediately for both the administrator and buyer.",
       inputSchema: {
         type: "object",
         properties: {},
@@ -647,23 +700,23 @@ export function FamilyTracker({ role }: { role: Role }) {
           body: JSON.stringify({
             action: "submit_cart",
             actorRole: "member",
-            memberId: currentMember.id,
+            memberId: currentUser.id,
             items: staged,
           }),
         });
         const payload = (await response.json()) as AppData & { error?: string };
         if (!response.ok) throw new Error(payload.error || "The cart could not be submitted.");
-        setData(payload);
+        applyData(payload);
         setDraft({});
         setCartOpen(false);
         setMemberView("carts");
         await afterPaint();
-        return { status: "pending", memberId: currentMember.id, itemCount: staged.length };
+        return { status: "visible_to_admin_and_delivery", memberId: currentUser.id, itemCount: staged.length };
       },
     });
 
     return () => lifecycle.abort();
-  }, [currentMember, data, draft, language]);
+  }, [applyData, currentUser.id, data, draft, productName, role]);
 
   const addToCart = (product: Product) => {
     setDraft((current) => ({
@@ -684,18 +737,18 @@ export function FamilyTracker({ role }: { role: Role }) {
   };
 
   const submitCart = async () => {
-    if (!currentMember || !draftProducts.length) return;
+    if (!draftProducts.length) return;
     const payload = {
       action: editingCartId ? "update_cart" : "submit_cart",
       actorRole: "member",
-      memberId: currentMember.id,
+      memberId: currentUser.id,
       ...(editingCartId ? { cartId: editingCartId } : {}),
       items: draftProducts.map(({ product, quantity }) => ({
         productId: product.id,
         quantityHundredths: quantity,
       })),
     };
-    const ok = await act(payload, editingCartId ? "Panier mis à jour." : "Panier envoyé à l’administrateur.");
+    const ok = await act(payload, editingCartId ? "Panier mis à jour." : "Commande visible par l’admin et le livreur.");
     if (ok) {
       setDraft({});
       setEditingCartId(null);
@@ -713,9 +766,12 @@ export function FamilyTracker({ role }: { role: Role }) {
   };
 
   const parsePrice = (value: string) => Math.round(Number(value.replace(",", ".")) * 100);
-  const pendingCarts = data?.carts.filter((cart) => cart.status === "pending") ?? [];
+  const pendingCarts =
+    data?.carts.filter(
+      (cart) => cart.priority === null && ["pending", "ready", "shopping"].includes(cart.status),
+    ) ?? [];
   const deliveryQueue =
-    data?.carts.filter((cart) => cart.status === "ready" || cart.status === "shopping") ?? [];
+    data?.carts.filter((cart) => ["pending", "ready", "shopping"].includes(cart.status)) ?? [];
   const deliveryHistory =
     data?.carts.filter((cart) => cart.status === "completed").slice().reverse() ?? [];
   const memberActive =
@@ -788,9 +844,9 @@ export function FamilyTracker({ role }: { role: Role }) {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <Toaster theme="dark" position="top-center" richColors />
+      <Toaster theme={theme} position="top-center" richColors />
 
-      <aside className="fixed inset-y-0 start-0 z-30 hidden w-24 flex-col items-center border-e border-white/8 bg-[#071018]/92 py-7 backdrop-blur-xl lg:flex">
+      <aside className="fixed inset-y-0 start-0 z-30 hidden w-24 flex-col items-center border-e border-sidebar-border bg-sidebar/95 py-7 text-sidebar-foreground backdrop-blur-xl lg:flex">
         <div className="grid size-11 place-items-center rounded-2xl bg-primary text-lg font-black text-primary-foreground shadow-[0_10px_30px_rgba(64,224,177,0.2)]">
           D
         </div>
@@ -820,13 +876,13 @@ export function FamilyTracker({ role }: { role: Role }) {
           {role === "admin" && <UserCog className="mt-3 size-6 text-primary" />}
           {role === "delivery" && <PackageCheck className="mt-3 size-6 text-primary" />}
         </div>
-        <div className="grid size-10 place-items-center rounded-2xl bg-white/[0.06] text-sm font-bold text-primary">
-          {currentMember?.initials ?? "YO"}
+        <div className="grid size-10 place-items-center rounded-2xl bg-sidebar-accent text-sm font-bold text-sidebar-primary">
+          {currentUser.initials}
         </div>
       </aside>
 
       <div className="min-h-screen pb-24 lg:ps-24 lg:pb-0">
-        <header className="sticky top-0 z-20 border-b border-white/6 bg-background/88 px-4 py-3 backdrop-blur-xl sm:px-8 lg:px-12">
+        <header className="sticky top-0 z-20 border-b border-border/80 bg-background/88 px-4 py-3 backdrop-blur-xl sm:px-8 lg:px-12">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <div className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary font-black text-primary-foreground lg:hidden">
@@ -839,8 +895,19 @@ export function FamilyTracker({ role }: { role: Role }) {
             </div>
 
             <div className="flex items-center gap-2">
+              <Button
+                size="icon-lg"
+                variant="ghost"
+                className="rounded-xl border border-border bg-card/70"
+                onClick={toggleTheme}
+                aria-label={theme === "dark" ? t.lightMode : t.darkMode}
+                title={theme === "dark" ? t.lightMode : t.darkMode}
+              >
+                {theme === "dark" ? <Sun /> : <Moon />}
+              </Button>
+
               <Select value={language} onValueChange={(value) => setLanguage(value as Language)}>
-                <SelectTrigger aria-label="Langue" className="h-10 w-12 rounded-xl border-white/9 bg-white/[0.035] px-3 sm:w-[7.2rem]">
+                <SelectTrigger aria-label="Langue" className="h-10 w-12 rounded-xl border-border bg-card/70 px-3 sm:w-[7.2rem]">
                   <Languages className="size-4" />
                   <span className="hidden sm:inline"><SelectValue /></span>
                 </SelectTrigger>
@@ -856,7 +923,7 @@ export function FamilyTracker({ role }: { role: Role }) {
                   <Button
                     size="icon-lg"
                     variant="ghost"
-                    className="relative rounded-xl border border-white/9 bg-white/[0.035]"
+                    className="relative rounded-xl border border-border bg-card/70"
                     aria-label={t.notifications}
                   >
                     <Bell />
@@ -867,7 +934,7 @@ export function FamilyTracker({ role }: { role: Role }) {
                     )}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent align="end" className="w-72 rounded-2xl border-white/10 bg-card p-4">
+                <PopoverContent align="end" className="w-72 rounded-2xl border-border bg-card p-4">
                   <p className="font-semibold">{t.notifications}</p>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
                     {role === "admin" && `${pendingCarts.length} ${t.awaiting.toLocaleLowerCase()}.`}
@@ -877,6 +944,21 @@ export function FamilyTracker({ role }: { role: Role }) {
                 </PopoverContent>
               </Popover>
 
+              <Button
+                size="icon-lg"
+                variant="ghost"
+                className="rounded-xl border border-border bg-card/70"
+                onClick={() => {
+                  void fetch("/api/auth/logout", { method: "POST" }).finally(() => {
+                    window.location.assign("/connexion");
+                  });
+                }}
+                aria-label={t.logout}
+                title={t.logout}
+              >
+                <LogOut />
+              </Button>
+
               {role === "member" && (
                 <Button
                   className="h-10 rounded-xl px-3"
@@ -885,7 +967,7 @@ export function FamilyTracker({ role }: { role: Role }) {
                 >
                   <ShoppingCart />
                   <span className="hidden sm:inline">{t.cart}</span>
-                  <span className="grid size-5 place-items-center rounded-full bg-[#06130f] text-[10px] font-black text-white">
+                  <span className="grid size-5 place-items-center rounded-full bg-background text-[10px] font-black text-foreground">
                     {draftProducts.length}
                   </span>
                 </Button>
@@ -898,19 +980,12 @@ export function FamilyTracker({ role }: { role: Role }) {
           <section className="mx-auto max-w-7xl px-5 pb-10 pt-7 sm:px-8 lg:px-12 lg:pt-10">
             <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
               <div>
-                <p className="mb-2 text-sm font-semibold text-[#ffb454]">{t.hello}, {currentMember?.name} 👋</p>
+                <p className="mb-2 text-sm font-semibold text-[#b76500] dark:text-[#ffb454]">{t.hello}, {currentUser.name} 👋</p>
                 <h1 className="max-w-2xl text-3xl font-bold leading-tight tracking-[-0.045em] sm:text-4xl">{t.question}</h1>
               </div>
-              <Select value={String(memberId)} onValueChange={(value) => setMemberId(Number(value))}>
-                <SelectTrigger className="h-11 rounded-xl border-white/9 bg-white/[0.035]">
-                  <UserRound className="size-4" /><SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {members.map((member) => (
-                    <SelectItem key={member.id} value={String(member.id)}>{member.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex h-11 items-center gap-2 rounded-xl border border-border bg-card/70 px-4 text-sm font-medium">
+                <UserRound className="size-4 text-primary" /> {currentUser.name}
+              </div>
             </div>
 
             {memberView === "catalog" ? (
@@ -922,7 +997,7 @@ export function FamilyTracker({ role }: { role: Role }) {
                     onChange={(event) => setSearch(event.target.value)}
                     aria-label={t.search}
                     placeholder={t.search}
-                    className="h-14 rounded-2xl border-white/10 bg-white/[0.045] ps-12 text-base placeholder:text-[#70808c] focus-visible:border-primary/60 focus-visible:ring-primary/15"
+                    className="h-14 rounded-2xl border-border bg-card/75 ps-12 text-base placeholder:text-muted-foreground focus-visible:border-primary/60 focus-visible:ring-primary/15"
                   />
                 </div>
 
@@ -931,7 +1006,7 @@ export function FamilyTracker({ role }: { role: Role }) {
                     <Button
                       key={key}
                       variant={category === key ? "default" : "outline"}
-                      className={category === key ? "h-10 rounded-full px-5" : "h-10 rounded-full border-white/9 bg-white/[0.025] px-5 text-muted-foreground"}
+                      className={category === key ? "h-10 rounded-full px-5" : "h-10 rounded-full border-border bg-card/65 px-5 text-muted-foreground"}
                       onClick={() => setCategory(key)}
                     >
                       {t[key]}
@@ -944,7 +1019,7 @@ export function FamilyTracker({ role }: { role: Role }) {
                     <h2 className="text-xl font-semibold tracking-tight">{t.essentials}</h2>
                     <p className="mt-1 text-sm text-muted-foreground">{t.estimated}</p>
                   </div>
-                  <Badge variant="outline" className="border-white/10 bg-white/[0.03] px-3 py-1.5 text-muted-foreground">
+                  <Badge variant="outline" className="border-border bg-card/70 px-3 py-1.5 text-muted-foreground">
                     {filteredProducts.length}
                   </Badge>
                 </div>
@@ -952,7 +1027,7 @@ export function FamilyTracker({ role }: { role: Role }) {
                 {filteredProducts.length ? (
                   <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
                     {filteredProducts.map((product) => (
-                      <article key={product.id} className="group overflow-hidden rounded-[1.35rem] border border-white/8 bg-card shadow-[0_18px_50px_rgba(0,0,0,0.15)]">
+                      <article key={product.id} className="group overflow-hidden rounded-[1.35rem] border border-border bg-card shadow-[0_18px_50px_rgba(0,0,0,0.10)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.15)]">
                         <ProductImage
                           position={product.image_position}
                           name={productName(product)}
@@ -965,7 +1040,7 @@ export function FamilyTracker({ role }: { role: Role }) {
                               <Sparkles className="mt-1 size-4 shrink-0 text-[#ffb454]" aria-label="Fréquent" />
                             )}
                           </div>
-                          <Badge variant="outline" className="mb-3 border-white/8 bg-white/[0.025] text-muted-foreground">
+                          <Badge variant="outline" className="mb-3 border-border bg-muted/45 text-muted-foreground">
                             1 {product.unit}
                           </Badge>
                           <div className="flex items-end justify-between gap-2">
@@ -984,7 +1059,7 @@ export function FamilyTracker({ role }: { role: Role }) {
                     ))}
                   </div>
                 ) : (
-                  <div className="rounded-3xl border border-dashed border-white/10 bg-card/60 p-10 text-center text-muted-foreground">
+                  <div className="rounded-3xl border border-dashed border-border bg-card/60 p-10 text-center text-muted-foreground">
                     <Search className="mx-auto mb-3 size-7" />
                     Aucun produit trouvé.
                   </div>
@@ -1004,7 +1079,7 @@ export function FamilyTracker({ role }: { role: Role }) {
                 onEdit={editCart}
                 onCancel={(cart) =>
                   void act(
-                    { action: "cancel_cart", actorRole: "member", cartId: cart.id, memberId },
+                    { action: "cancel_cart", actorRole: "member", cartId: cart.id, memberId: currentUser.id },
                     "Panier annulé.",
                   )
                 }
@@ -1059,7 +1134,7 @@ export function FamilyTracker({ role }: { role: Role }) {
       </div>
 
       {role === "member" && (
-        <nav aria-label="Navigation mobile" className="fixed inset-x-3 bottom-3 z-30 grid grid-cols-2 rounded-[1.4rem] border border-white/10 bg-[#0b151e]/94 p-2 shadow-[0_20px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl lg:hidden">
+        <nav aria-label="Navigation mobile" className="fixed inset-x-3 bottom-3 z-30 grid grid-cols-2 rounded-[1.4rem] border border-border bg-card/95 p-2 shadow-[0_20px_60px_rgba(0,0,0,0.20)] backdrop-blur-xl lg:hidden">
           <Button
             variant="ghost"
             className={`h-14 flex-col gap-1 rounded-2xl ${memberView === "catalog" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`}
@@ -1078,7 +1153,7 @@ export function FamilyTracker({ role }: { role: Role }) {
       )}
 
       <Sheet open={cartOpen} onOpenChange={setCartOpen}>
-        <SheetContent side={language === "ar" ? "left" : "right"} className="w-[92%] border-white/10 bg-[#0b151e] sm:max-w-md">
+        <SheetContent side={language === "ar" ? "left" : "right"} className="w-[92%] border-border bg-card sm:max-w-md">
           <SheetHeader className="p-5 pb-2">
             <SheetTitle className="text-2xl">{editingCartId ? t.edit : t.cart}</SheetTitle>
             <SheetDescription>{t.activeLimit}</SheetDescription>
@@ -1087,13 +1162,13 @@ export function FamilyTracker({ role }: { role: Role }) {
             {draftProducts.length ? (
               <div className="space-y-3">
                 {draftProducts.map(({ product, quantity }) => (
-                  <div key={product.id} className="flex items-center gap-3 rounded-2xl border border-white/8 bg-white/[0.035] p-3">
+                  <div key={product.id} className="flex items-center gap-3 rounded-2xl border border-border bg-muted/45 p-3">
                     <ProductImage position={product.image_position} name={productName(product)} className="size-16 shrink-0 rounded-xl" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-semibold">{productName(product)}</p>
                       <p className="mt-1 text-sm text-muted-foreground">{money(product.unit_price_cents)} / {product.unit}</p>
                     </div>
-                    <div className="flex items-center gap-1 rounded-xl bg-[#071018] p-1">
+                    <div className="flex items-center gap-1 rounded-xl bg-background p-1">
                       <Button size="icon-xs" variant="ghost" onClick={() => changeQuantity(product, -1)} aria-label="Réduire">
                         <X />
                       </Button>
@@ -1114,7 +1189,7 @@ export function FamilyTracker({ role }: { role: Role }) {
               </div>
             )}
           </div>
-          <SheetFooter className="border-t border-white/8 p-5">
+          <SheetFooter className="border-t border-border p-5">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm text-muted-foreground">{t.estimate}</span>
               <strong className="text-xl">{money(draftTotal)}</strong>
@@ -1163,8 +1238,8 @@ function MemberCarts({
   onCancel: (cart: Cart) => void;
 }) {
   const statusStyles: Record<string, string> = {
-    pending: "border-[#ffb454]/25 bg-[#ffb454]/10 text-[#ffc271]",
-    ready: "border-[#66a8ff]/25 bg-[#66a8ff]/10 text-[#82b7ff]",
+    pending: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    ready: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300",
     shopping: "border-primary/25 bg-primary/10 text-primary",
     completed: "border-primary/25 bg-primary/10 text-primary",
   };
@@ -1174,11 +1249,11 @@ function MemberCarts({
       <div>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-xl font-semibold">{t.carts}</h2>
-          <Badge variant="outline" className="border-white/10">{carts.length}/3</Badge>
+          <Badge variant="outline" className="border-border">{carts.length}/3</Badge>
         </div>
         <div className="space-y-4">
           {carts.length ? carts.map((cart) => (
-            <article key={cart.id} className="rounded-3xl border border-white/8 bg-card p-5">
+            <article key={cart.id} className="rounded-3xl border border-border bg-card p-5">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="font-semibold">Panier #{cart.id}</p>
@@ -1190,7 +1265,7 @@ function MemberCarts({
               </div>
               <div className="space-y-2">
                 {itemsFor(cart.id).map((item) => (
-                  <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-white/[0.03] px-3 py-2.5 text-sm">
+                  <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-muted/45 px-3 py-2.5 text-sm">
                     <span className="truncate">{productName(item)}</span>
                     <span className="shrink-0 text-muted-foreground">{quantityLabel(item.quantity_hundredths, item.unit)}</span>
                   </div>
@@ -1198,7 +1273,7 @@ function MemberCarts({
               </div>
               {cart.status !== "shopping" && (
                 <div className="mt-4 flex gap-2">
-                  <Button variant="outline" className="flex-1 rounded-xl border-white/10" onClick={() => onEdit(cart)} disabled={busy}>
+                  <Button variant="outline" className="flex-1 rounded-xl border-border" onClick={() => onEdit(cart)} disabled={busy}>
                     <Pencil /> {t.edit}
                   </Button>
                   <Button variant="ghost" className="rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => onCancel(cart)} disabled={busy}>
@@ -1208,7 +1283,7 @@ function MemberCarts({
               )}
             </article>
           )) : (
-            <div className="rounded-3xl border border-dashed border-white/10 bg-card/50 p-9 text-center text-muted-foreground">
+            <div className="rounded-3xl border border-dashed border-border bg-card/50 p-9 text-center text-muted-foreground">
               <ShoppingBasket className="mx-auto mb-3 size-8" />
               {t.emptyCart}
             </div>
@@ -1229,7 +1304,7 @@ function MemberCarts({
             </div>
             <div className="space-y-2">
               {itemsFor(latestResult.id).map((item) => (
-                <div key={item.id} className="flex items-center gap-3 rounded-xl bg-[#071018]/45 p-3">
+                <div key={item.id} className="flex items-center gap-3 rounded-xl bg-muted/45 p-3">
                   {item.purchase_status === "bought" ? <Check className="size-4 text-primary" /> : <X className="size-4 text-destructive" />}
                   <span className="min-w-0 flex-1 truncate">{productName(item)}</span>
                   <span className="text-xs text-muted-foreground">
@@ -1240,7 +1315,7 @@ function MemberCarts({
             </div>
           </article>
         ) : (
-          <div className="rounded-3xl border border-white/8 bg-card/50 p-8 text-center text-sm text-muted-foreground">—</div>
+          <div className="rounded-3xl border border-border bg-card/50 p-8 text-center text-sm text-muted-foreground">—</div>
         )}
       </div>
     </div>
@@ -1308,12 +1383,12 @@ function AdminDashboard({
   return (
     <section className="mx-auto max-w-7xl px-5 pb-10 pt-7 sm:px-8 lg:px-12 lg:pt-10">
       <div className="mb-7">
-        <p className="mb-2 text-sm font-semibold text-[#ffb454]">{t.admin}</p>
+        <p className="mb-2 text-sm font-semibold text-[#b76500] dark:text-[#ffb454]">{t.admin}</p>
         <h1 className="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">La maison, en un coup d’œil.</h1>
       </div>
 
       <Tabs defaultValue="requests">
-        <TabsList className="mb-7 h-11 w-full justify-start gap-1 overflow-x-auto overflow-y-hidden rounded-2xl bg-white/[0.04] p-1 sm:w-fit">
+        <TabsList className="mb-7 h-11 w-full justify-start gap-1 overflow-x-auto overflow-y-hidden rounded-2xl bg-muted/60 p-1 sm:w-fit">
           <TabsTrigger value="requests" className="h-9 rounded-xl px-4">
             <ListChecks /> {t.requests}
             {pendingCarts.length > 0 && <Badge className="ms-1 h-5 min-w-5 px-1.5">{pendingCarts.length}</Badge>}
@@ -1329,7 +1404,7 @@ function AdminDashboard({
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
             {pendingCarts.length ? pendingCarts.map((cart) => (
-              <article key={cart.id} className="rounded-3xl border border-white/8 bg-card p-5">
+              <article key={cart.id} className="rounded-3xl border border-border bg-card p-5">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 font-bold text-primary">{cart.member_initials}</span>
@@ -1340,13 +1415,13 @@ function AdminDashboard({
                       </p>
                     </div>
                   </div>
-                  <Badge variant="outline" className="border-[#ffb454]/25 bg-[#ffb454]/10 text-[#ffc271]">
+                  <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
                     {itemsFor(cart.id).length} {t.items}
                   </Badge>
                 </div>
                 <div className="space-y-2">
                   {itemsFor(cart.id).map((item) => (
-                    <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-white/[0.03] px-3 py-2.5 text-sm">
+                    <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-muted/45 px-3 py-2.5 text-sm">
                       <span className="truncate">{productName(item)}</span>
                       <span className="shrink-0 text-muted-foreground">{quantityLabel(item.quantity_hundredths, item.unit)}</span>
                     </div>
@@ -1355,23 +1430,23 @@ function AdminDashboard({
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   <Button
                     variant="outline"
-                    className="h-11 rounded-xl border-white/10"
+                    className="h-11 rounded-xl border-border"
                     disabled={busy}
-                    onClick={() => void act({ action: "set_priority", actorRole: "admin", cartId: cart.id, priority: "normal" }, "Panier envoyé au livreur.")}
+                    onClick={() => void act({ action: "set_priority", actorRole: "admin", cartId: cart.id, priority: "normal" }, "Priorité normale enregistrée.")}
                   >
                     <Clock3 /> {t.normal}
                   </Button>
                   <Button
                     className="h-11 rounded-xl bg-[#ffb454] text-[#211609] hover:bg-[#ffc16d]"
                     disabled={busy}
-                    onClick={() => void act({ action: "set_priority", actorRole: "admin", cartId: cart.id, priority: "urgent" }, "Panier urgent envoyé.")}
+                    onClick={() => void act({ action: "set_priority", actorRole: "admin", cartId: cart.id, priority: "urgent" }, "Priorité urgente enregistrée.")}
                   >
                     <AlertTriangle /> {t.urgent}
                   </Button>
                 </div>
               </article>
             )) : (
-              <div className="col-span-full rounded-3xl border border-dashed border-white/10 bg-card/50 p-10 text-center text-muted-foreground">
+              <div className="col-span-full rounded-3xl border border-dashed border-border bg-card/50 p-10 text-center text-muted-foreground">
                 <CircleCheck className="mx-auto mb-3 size-8 text-primary" />{t.noRequests}
               </div>
             )}
@@ -1388,7 +1463,7 @@ function AdminDashboard({
               <DialogTrigger asChild>
                 <Button className="rounded-xl"><Plus /> {t.addProduct}</Button>
               </DialogTrigger>
-              <DialogContent className="rounded-3xl border-white/10 bg-card">
+              <DialogContent className="rounded-3xl border-border bg-card">
                 <form onSubmit={(event) => void submitNewProduct(event)}>
                   <DialogHeader>
                     <DialogTitle>{t.addProduct}</DialogTitle>
@@ -1426,7 +1501,7 @@ function AdminDashboard({
 
           <div className="grid gap-3 md:grid-cols-2">
             {data.products.map((product) => (
-              <article key={product.id} className="flex items-center gap-4 rounded-2xl border border-white/8 bg-card p-3">
+              <article key={product.id} className="flex items-center gap-4 rounded-2xl border border-border bg-card p-3">
                 <ProductImage position={product.image_position} name={productName(product)} className="size-16 shrink-0 rounded-xl" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold">{productName(product)}</p>
@@ -1443,7 +1518,7 @@ function AdminDashboard({
                   <Button
                     size="icon"
                     variant="outline"
-                    className="rounded-xl border-white/10"
+                    className="rounded-xl border-border"
                     disabled={busy}
                     onClick={() => void act({ action: "update_product", actorRole: "admin", productId: product.id, unitPriceCents: parsePrice(productPrices[product.id] ?? "") }, "Prix mis à jour.")}
                     aria-label={t.save}
@@ -1458,7 +1533,7 @@ function AdminDashboard({
 
         <TabsContent value="analytics">
           <div className="grid gap-5 md:grid-cols-[1.2fr_0.8fr]">
-            <article className="relative overflow-hidden rounded-[2rem] border border-primary/15 bg-[linear-gradient(135deg,rgba(64,224,177,0.13),rgba(16,28,37,0.92))] p-6 sm:p-8">
+            <article className="relative overflow-hidden rounded-[2rem] border border-primary/15 bg-gradient-to-br from-primary/15 to-card p-6 sm:p-8">
               <div className="absolute -end-12 -top-16 size-52 rounded-full bg-primary/10 blur-3xl" />
               <div className="relative">
                 <span className="mb-7 grid size-12 place-items-center rounded-2xl bg-primary/12 text-primary"><BarChart3 /></span>
@@ -1467,7 +1542,7 @@ function AdminDashboard({
                 <p className="mt-3 text-sm text-primary">{t.boughtOnly}</p>
               </div>
             </article>
-            <article className="rounded-[2rem] border border-white/8 bg-card p-6">
+            <article className="rounded-[2rem] border border-border bg-card p-6">
               <p className="font-semibold">Mois précédents</p>
               <div className="mt-5 space-y-4">
                 {data.monthlyTotals.filter((entry) => entry.month !== currentMonth).slice(0, 4).map((entry) => (
@@ -1527,10 +1602,10 @@ function DeliveryDashboard({
     <section className="mx-auto max-w-7xl px-5 pb-10 pt-7 sm:px-8 lg:px-12 lg:pt-10">
       <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="mb-2 text-sm font-semibold text-[#ffb454]">{t.delivery}</p>
+          <p className="mb-2 text-sm font-semibold text-[#b76500] dark:text-[#ffb454]">{t.delivery}</p>
           <h1 className="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">{view === "queue" ? t.queue : t.history}</h1>
         </div>
-        <div className="flex rounded-2xl bg-white/[0.04] p-1">
+        <div className="flex rounded-2xl bg-muted/60 p-1">
           <Button variant="ghost" className={`rounded-xl ${view === "queue" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`} onClick={() => setView("queue")}>
             <ShoppingBasket /> {t.queue}
           </Button>
@@ -1543,7 +1618,7 @@ function DeliveryDashboard({
       {view === "queue" ? (
         first ? (
           <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
-            <article className="rounded-[2rem] border border-white/9 bg-card p-5 sm:p-7">
+            <article className="rounded-[2rem] border border-border bg-card p-5 sm:p-7">
               <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <span className="grid size-12 place-items-center rounded-2xl bg-primary/12 font-bold text-primary">{first.member_initials}</span>
@@ -1552,15 +1627,23 @@ function DeliveryDashboard({
                     <p className="mt-1 text-xs text-muted-foreground">{new Date(first.submitted_at).toLocaleString(language === "ar" ? "ar-MA" : language === "en" ? "en-MA" : "fr-MA", { dateStyle: "medium", timeStyle: "short" })}</p>
                   </div>
                 </div>
-                <Badge className={first.priority === "urgent" ? "bg-[#ffb454] text-[#211609]" : "bg-primary/12 text-primary"}>
+                <Badge
+                  className={
+                    first.priority === "urgent"
+                      ? "bg-[#ffb454] text-[#211609]"
+                      : first.priority === "normal"
+                        ? "bg-primary/12 text-primary"
+                        : "bg-blue-500/12 text-blue-700 dark:text-blue-300"
+                  }
+                >
                   {first.priority === "urgent" ? <AlertTriangle /> : <Clock3 />}
-                  {first.priority === "urgent" ? t.urgent : t.normal}
+                  {first.priority === "urgent" ? t.urgent : first.priority === "normal" ? t.normal : t.newOrder}
                 </Badge>
               </div>
 
               <div className="space-y-3">
                 {activeItems.map((item) => (
-                  <div key={item.id} className="grid gap-3 rounded-2xl border border-white/7 bg-[#0a151e] p-3 sm:grid-cols-[64px_1fr_125px_auto] sm:items-center">
+                  <div key={item.id} className="grid gap-3 rounded-2xl border border-border bg-muted/35 p-3 sm:grid-cols-[64px_1fr_125px_auto] sm:items-center">
                     <ProductImage position={item.image_position} name={productName(item)} className="size-16 rounded-xl" />
                     <div className="min-w-0">
                       <p className="truncate font-semibold">{productName(item)}</p>
@@ -1583,7 +1666,7 @@ function DeliveryDashboard({
                       <Button
                         size="icon"
                         variant={item.purchase_status === "bought" ? "default" : "outline"}
-                        className="rounded-xl border-white/10"
+                        className="rounded-xl border-border"
                         disabled={busy}
                         onClick={() => void act({ action: "update_item", actorRole: "delivery", itemId: item.id, purchaseStatus: "bought", actualUnitPriceCents: parsePrice(prices[item.id] ?? "") }, "Article marqué acheté.")}
                         aria-label={t.bought}
@@ -1593,7 +1676,7 @@ function DeliveryDashboard({
                       <Button
                         size="icon"
                         variant={item.purchase_status === "unbought" ? "destructive" : "outline"}
-                        className="rounded-xl border-white/10"
+                        className="rounded-xl border-border"
                         disabled={busy}
                         onClick={() => void act({ action: "update_item", actorRole: "delivery", itemId: item.id, purchaseStatus: "unbought", actualUnitPriceCents: parsePrice(prices[item.id] ?? "") }, "Article marqué non acheté.")}
                         aria-label={t.unbought}
@@ -1605,7 +1688,7 @@ function DeliveryDashboard({
                 ))}
               </div>
 
-              <Separator className="my-6 bg-white/8" />
+              <Separator className="my-6 bg-border" />
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <p className="text-sm text-muted-foreground">{activeItems.filter((item) => item.purchase_status !== "requested").length}/{activeItems.length} {t.items}</p>
@@ -1629,14 +1712,14 @@ function DeliveryDashboard({
               <h2 className="mb-4 font-semibold">{t.next}</h2>
               <div className="space-y-3">
                 {queue.slice(1).map((cart, index) => (
-                  <div key={cart.id} className="flex items-center gap-3 rounded-2xl border border-white/8 bg-card p-4">
-                    <span className="grid size-10 place-items-center rounded-xl bg-white/[0.05] text-sm font-bold text-primary">{index + 2}</span>
+                  <div key={cart.id} className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4">
+                    <span className="grid size-10 place-items-center rounded-xl bg-muted text-sm font-bold text-primary">{index + 2}</span>
                     <div className="min-w-0 flex-1"><p className="truncate font-semibold">{cart.member_name}</p><p className="text-xs text-muted-foreground">{itemsFor(cart.id).length} {t.items}</p></div>
                     {cart.priority === "urgent" && <AlertTriangle className="size-4 text-[#ffb454]" />}
                     <ChevronRight className="size-4 text-muted-foreground" />
                   </div>
                 ))}
-                {queue.length === 1 && <p className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-muted-foreground">—</p>}
+                {queue.length === 1 && <p className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">—</p>}
               </div>
             </aside>
           </div>
@@ -1651,10 +1734,10 @@ function DeliveryDashboard({
             const boughtItems = itemsFor(cart.id).filter((item) => item.purchase_status === "bought");
             const total = boughtItems.reduce((sum, item) => sum + Math.round(item.actual_unit_price_cents * item.quantity_hundredths / 100), 0);
             return (
-              <article key={cart.id} className="flex flex-wrap items-center gap-4 rounded-2xl border border-white/8 bg-card p-4">
+              <article key={cart.id} className="flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-card p-4">
                 <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary"><Check /></span>
                 <div className="min-w-0 flex-1"><p className="font-semibold">{cart.member_name} · #{cart.id}</p><p className="mt-1 text-xs text-muted-foreground">{cart.completed_at ? new Date(cart.completed_at).toLocaleDateString("fr-MA", { dateStyle: "medium" }) : ""}</p></div>
-                <Badge variant="outline" className="border-white/10">{boughtItems.length}/{itemsFor(cart.id).length} {t.bought.toLocaleLowerCase()}</Badge>
+                <Badge variant="outline" className="border-border">{boughtItems.length}/{itemsFor(cart.id).length} {t.bought.toLocaleLowerCase()}</Badge>
                 <strong>{money(total)}</strong>
               </article>
             );

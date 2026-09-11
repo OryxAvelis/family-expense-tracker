@@ -12,12 +12,27 @@ export const familyUsers = sqliteTable(
     id: integer("id").primaryKey({ autoIncrement: true }),
     name: text("name").notNull(),
     username: text("username").notNull(),
+    passwordHash: text("password_hash").notNull().default(""),
     role: text("role", { enum: ["admin", "delivery", "member"] }).notNull(),
     initials: text("initials").notNull(),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [uniqueIndex("idx_family_users_username").on(table.username)],
+);
+
+export const familySessions = sqliteTable(
+  "family_sessions",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    userId: integer("user_id").notNull().references(() => familyUsers.id),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_family_sessions_user_id").on(table.userId),
+    index("idx_family_sessions_expires_at").on(table.expiresAt),
+  ],
 );
 
 export const products = sqliteTable(
