@@ -22,7 +22,6 @@ import {
   Trash2,
   UserCog,
   UserRound,
-  Users,
   X,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
@@ -351,12 +350,11 @@ function ProductImage({
   );
 }
 
-export function FamilyTracker() {
+export function FamilyTracker({ role }: { role: Role }) {
   const [data, setData] = useState<AppData | null>(null);
   const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState(false);
   const [language, setLanguage] = useState<Language>("fr");
-  const [role, setRole] = useState<Role>("member");
   const [memberId, setMemberId] = useState(3);
   const [memberView, setMemberView] = useState<"catalog" | "carts">("catalog");
   const [deliveryView, setDeliveryView] = useState<"queue" | "history">("queue");
@@ -841,18 +839,6 @@ export function FamilyTracker() {
             </div>
 
             <div className="flex items-center gap-2">
-              <Select value={role} onValueChange={(value) => setRole(value as Role)}>
-                <SelectTrigger aria-label={t.rolePreview} className="h-10 max-w-[9.2rem] rounded-xl border-white/9 bg-white/[0.035]">
-                  <Users className="size-4" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="member">{roleNames.member[language]}</SelectItem>
-                  <SelectItem value="admin">{roleNames.admin[language]}</SelectItem>
-                  <SelectItem value="delivery">{roleNames.delivery[language]}</SelectItem>
-                </SelectContent>
-              </Select>
-
               <Select value={language} onValueChange={(value) => setLanguage(value as Language)}>
                 <SelectTrigger aria-label="Langue" className="h-10 w-12 rounded-xl border-white/9 bg-white/[0.035] px-3 sm:w-[7.2rem]">
                   <Languages className="size-4" />

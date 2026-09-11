@@ -1,5 +1,5 @@
-import { FamilyTracker } from "./family-tracker";
+import { redirect } from "next/navigation";
 
 export default function HomePage() {
-  return <FamilyTracker />;
+  redirect("/membre");
 }
