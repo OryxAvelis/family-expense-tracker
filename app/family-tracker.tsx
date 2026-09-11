@@ -77,6 +77,7 @@ import type { FamilySessionUser } from "@/lib/family-auth";
 
 type Language = "fr" | "ar" | "en";
 type Role = "member" | "admin" | "delivery";
+type CatalogSource = "family" | "carrefour";
 type CartStatus = "pending" | "ready" | "shopping" | "completed";
 type Priority = "urgent" | "normal" | null;
 type PurchaseStatus = "requested" | "bought" | "unbought";
@@ -101,7 +102,20 @@ type Product = {
   image_url: string | null;
   barcode: string | null;
   package_size: string | null;
+  external_source?: string | null;
+  external_id?: string | null;
   purchase_count: number;
+};
+
+type CarrefourProduct = {
+  external_id: string;
+  name: string;
+  category: Product["category"];
+  image_url: string | null;
+  price_cents: number;
+  crossed_price_cents: number | null;
+  package_size: string | null;
+  store: string;
 };
 
 type Cart = {
@@ -215,6 +229,15 @@ const words = {
     scanProduct: "Scanner un produit",
     priceToConfirm: "Prix à confirmer",
     scannedAdded: "Produit scanné ajouté au panier.",
+    familyCatalog: "Catalogue maison",
+    carrefourCatalog: "Catalogue Carrefour",
+    carrefourHint: "Prix Carrefour en ligne — Salma confirme le prix réel.",
+    carrefourRules: "Maximum 500 DH · appareils électriques exclus",
+    carrefourLoading: "Chargement du catalogue Carrefour…",
+    carrefourAdded: "Produit Carrefour ajouté au panier.",
+    promotion: "Promo",
+    loadMore: "Afficher plus",
+    noProducts: "Aucun produit trouvé.",
   },
   ar: {
     brand: "مصاريف العائلة",
@@ -282,6 +305,15 @@ const words = {
     scanProduct: "مسح منتج",
     priceToConfirm: "السعر يحتاج إلى تأكيد",
     scannedAdded: "تمت إضافة المنتج إلى السلة.",
+    familyCatalog: "منتجات البيت",
+    carrefourCatalog: "منتجات كارفور",
+    carrefourHint: "ثمن كارفور على الإنترنت — سلمى تؤكد الثمن الحقيقي.",
+    carrefourRules: "500 درهم كحد أقصى · الأجهزة الكهربائية مستثناة",
+    carrefourLoading: "جارٍ تحميل منتجات كارفور…",
+    carrefourAdded: "تمت إضافة منتج كارفور إلى السلة.",
+    promotion: "تخفيض",
+    loadMore: "عرض المزيد",
+    noProducts: "لم يتم العثور على أي منتج.",
   },
   en: {
     brand: "Family expenses",
@@ -349,6 +381,15 @@ const words = {
     scanProduct: "Scan a product",
     priceToConfirm: "Price to confirm",
     scannedAdded: "Scanned product added to the cart.",
+    familyCatalog: "House catalog",
+    carrefourCatalog: "Carrefour catalog",
+    carrefourHint: "Online Carrefour price — Salma confirms the real price.",
+    carrefourRules: "Maximum 500 DH · electrical products excluded",
+    carrefourLoading: "Loading the Carrefour catalog…",
+    carrefourAdded: "Carrefour product added to the cart.",
+    promotion: "Promo",
+    loadMore: "Show more",
+    noProducts: "No products found.",
   },
 } as const;
 
@@ -381,9 +422,17 @@ function ProductImage({
   if (imageUrl) {
     try {
       const parsed = new URL(imageUrl);
+      const isCarrefourStorage =
+        parsed.hostname === "storage.googleapis.com" &&
+        parsed.pathname.startsWith("/crftobringo-sharing-ma-prelive/");
+      const isCarrefourHost =
+        parsed.hostname === "backend.carrefour.ma" || parsed.hostname === "assets.carrefour.ma";
       if (
         parsed.protocol === "https:" &&
-        (parsed.hostname === "openfoodfacts.org" || parsed.hostname.endsWith(".openfoodfacts.org"))
+        (parsed.hostname === "openfoodfacts.org" ||
+          parsed.hostname.endsWith(".openfoodfacts.org") ||
+          isCarrefourStorage ||
+          isCarrefourHost)
       ) {
         safeRemoteImage = parsed.toString();
       }
@@ -431,6 +480,13 @@ export function FamilyTracker({
   const [productPrices, setProductPrices] = useState<Record<number, string>>({});
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [scanDialogOpen, setScanDialogOpen] = useState(false);
+  const [catalogSource, setCatalogSource] = useState<CatalogSource>("family");
+  const [carrefourProducts, setCarrefourProducts] = useState<CarrefourProduct[]>([]);
+  const [carrefourLoading, setCarrefourLoading] = useState(false);
+  const [carrefourLoaded, setCarrefourLoaded] = useState(false);
+  const [carrefourError, setCarrefourError] = useState("");
+  const [carrefourVisible, setCarrefourVisible] = useState(24);
+  const [carrefourBusyId, setCarrefourBusyId] = useState<string | null>(null);
   const [newProduct, setNewProduct] = useState({
     nameFr: "",
     nameAr: "",
@@ -469,10 +525,43 @@ export function FamilyTracker({
     }
   }, [applyData]);
 
+  const loadCarrefourCatalogue = useCallback(async () => {
+    try {
+      setCarrefourLoading(true);
+      setCarrefourError("");
+      const response = await fetch("/api/products/carrefour", { cache: "no-store" });
+      const payload = (await response.json()) as {
+        products?: CarrefourProduct[];
+        error?: string;
+      };
+      if (response.status === 401) {
+        window.location.replace("/connexion");
+        return;
+      }
+      if (!response.ok || !Array.isArray(payload.products)) {
+        throw new Error(payload.error || "Catalogue Carrefour indisponible.");
+      }
+      setCarrefourProducts(payload.products);
+      setCarrefourLoaded(true);
+    } catch (error) {
+      setCarrefourError(
+        error instanceof Error ? error.message : "Catalogue Carrefour indisponible.",
+      );
+    } finally {
+      setCarrefourLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const initialLoad = window.setTimeout(() => void loadData(), 0);
     return () => window.clearTimeout(initialLoad);
   }, [loadData]);
+
+  useEffect(() => {
+    if (role !== "member" || catalogSource !== "carrefour" || carrefourLoaded) return;
+    const initialLoad = window.setTimeout(() => void loadCarrefourCatalogue(), 0);
+    return () => window.clearTimeout(initialLoad);
+  }, [carrefourLoaded, catalogSource, loadCarrefourCatalogue, role]);
 
   useEffect(() => {
     const refreshWhenVisible = () => {
@@ -553,6 +642,51 @@ export function FamilyTracker({
     [t.scannedAdded],
   );
 
+  const addCarrefourProduct = useCallback(
+    async (source: CarrefourProduct) => {
+      try {
+        setCarrefourBusyId(source.external_id);
+        const response = await fetch("/api/products/carrefour", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ externalId: source.external_id }),
+        });
+        const payload = (await response.json()) as { product?: Product; error?: string };
+        if (response.status === 401) {
+          window.location.replace("/connexion");
+          return;
+        }
+        if (!response.ok || !payload.product) {
+          throw new Error(payload.error || "Import Carrefour impossible.");
+        }
+
+        const product = payload.product;
+        setData((current) =>
+          current
+            ? {
+                ...current,
+                products: [product, ...current.products.filter((entry) => entry.id !== product.id)],
+              }
+            : current,
+        );
+        setProductPrices((current) => ({
+          ...current,
+          [product.id]: (product.unit_price_cents / 100).toFixed(2),
+        }));
+        setDraft((current) => ({
+          ...current,
+          [product.id]: (current[product.id] ?? 0) + 100,
+        }));
+        toast.success(t.carrefourAdded);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Import Carrefour impossible.");
+      } finally {
+        setCarrefourBusyId(null);
+      }
+    },
+    [t.carrefourAdded],
+  );
+
   const money = (cents: number) => {
     const locale = language === "ar" ? "ar-MA" : language === "en" ? "en-MA" : "fr-MA";
     return `${new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cents / 100)} ${language === "ar" ? "د.م." : "DH"}`;
@@ -584,6 +718,17 @@ export function FamilyTracker({
       return categoryMatch && textMatch;
     });
   }, [category, data, search]);
+
+  const filteredCarrefourProducts = useMemo(() => {
+    const needle = search.trim().toLocaleLowerCase();
+    return carrefourProducts.filter((product) => {
+      const categoryMatch = category === "all" || product.category === category;
+      const textMatch = !needle || product.name.toLocaleLowerCase().includes(needle);
+      return categoryMatch && textMatch;
+    });
+  }, [carrefourProducts, category, search]);
+
+  const visibleCarrefourProducts = filteredCarrefourProducts.slice(0, carrefourVisible);
 
   const draftProducts = Object.entries(draft)
     .filter(([, quantity]) => quantity > 0)
@@ -1055,12 +1200,44 @@ export function FamilyTracker({
 
             {memberView === "catalog" ? (
               <>
+                <div
+                  className="mb-4 inline-flex rounded-2xl border border-border bg-card/70 p-1.5"
+                  role="group"
+                  aria-label={t.catalog}
+                >
+                  <Button
+                    variant={catalogSource === "family" ? "default" : "ghost"}
+                    className="rounded-xl"
+                    aria-pressed={catalogSource === "family"}
+                    onClick={() => {
+                      setCatalogSource("family");
+                      setCarrefourVisible(24);
+                    }}
+                  >
+                    <ShoppingBasket /> {t.familyCatalog}
+                  </Button>
+                  <Button
+                    variant={catalogSource === "carrefour" ? "default" : "ghost"}
+                    className="rounded-xl"
+                    aria-pressed={catalogSource === "carrefour"}
+                    onClick={() => {
+                      setCatalogSource("carrefour");
+                      setCarrefourVisible(24);
+                    }}
+                  >
+                    Carrefour
+                  </Button>
+                </div>
+
                 <div className="mb-5 flex max-w-3xl gap-2">
                   <div className="relative min-w-0 flex-1">
                     <Search className="pointer-events-none absolute start-4 top-1/2 z-10 size-5 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       value={search}
-                      onChange={(event) => setSearch(event.target.value)}
+                      onChange={(event) => {
+                        setSearch(event.target.value);
+                        setCarrefourVisible(24);
+                      }}
                       aria-label={t.search}
                       placeholder={t.search}
                       className="h-14 rounded-2xl border-border bg-card/75 ps-12 text-base placeholder:text-muted-foreground focus-visible:border-primary/60 focus-visible:ring-primary/15"
@@ -1084,7 +1261,10 @@ export function FamilyTracker({
                       key={key}
                       variant={category === key ? "default" : "outline"}
                       className={category === key ? "h-10 rounded-full px-5" : "h-10 rounded-full border-border bg-card/65 px-5 text-muted-foreground"}
-                      onClick={() => setCategory(key)}
+                      onClick={() => {
+                        setCategory(key);
+                        setCarrefourVisible(24);
+                      }}
                     >
                       {t[key]}
                     </Button>
@@ -1093,55 +1273,163 @@ export function FamilyTracker({
 
                 <div className="mb-4 flex items-end justify-between gap-4">
                   <div>
-                    <h2 className="text-xl font-semibold tracking-tight">{t.essentials}</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">{t.estimated}</p>
+                    <h2 className="text-xl font-semibold tracking-tight">
+                      {catalogSource === "carrefour" ? t.carrefourCatalog : t.essentials}
+                    </h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {catalogSource === "carrefour" ? t.carrefourHint : t.estimated}
+                    </p>
+                    {catalogSource === "carrefour" && (
+                      <p className="mt-1 text-xs font-medium text-primary">{t.carrefourRules}</p>
+                    )}
                   </div>
                   <Badge variant="outline" className="border-border bg-card/70 px-3 py-1.5 text-muted-foreground">
-                    {filteredProducts.length}
+                    {catalogSource === "carrefour"
+                      ? filteredCarrefourProducts.length
+                      : filteredProducts.length}
                   </Badge>
                 </div>
 
-                {filteredProducts.length ? (
-                  <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
-                    {filteredProducts.map((product) => (
-                      <article key={product.id} className="group overflow-hidden rounded-[1.35rem] border border-border bg-card shadow-[0_18px_50px_rgba(0,0,0,0.10)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.15)]">
-                        <ProductImage
-                          position={product.image_position}
-                          name={productName(product)}
-                          imageUrl={product.image_url}
-                          className="relative aspect-[1.05] transition-transform duration-500 group-hover:scale-[1.02]"
-                        />
-                        <div className="p-3.5 sm:p-4">
-                          <div className="mb-2 flex items-start justify-between gap-2">
-                            <h3 className="min-w-0 truncate font-semibold sm:text-lg">{productName(product)}</h3>
-                            {product.purchase_count >= 10 && (
-                              <Sparkles className="mt-1 size-4 shrink-0 text-[#ffb454]" aria-label="Fréquent" />
-                            )}
+                {catalogSource === "family" ? (
+                  filteredProducts.length ? (
+                    <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
+                      {filteredProducts.map((product) => (
+                        <article key={product.id} className="group overflow-hidden rounded-[1.35rem] border border-border bg-card shadow-[0_18px_50px_rgba(0,0,0,0.10)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.15)]">
+                          <ProductImage
+                            position={product.image_position}
+                            name={productName(product)}
+                            imageUrl={product.image_url}
+                            className="relative aspect-[1.05] transition-transform duration-500 group-hover:scale-[1.02]"
+                          />
+                          <div className="p-3.5 sm:p-4">
+                            <div className="mb-2 flex items-start justify-between gap-2">
+                              <h3 className="min-w-0 truncate font-semibold sm:text-lg">{productName(product)}</h3>
+                              {product.purchase_count >= 10 && (
+                                <Sparkles className="mt-1 size-4 shrink-0 text-[#ffb454]" aria-label="Fréquent" />
+                              )}
+                            </div>
+                            <Badge variant="outline" className="mb-3 border-border bg-muted/45 text-muted-foreground">
+                              {product.package_size || `1 ${product.unit}`}
+                            </Badge>
+                            <div className="flex items-end justify-between gap-2">
+                              <p className="text-lg font-bold tracking-tight sm:text-xl">
+                                {product.unit_price_cents > 0 ? money(product.unit_price_cents) : t.priceToConfirm}
+                              </p>
+                              <Button
+                                size="icon-sm"
+                                className="rounded-xl"
+                                onClick={() => addToCart(product)}
+                                aria-label={`Ajouter ${productName(product)}`}
+                              >
+                                <Plus />
+                              </Button>
+                            </div>
                           </div>
-                          <Badge variant="outline" className="mb-3 border-border bg-muted/45 text-muted-foreground">
-                            {product.package_size || `1 ${product.unit}`}
-                          </Badge>
-                          <div className="flex items-end justify-between gap-2">
-                            <p className="text-lg font-bold tracking-tight sm:text-xl">
-                              {product.unit_price_cents > 0 ? money(product.unit_price_cents) : t.priceToConfirm}
-                            </p>
-                            <Button
-                              size="icon-sm"
-                              className="rounded-xl"
-                              onClick={() => addToCart(product)}
-                              aria-label={`Ajouter ${productName(product)}`}
-                            >
-                              <Plus />
-                            </Button>
-                          </div>
-                        </div>
-                      </article>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-3xl border border-dashed border-border bg-card/60 p-10 text-center text-muted-foreground">
+                      <Search className="mx-auto mb-3 size-7" />
+                      {t.noProducts}
+                    </div>
+                  )
+                ) : carrefourLoading ? (
+                  <div aria-label={t.carrefourLoading} className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
+                    {Array.from({ length: 8 }, (_, index) => (
+                      <div key={index} className="overflow-hidden rounded-[1.35rem] border border-border bg-card p-3">
+                        <Skeleton className="aspect-[1.05] w-full rounded-2xl" />
+                        <Skeleton className="mt-4 h-5 w-4/5" />
+                        <Skeleton className="mt-3 h-8 w-2/3" />
+                      </div>
                     ))}
                   </div>
+                ) : carrefourError ? (
+                  <div className="rounded-3xl border border-dashed border-destructive/40 bg-card/60 p-10 text-center">
+                    <AlertTriangle className="mx-auto mb-3 size-7 text-destructive" />
+                    <p className="text-muted-foreground">{carrefourError}</p>
+                    <Button className="mt-5 rounded-xl" onClick={() => void loadCarrefourCatalogue()}>
+                      {t.retry}
+                    </Button>
+                  </div>
+                ) : visibleCarrefourProducts.length ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
+                      {visibleCarrefourProducts.map((product) => (
+                        <article
+                          key={product.external_id}
+                          className="group flex min-w-0 flex-col overflow-hidden rounded-[1.35rem] border border-border bg-card shadow-[0_18px_50px_rgba(0,0,0,0.10)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.15)]"
+                        >
+                          <div className="relative overflow-hidden">
+                            <ProductImage
+                              position="0% 0%"
+                              name={product.name}
+                              imageUrl={product.image_url}
+                              className="aspect-[1.05] transition-transform duration-500 group-hover:scale-[1.02]"
+                            />
+                            {product.crossed_price_cents && (
+                              <Badge className="absolute start-3 top-3 bg-[#c46b00] text-white hover:bg-[#c46b00]">
+                                {t.promotion}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex flex-1 flex-col p-3.5 sm:p-4">
+                            <h3 className="line-clamp-2 min-h-10 text-sm font-semibold leading-5 sm:text-base">
+                              {product.name}
+                            </h3>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <Badge variant="outline" className="border-border bg-muted/45 text-muted-foreground">
+                                {product.package_size || quantityLabel(100, "pièce")}
+                              </Badge>
+                              <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
+                                {product.store}
+                              </Badge>
+                            </div>
+                            <div className="mt-auto flex items-end justify-between gap-2 pt-4">
+                              <div>
+                                {product.crossed_price_cents && (
+                                  <p className="text-xs text-muted-foreground line-through">
+                                    {money(product.crossed_price_cents)}
+                                  </p>
+                                )}
+                                <p className="text-lg font-bold tracking-tight sm:text-xl">
+                                  {money(product.price_cents)}
+                                </p>
+                              </div>
+                              <Button
+                                size="icon-sm"
+                                className="shrink-0 rounded-xl"
+                                disabled={carrefourBusyId === product.external_id}
+                                onClick={() => void addCarrefourProduct(product)}
+                                aria-label={`${t.addProduct}: ${product.name}`}
+                              >
+                                {carrefourBusyId === product.external_id ? (
+                                  <Loader2 className="animate-spin" />
+                                ) : (
+                                  <Plus />
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                    {visibleCarrefourProducts.length < filteredCarrefourProducts.length && (
+                      <div className="mt-7 flex justify-center">
+                        <Button
+                          variant="outline"
+                          className="rounded-xl bg-card"
+                          onClick={() => setCarrefourVisible((current) => current + 24)}
+                        >
+                          {t.loadMore}
+                        </Button>
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <div className="rounded-3xl border border-dashed border-border bg-card/60 p-10 text-center text-muted-foreground">
                     <Search className="mx-auto mb-3 size-7" />
-                    Aucun produit trouvé.
+                    {t.noProducts}
                   </div>
                 )}
               </>

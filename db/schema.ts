@@ -49,6 +49,8 @@ export const products = sqliteTable(
     imageUrl: text("image_url"),
     barcode: text("barcode"),
     packageSize: text("package_size"),
+    externalSource: text("external_source"),
+    externalId: text("external_id"),
     purchaseCount: integer("purchase_count").notNull().default(0),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -56,6 +58,10 @@ export const products = sqliteTable(
   (table) => [
     index("idx_products_name_fr").on(table.nameFr),
     uniqueIndex("idx_products_barcode").on(table.barcode),
+    uniqueIndex("idx_products_external_source_id").on(
+      table.externalSource,
+      table.externalId,
+    ),
     index("idx_products_category_active").on(table.category, table.active),
   ],
 );

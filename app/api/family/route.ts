@@ -159,7 +159,8 @@ async function readState(db: D1Database, viewer: FamilySessionUser) {
     db
       .prepare(
         `SELECT id, name_fr, name_ar, name_en, category, unit, unit_price_cents,
-                image_position, image_url, barcode, package_size, purchase_count
+                image_position, image_url, barcode, package_size, external_source,
+                external_id, purchase_count
          FROM products WHERE active = 1 ORDER BY purchase_count DESC, name_fr`,
       )
       .all<{
@@ -174,6 +175,8 @@ async function readState(db: D1Database, viewer: FamilySessionUser) {
         image_url: string | null;
         barcode: string | null;
         package_size: string | null;
+        external_source: string | null;
+        external_id: string | null;
         purchase_count: number;
       }>(),
     db
