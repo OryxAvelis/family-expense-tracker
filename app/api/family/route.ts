@@ -9,12 +9,12 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const HOUSE_CATALOG_IMAGE_VERSION = "2";
+const HOUSE_CATALOG_IMAGE_VERSION = "3";
 const HOUSE_CATALOG_IMAGES = [
   [
     1,
     "Lait entier",
-    "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/559965-1-5.jpg",
+    "/products/milk-jouda.png",
   ],
   [
     3,
@@ -61,6 +61,10 @@ const HOUSE_CATALOG_IMAGES = [
     "Papier cuisine",
     "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/530609-1-4.jpg",
   ],
+] as const;
+const HOUSE_CATALOG_PRICE_UPDATES = [
+  [1, "Lait entier", 400],
+  [7, "Thé vert", 2000],
 ] as const;
 
 type ActionBody = {
@@ -116,11 +120,13 @@ async function syncHouseCatalogImages(db: D1Database) {
         )
         .bind(imageUrl, updatedAt, id, nameFr),
     ),
-    db
-      .prepare(
-        "UPDATE products SET unit_price_cents = ?, updated_at = ? WHERE id = ? AND name_fr = ?",
-      )
-      .bind(2000, updatedAt, 7, "Thé vert"),
+    ...HOUSE_CATALOG_PRICE_UPDATES.map(([id, nameFr, unitPriceCents]) =>
+      db
+        .prepare(
+          "UPDATE products SET unit_price_cents = ?, updated_at = ? WHERE id = ? AND name_fr = ?",
+        )
+        .bind(unitPriceCents, updatedAt, id, nameFr),
+    ),
     db
       .prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)")
       .bind("house_catalog_image_version", HOUSE_CATALOG_IMAGE_VERSION),
