@@ -1,8 +1,8 @@
-import { env } from "cloudflare:workers";
-
 import { getRequestFamilyUser } from "@/lib/family-auth";
+import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 type OpenFoodFactsProduct = {
   code?: string;
@@ -19,21 +19,6 @@ type OpenFoodFactsResponse = {
   status?: string;
   result?: { id?: string };
   product?: OpenFoodFactsProduct;
-};
-
-type CatalogProduct = {
-  id: number;
-  name_fr: string;
-  name_ar: string;
-  name_en: string;
-  category: string;
-  unit: "pièce";
-  unit_price_cents: number;
-  image_position: string;
-  image_url: string | null;
-  barcode: string | null;
-  package_size: string | null;
-  purchase_count: number;
 };
 
 const productColumns = `id, name_fr, name_ar, name_en, category, unit,
@@ -71,22 +56,21 @@ export async function POST(request: Request) {
   if (viewer.role !== "member") {
     return Response.json({ error: "Cette fonction est réservée aux membres." }, { status: 403 });
   }
-  if (!env.DB) {
-    return Response.json({ error: "La base de données est indisponible." }, { status: 500 });
-  }
-
   try {
+    const db = getSupabaseAdmin();
     const body = (await request.json()) as { barcode?: unknown };
     const barcode = normalizeBarcode(body.barcode);
     if (!barcode) {
       return Response.json({ error: "Le code-barres doit contenir entre 8 et 14 chiffres." }, { status: 400 });
     }
 
-    const existing = await env.DB.prepare(
-      `SELECT ${productColumns} FROM products WHERE barcode = ? AND active = 1`,
-    )
-      .bind(barcode)
-      .first<CatalogProduct>();
+    const { data: existing, error: existingError } = await db
+      .from("products")
+      .select(productColumns)
+      .eq("barcode", barcode)
+      .eq("active", true)
+      .maybeSingle();
+    throwIfSupabaseError(existingError);
     if (existing) return Response.json({ product: existing, imported: false });
 
     const endpoint = new URL(`https://world.openfoodfacts.org/api/v3/product/${barcode}`);
@@ -157,20 +141,32 @@ export async function POST(request: Request) {
     const packageSize = cleanText(source.quantity, 60) || null;
     const imageUrl = safeImageUrl(source.image_front_small_url);
 
-    await env.DB.prepare(
-      `INSERT OR IGNORE INTO products
-       (name_fr, name_ar, name_en, category, unit, unit_price_cents, image_position,
-        image_url, barcode, package_size, purchase_count, active)
-       VALUES (?, ?, ?, 'food', 'pièce', 0, '0% 0%', ?, ?, ?, 0, 1)`,
-    )
-      .bind(nameFr, nameAr, nameEn, imageUrl, barcode, packageSize)
-      .run();
+    const { error: insertError } = await db.from("products").upsert(
+      {
+        name_fr: nameFr,
+        name_ar: nameAr,
+        name_en: nameEn,
+        category: "food",
+        unit: "pièce",
+        unit_price_cents: 0,
+        image_position: "0% 0%",
+        image_url: imageUrl,
+        barcode,
+        package_size: packageSize,
+        purchase_count: 0,
+        active: true,
+      },
+      { onConflict: "barcode", ignoreDuplicates: true },
+    );
+    throwIfSupabaseError(insertError);
 
-    const product = await env.DB.prepare(
-      `SELECT ${productColumns} FROM products WHERE barcode = ? AND active = 1`,
-    )
-      .bind(barcode)
-      .first<CatalogProduct>();
+    const { data: product, error: productError } = await db
+      .from("products")
+      .select(productColumns)
+      .eq("barcode", barcode)
+      .eq("active", true)
+      .maybeSingle();
+    throwIfSupabaseError(productError);
     if (!product) throw new Error("Le produit n’a pas pu être enregistré.");
 
     return Response.json({ product, imported: true });

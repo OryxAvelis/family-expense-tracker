@@ -1,2 +1,4 @@
-# Copy this file to .dev.vars and replace the placeholder locally.
+# Configure these values locally in .env.local and in Vercel project settings.
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SECRET_KEY=sb_secret_replace-me
 FAMILY_INITIAL_PASSWORD=choose-a-private-starter-password

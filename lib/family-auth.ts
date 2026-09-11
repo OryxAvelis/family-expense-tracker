@@ -1,6 +1,7 @@
-import { env } from "cloudflare:workers";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+
+import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 
 export type FamilyRole = "admin" | "delivery" | "member";
 
@@ -26,11 +27,6 @@ export const FAMILY_USERS = [
 export const FAMILY_SESSION_COOKIE = "family_expense_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
-function getD1() {
-  if (!env.DB) throw new Error("La base de données est indisponible.");
-  return env.DB;
-}
-
 async function sha256(value: string) {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -53,8 +49,9 @@ function createOpaqueToken() {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
-export async function ensureFamilyAuthUsers(db: D1Database) {
-  const initialPassword = env.FAMILY_INITIAL_PASSWORD?.trim();
+export async function ensureFamilyAuthUsers() {
+  const db = getSupabaseAdmin();
+  const initialPassword = process.env.FAMILY_INITIAL_PASSWORD?.trim();
   const passwordRows = await Promise.all(
     FAMILY_USERS.map(async (user) => ({
       ...user,
@@ -64,39 +61,47 @@ export async function ensureFamilyAuthUsers(db: D1Database) {
     })),
   );
 
-  await db.batch(
-    passwordRows.flatMap((user) => {
-      const statements = [
-        db
-        .prepare(
-          "INSERT OR IGNORE INTO family_users (id, name, username, role, initials, password_hash, active) VALUES (?, ?, ?, ?, ?, ?, 1)",
-        )
-        .bind(user.id, user.name, user.username, user.role, user.initials, user.passwordHash),
-      ];
-      if (initialPassword) {
-        statements.push(
-          db
-            .prepare("UPDATE family_users SET password_hash = ? WHERE id = ? AND password_hash = ''")
-            .bind(user.passwordHash, user.id),
-        );
-      }
-      return statements;
-    }),
+  const { error: insertError } = await db.from("family_users").upsert(
+    passwordRows.map((user) => ({
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      role: user.role,
+      initials: user.initials,
+      password_hash: user.passwordHash,
+      active: true,
+    })),
+    { onConflict: "id", ignoreDuplicates: true },
   );
+  throwIfSupabaseError(insertError);
+
+  if (initialPassword) {
+    const updates = await Promise.all(
+      passwordRows.map((user) =>
+        db
+          .from("family_users")
+          .update({ password_hash: user.passwordHash })
+          .eq("id", user.id)
+          .eq("password_hash", ""),
+      ),
+    );
+    for (const result of updates) throwIfSupabaseError(result.error);
+  }
 }
 
 export async function authenticateFamilyUser(username: string, password: string) {
   const normalizedUsername = username.trim().toLocaleLowerCase();
   if (!normalizedUsername || !password) return null;
 
-  const db = getD1();
-  await ensureFamilyAuthUsers(db);
-  const user = await db
-    .prepare(
-      "SELECT id, name, username, role, initials, password_hash FROM family_users WHERE username = ? AND active = 1",
-    )
-    .bind(normalizedUsername)
-    .first<FamilySessionUser & { password_hash: string }>();
+  const db = getSupabaseAdmin();
+  await ensureFamilyAuthUsers();
+  const { data: user, error } = await db
+    .from("family_users")
+    .select("id, name, username, role, initials, password_hash")
+    .eq("username", normalizedUsername)
+    .eq("active", true)
+    .maybeSingle();
+  throwIfSupabaseError(error);
   if (!user) return null;
 
   const submittedHash = await hashFamilyPassword(user.username, password);
@@ -105,26 +110,30 @@ export async function authenticateFamilyUser(username: string, password: string)
     id: user.id,
     name: user.name,
     username: user.username,
-    role: user.role,
+    role: user.role as FamilyRole,
     initials: user.initials,
   };
 }
 
 export async function createFamilySession(userId: number) {
-  const db = getD1();
+  const db = getSupabaseAdmin();
   const token = createOpaqueToken();
   const tokenHash = await hashSessionToken(token);
   const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString();
   const now = new Date().toISOString();
 
-  await db.batch([
-    db.prepare("DELETE FROM family_sessions WHERE expires_at <= ?").bind(now),
-    db
-      .prepare(
-        "INSERT INTO family_sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
-      )
-      .bind(tokenHash, userId, expiresAt, now),
-  ]);
+  const { error: cleanupError } = await db
+    .from("family_sessions")
+    .delete()
+    .lte("expires_at", now);
+  throwIfSupabaseError(cleanupError);
+  const { error: insertError } = await db.from("family_sessions").insert({
+    token_hash: tokenHash,
+    user_id: userId,
+    expires_at: expiresAt,
+    created_at: now,
+  });
+  throwIfSupabaseError(insertError);
 
   return { token, expiresAt };
 }
@@ -132,15 +141,24 @@ export async function createFamilySession(userId: number) {
 async function findUserByToken(token: string | undefined) {
   if (!token) return null;
   const tokenHash = await hashSessionToken(token);
-  return getD1()
-    .prepare(
-      `SELECT u.id, u.name, u.username, u.role, u.initials
-       FROM family_sessions s
-       JOIN family_users u ON u.id = s.user_id
-       WHERE s.token_hash = ? AND s.expires_at > ? AND u.active = 1`,
-    )
-    .bind(tokenHash, new Date().toISOString())
-    .first<FamilySessionUser>();
+  const { data, error } = await getSupabaseAdmin()
+    .from("family_sessions")
+    .select("family_users!inner(id, name, username, role, initials, active)")
+    .eq("token_hash", tokenHash)
+    .gt("expires_at", new Date().toISOString())
+    .eq("family_users.active", true)
+    .maybeSingle();
+  throwIfSupabaseError(error);
+  if (!data) return null;
+
+  const user = data.family_users as unknown as FamilySessionUser & { active: boolean };
+  return {
+    id: Number(user.id),
+    name: user.name,
+    username: user.username,
+    role: user.role,
+    initials: user.initials,
+  };
 }
 
 function cookieValue(header: string | null, name: string) {
@@ -188,5 +206,9 @@ export async function revokeRequestFamilySession(request: Request) {
   const token = cookieValue(request.headers.get("cookie"), FAMILY_SESSION_COOKIE);
   if (!token) return;
   const tokenHash = await hashSessionToken(token);
-  await getD1().prepare("DELETE FROM family_sessions WHERE token_hash = ?").bind(tokenHash).run();
+  const { error } = await getSupabaseAdmin()
+    .from("family_sessions")
+    .delete()
+    .eq("token_hash", tokenHash);
+  throwIfSupabaseError(error);
 }

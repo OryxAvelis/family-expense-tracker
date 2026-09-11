@@ -1,66 +1,25 @@
-import { env } from "cloudflare:workers";
-
 import {
-  FAMILY_USERS,
   getRequestFamilyUser,
   type FamilyRole,
   type FamilySessionUser,
 } from "@/lib/family-auth";
+import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const HOUSE_CATALOG_IMAGE_VERSION = "3";
 const HOUSE_CATALOG_IMAGES = [
-  [
-    1,
-    "Lait entier",
-    "/products/milk-jouda.png",
-  ],
-  [
-    3,
-    "Huile d’olive",
-    "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/571202-1-2.jpg",
-  ],
-  [
-    5,
-    "Sucre",
-    "https://media.carrefour.fr/medias/5127cba8d810345e86422a69e8d91a60/p_1500x1500/3560071410964-photosite-20211005-181348-0.jpg",
-  ],
-  [
-    6,
-    "Œufs",
-    "https://media.carrefour.fr/medias/9af29a281e983cfe972ae7035de9bcd2/p_1500x1500/3348680000123-photosite-20160831-084739-0.jpg",
-  ],
-  [
-    7,
-    "Thé vert",
-    "/products/tea-assam-401.png",
-  ],
-  [
-    8,
-    "Lessive",
-    "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/704718-1-2.jpg",
-  ],
-  [
-    9,
-    "Savon",
-    "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/747002-1-3.jpg",
-  ],
-  [
-    10,
-    "Dentifrice",
-    "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/163607-1-2.jpg",
-  ],
-  [
-    11,
-    "Cahier",
-    "https://media.carrefour.fr/medias/02251d8f86ee43908b21141159cf43e5/p_1500x1500/3616958825946_0.jpg",
-  ],
-  [
-    12,
-    "Papier cuisine",
-    "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/530609-1-4.jpg",
-  ],
+  [1, "Lait entier", "/products/milk-jouda.png"],
+  [3, "Huile d’olive", "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/571202-1-2.jpg"],
+  [5, "Sucre", "https://media.carrefour.fr/medias/5127cba8d810345e86422a69e8d91a60/p_1500x1500/3560071410964-photosite-20211005-181348-0.jpg"],
+  [6, "Œufs", "https://media.carrefour.fr/medias/9af29a281e983cfe972ae7035de9bcd2/p_1500x1500/3348680000123-photosite-20160831-084739-0.jpg"],
+  [7, "Thé vert", "/products/tea-assam-401.png"],
+  [8, "Lessive", "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/704718-1-2.jpg"],
+  [9, "Savon", "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/747002-1-3.jpg"],
+  [10, "Dentifrice", "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/163607-1-2.jpg"],
+  [11, "Cahier", "https://media.carrefour.fr/medias/02251d8f86ee43908b21141159cf43e5/p_1500x1500/3616958825946_0.jpg"],
+  [12, "Papier cuisine", "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/530609-1-4.jpg"],
 ] as const;
 const HOUSE_CATALOG_PRICE_UPDATES = [
   [1, "Lait entier", 400],
@@ -69,6 +28,8 @@ const HOUSE_CATALOG_PRICE_UPDATES = [
 const PRODUCT_CATEGORIES = ["food", "cleaning", "hygiene", "school", "household", "health"];
 const PRODUCT_IMAGE_KEY_PATTERN =
   /^product-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/;
+const ACTIVE_CART_STATUSES = ["pending", "ready", "shopping"];
+const PRODUCT_IMAGE_BUCKET = "product-images";
 
 type ActionBody = {
   action?: string;
@@ -76,26 +37,69 @@ type ActionBody = {
   [key: string]: unknown;
 };
 
-const nowIso = () => new Date().toISOString();
+type UserRow = {
+  id: number;
+  name: string;
+  username: string;
+  role: FamilyRole;
+  initials: string;
+};
 
-function getD1() {
-  if (!env.DB) throw new Error("La base de données est indisponible.");
-  return env.DB;
-}
+type ProductRow = {
+  id: number;
+  name_fr: string;
+  name_ar: string;
+  name_en: string;
+  category: string;
+  unit: string;
+  unit_price_cents: number;
+  image_position: string;
+  image_url: string | null;
+  barcode: string | null;
+  package_size: string | null;
+  external_source: string | null;
+  external_id: string | null;
+  purchase_count: number;
+  cart_items?: Array<{ id: number }>;
+};
+
+type CartRow = {
+  id: number;
+  member_id: number;
+  status: string;
+  priority: string | null;
+  created_at: string;
+  submitted_at: string;
+  approved_at: string | null;
+  completed_at: string | null;
+  family_users: { name: string; initials: string };
+};
+
+type ItemRow = {
+  id: number;
+  cart_id: number;
+  product_id: number;
+  quantity_hundredths: number;
+  requested_unit_price_cents: number;
+  actual_unit_price_cents: number;
+  purchase_status: string;
+  products: Pick<
+    ProductRow,
+    "name_fr" | "name_ar" | "name_en" | "unit" | "image_position" | "image_url" | "package_size"
+  >;
+};
+
+const nowIso = () => new Date().toISOString();
 
 function asPositiveInt(value: unknown, field: string) {
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${field} est invalide.`);
-  }
+  if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${field} est invalide.`);
   return parsed;
 }
 
 function asNonNegativeInt(value: unknown, field: string) {
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new Error(`${field} est invalide.`);
-  }
+  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${field} est invalide.`);
   return parsed;
 }
 
@@ -110,14 +114,12 @@ function asProductImageUrl(value: unknown) {
   const parsed = new URL(imageUrl, "https://family-expenses.local");
   const key = parsed.searchParams.get("key") ?? "";
   const parameterNames = [...parsed.searchParams.keys()];
-  const hasOnlyKey = parameterNames.length === 1 && parameterNames[0] === "key";
-  const isValidKey = PRODUCT_IMAGE_KEY_PATTERN.test(key);
-
   if (
     parsed.origin !== "https://family-expenses.local" ||
     parsed.pathname !== "/api/products/images" ||
-    !hasOnlyKey ||
-    !isValidKey
+    parameterNames.length !== 1 ||
+    parameterNames[0] !== "key" ||
+    !PRODUCT_IMAGE_KEY_PATTERN.test(key)
   ) {
     throw new Error("L’adresse de l’image est invalide.");
   }
@@ -144,231 +146,183 @@ function requireRole(actualRole: FamilyRole, requiredRole: FamilyRole) {
   if (actualRole !== requiredRole) throw new Error("Action non autorisée pour ce rôle.");
 }
 
-async function syncHouseCatalogImages(db: D1Database) {
-  const synced = await db
-    .prepare("SELECT value FROM app_meta WHERE key = ?")
-    .bind("house_catalog_image_version")
-    .first<{ value: string }>();
+function joined<T>(value: T | T[]) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+async function syncHouseCatalogImages() {
+  const db = getSupabaseAdmin();
+  const { data: synced, error } = await db
+    .from("app_meta")
+    .select("value")
+    .eq("key", "house_catalog_image_version")
+    .maybeSingle();
+  throwIfSupabaseError(error);
   if (synced?.value === HOUSE_CATALOG_IMAGE_VERSION) return;
 
   const updatedAt = nowIso();
-  await db.batch([
+  const updates = await Promise.all([
     ...HOUSE_CATALOG_IMAGES.map(([id, nameFr, imageUrl]) =>
       db
-        .prepare(
-          "UPDATE products SET image_url = ?, image_position = '0% 0%', updated_at = ? WHERE id = ? AND name_fr = ?",
-        )
-        .bind(imageUrl, updatedAt, id, nameFr),
+        .from("products")
+        .update({ image_url: imageUrl, image_position: "0% 0%", updated_at: updatedAt })
+        .eq("id", id)
+        .eq("name_fr", nameFr),
     ),
     ...HOUSE_CATALOG_PRICE_UPDATES.map(([id, nameFr, unitPriceCents]) =>
       db
-        .prepare(
-          "UPDATE products SET unit_price_cents = ?, updated_at = ? WHERE id = ? AND name_fr = ?",
-        )
-        .bind(unitPriceCents, updatedAt, id, nameFr),
+        .from("products")
+        .update({ unit_price_cents: unitPriceCents, updated_at: updatedAt })
+        .eq("id", id)
+        .eq("name_fr", nameFr),
     ),
-    db
-      .prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)")
-      .bind("house_catalog_image_version", HOUSE_CATALOG_IMAGE_VERSION),
   ]);
+  for (const result of updates) throwIfSupabaseError(result.error);
+
+  const { error: metaError } = await db
+    .from("app_meta")
+    .upsert({ key: "house_catalog_image_version", value: HOUSE_CATALOG_IMAGE_VERSION });
+  throwIfSupabaseError(metaError);
 }
 
-async function seedIfNeeded(db: D1Database) {
-  const seeded = await db
-    .prepare("SELECT value FROM app_meta WHERE key = ?")
-    .bind("starter_seed")
-    .first<{ value: string }>();
-  if (seeded) {
-    await syncHouseCatalogImages(db);
-    return;
-  }
-
-  const current = new Date();
-  const isoDaysAgo = (days: number) =>
-    new Date(current.getTime() - days * 86_400_000).toISOString();
-
-  const products = [
-    [1, "Lait entier", "حليب كامل", "Whole milk", "food", "L", 850, "0% 0%", 18],
-    [2, "Pain rond", "خبز دائري", "Round bread", "food", "pièce", 200, "100% 0%", 24],
-    [3, "Huile d’olive", "زيت الزيتون", "Olive oil", "food", "L", 7500, "0% 100%", 8],
-    [4, "Farine fine", "دقيق ناعم", "Fine flour", "food", "kg", 800, "100% 100%", 13],
-    [5, "Sucre", "سكر", "Sugar", "food", "kg", 900, "100% 100%", 9],
-    [6, "Œufs", "بيض", "Eggs", "food", "pièce", 140, "100% 0%", 16],
-    [7, "Thé vert", "شاي أخضر", "Green tea", "food", "kg", 6800, "0% 100%", 6],
-    [8, "Lessive", "مسحوق الغسيل", "Laundry detergent", "cleaning", "kg", 3200, "100% 100%", 7],
-    [9, "Savon", "صابون", "Soap", "hygiene", "pièce", 650, "0% 0%", 10],
-    [10, "Dentifrice", "معجون الأسنان", "Toothpaste", "hygiene", "pièce", 1800, "0% 0%", 5],
-    [11, "Cahier", "دفتر", "Notebook", "school", "pièce", 1200, "100% 100%", 3],
-    [12, "Papier cuisine", "ورق المطبخ", "Kitchen paper", "household", "pièce", 1500, "100% 0%", 4],
-  ] as const;
-
-  const statements = [
-    ...FAMILY_USERS.map((user) =>
-      db
-        .prepare(
-          "INSERT OR IGNORE INTO family_users (id, name, username, role, initials, active) VALUES (?, ?, ?, ?, ?, 1)",
-        )
-        .bind(user.id, user.name, user.username, user.role, user.initials),
-    ),
-    ...products.map((product) =>
-      db
-        .prepare(
-          "INSERT OR IGNORE INTO products (id, name_fr, name_ar, name_en, category, unit, unit_price_cents, image_position, purchase_count, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
-        )
-        .bind(...product),
-    ),
-    db
-      .prepare(
-        "INSERT OR IGNORE INTO carts (id, member_id, status, priority, created_at, submitted_at) VALUES (1, 3, 'pending', NULL, ?, ?)",
-      )
-      .bind(isoDaysAgo(0.15), isoDaysAgo(0.15)),
-    db
-      .prepare(
-        "INSERT OR IGNORE INTO carts (id, member_id, status, priority, created_at, submitted_at, approved_at) VALUES (2, 4, 'ready', 'urgent', ?, ?, ?)",
-      )
-      .bind(isoDaysAgo(1.2), isoDaysAgo(1.2), isoDaysAgo(1)),
-    db
-      .prepare(
-        "INSERT OR IGNORE INTO carts (id, member_id, status, priority, created_at, submitted_at, approved_at) VALUES (3, 5, 'ready', 'normal', ?, ?, ?)",
-      )
-      .bind(isoDaysAgo(2.1), isoDaysAgo(2.1), isoDaysAgo(2)),
-    db
-      .prepare(
-        "INSERT OR IGNORE INTO carts (id, member_id, status, priority, created_at, submitted_at, approved_at, completed_at) VALUES (4, 6, 'completed', 'normal', ?, ?, ?, ?)",
-      )
-      .bind(isoDaysAgo(6), isoDaysAgo(6), isoDaysAgo(5.8), isoDaysAgo(5.5)),
-    db
-      .prepare(
-        "INSERT OR IGNORE INTO cart_items (id, cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status) VALUES (1, 1, 1, 200, 850, 850, 'requested')",
-      ),
-    db
-      .prepare(
-        "INSERT OR IGNORE INTO cart_items (id, cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status) VALUES (2, 1, 4, 100, 800, 800, 'requested')",
-      ),
-    db
-      .prepare(
-        "INSERT OR IGNORE INTO cart_items (id, cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status) VALUES (3, 2, 2, 500, 200, 200, 'requested')",
-      ),
-    db
-      .prepare(
-        "INSERT OR IGNORE INTO cart_items (id, cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status) VALUES (4, 2, 3, 100, 7500, 7500, 'requested')",
-      ),
-    db
-      .prepare(
-        "INSERT OR IGNORE INTO cart_items (id, cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status) VALUES (5, 3, 8, 100, 3200, 3200, 'requested')",
-      ),
-    db
-      .prepare(
-        "INSERT OR IGNORE INTO cart_items (id, cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status) VALUES (6, 3, 9, 300, 650, 650, 'requested')",
-      ),
-    db
-      .prepare(
-        "INSERT OR IGNORE INTO cart_items (id, cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status) VALUES (7, 4, 6, 1200, 140, 150, 'bought')",
-      ),
-    db
-      .prepare(
-        "INSERT OR IGNORE INTO cart_items (id, cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status) VALUES (8, 4, 1, 300, 850, 850, 'bought')",
-      ),
-    db
-      .prepare(
-        "INSERT OR IGNORE INTO cart_items (id, cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status) VALUES (9, 4, 4, 200, 800, 800, 'unbought')",
-      ),
-    db.prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES ('starter_seed', '1')"),
-  ];
-
-  await db.batch(statements);
-  await syncHouseCatalogImages(db);
+function cartOrder(
+  left: Pick<CartRow, "status" | "priority" | "submitted_at">,
+  right: Pick<CartRow, "status" | "priority" | "submitted_at">,
+) {
+  const activeRank = (cart: Pick<CartRow, "status">) =>
+    ACTIVE_CART_STATUSES.includes(cart.status) ? 0 : 1;
+  const priorityRank = (priority: string | null) =>
+    priority === "urgent" ? 0 : priority === "normal" ? 1 : 2;
+  return (
+    activeRank(left) - activeRank(right) ||
+    priorityRank(left.priority) - priorityRank(right.priority) ||
+    left.submitted_at.localeCompare(right.submitted_at)
+  );
 }
 
-async function readState(db: D1Database, viewer: FamilySessionUser) {
-  const [users, products, carts, items, monthlyTotals] = await Promise.all([
+async function readState(viewer: FamilySessionUser) {
+  const db = getSupabaseAdmin();
+  const [usersResult, productsResult, cartsResult] = await Promise.all([
+    db.from("family_users").select("id, name, username, role, initials").eq("active", true).order("id"),
     db
-      .prepare(
-        "SELECT id, name, username, role, initials FROM family_users WHERE active = 1 ORDER BY id",
+      .from("products")
+      .select(
+        "id, name_fr, name_ar, name_en, category, unit, unit_price_cents, image_position, image_url, barcode, package_size, external_source, external_id, purchase_count, cart_items(id)",
       )
-      .all<{ id: number; name: string; username: string; role: FamilyRole; initials: string }>(),
+      .eq("active", true)
+      .order("purchase_count", { ascending: false })
+      .order("name_fr"),
     db
-      .prepare(
-        `SELECT id, name_fr, name_ar, name_en, category, unit, unit_price_cents,
-                 image_position, image_url, barcode, package_size, external_source,
-                 external_id, purchase_count,
-                 EXISTS(SELECT 1 FROM cart_items ci_usage WHERE ci_usage.product_id = products.id) AS has_orders
-         FROM products WHERE active = 1 ORDER BY purchase_count DESC, name_fr`,
+      .from("carts")
+      .select(
+        "id, member_id, status, priority, created_at, submitted_at, approved_at, completed_at, family_users!inner(name, initials)",
       )
-      .all<{
-        id: number;
-        name_fr: string;
-        name_ar: string;
-        name_en: string;
-        category: string;
-        unit: string;
-        unit_price_cents: number;
-        image_position: string;
-        image_url: string | null;
-        barcode: string | null;
-        package_size: string | null;
-        external_source: string | null;
-        external_id: string | null;
-        purchase_count: number;
-        has_orders: number;
-      }>(),
-    db
-      .prepare(
-        `SELECT c.id, c.member_id, c.status, c.priority, c.created_at, c.submitted_at,
-                c.approved_at, c.completed_at, u.name AS member_name, u.initials AS member_initials
-         FROM carts c
-         JOIN family_users u ON u.id = c.member_id
-         WHERE c.status != 'cancelled'
-         ORDER BY
-           CASE WHEN c.status IN ('pending', 'ready', 'shopping') THEN 0 ELSE 1 END,
-           CASE c.priority WHEN 'urgent' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
-           c.submitted_at ASC
-         LIMIT 80`,
-      )
-      .all<{ id: number; member_id: number; status: string; priority: string | null; submitted_at: string }>(),
-    db
-      .prepare(
-        `SELECT ci.id, ci.cart_id, ci.product_id, ci.quantity_hundredths,
-                ci.requested_unit_price_cents, ci.actual_unit_price_cents, ci.purchase_status,
-                p.name_fr, p.name_ar, p.name_en, p.unit, p.image_position,
-                p.image_url, p.package_size
-         FROM cart_items ci
-         JOIN products p ON p.id = ci.product_id
-         JOIN carts c ON c.id = ci.cart_id
-         WHERE c.status != 'cancelled'
-         ORDER BY ci.id`,
-      )
-      .all<{ id: number; cart_id: number }>(),
-    db
-      .prepare(
-        `SELECT substr(c.completed_at, 1, 7) AS month,
-                CAST(ROUND(SUM(ci.actual_unit_price_cents * ci.quantity_hundredths / 100.0)) AS INTEGER) AS total_cents,
-                COUNT(DISTINCT c.id) AS carts_count
-         FROM carts c
-         JOIN cart_items ci ON ci.cart_id = c.id
-         WHERE c.status = 'completed' AND ci.purchase_status = 'bought'
-         GROUP BY substr(c.completed_at, 1, 7)
-         ORDER BY month DESC
-         LIMIT 12`,
-      )
-      .all(),
+      .neq("status", "cancelled")
+      .limit(200),
   ]);
+  throwIfSupabaseError(usersResult.error);
+  throwIfSupabaseError(productsResult.error);
+  throwIfSupabaseError(cartsResult.error);
+
+  const users = (usersResult.data ?? []) as UserRow[];
+  const products = ((productsResult.data ?? []) as unknown as ProductRow[]).map(
+    ({ cart_items, ...product }) => ({ ...product, has_orders: Number(Boolean(cart_items?.length)) }),
+  );
+  const carts = ((cartsResult.data ?? []) as unknown as CartRow[])
+    .map((cart) => {
+      const member = joined(cart.family_users);
+      return {
+        id: Number(cart.id),
+        member_id: Number(cart.member_id),
+        status: cart.status,
+        priority: cart.priority,
+        created_at: cart.created_at,
+        submitted_at: cart.submitted_at,
+        approved_at: cart.approved_at,
+        completed_at: cart.completed_at,
+        member_name: member.name,
+        member_initials: member.initials,
+      };
+    })
+    .sort(cartOrder)
+    .slice(0, 80);
 
   const visibleCarts =
-    viewer.role === "member"
-      ? carts.results.filter((cart) => cart.member_id === viewer.id)
-      : carts.results;
-  const visibleCartIds = new Set(visibleCarts.map((cart) => cart.id));
+    viewer.role === "member" ? carts.filter((cart) => cart.member_id === viewer.id) : carts;
+  const visibleCartIds = visibleCarts.map((cart) => cart.id);
+
+  let items: Array<Record<string, unknown>> = [];
+  if (visibleCartIds.length) {
+    const { data, error } = await db
+      .from("cart_items")
+      .select(
+        "id, cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status, products!inner(name_fr, name_ar, name_en, unit, image_position, image_url, package_size)",
+      )
+      .in("cart_id", visibleCartIds)
+      .order("id");
+    throwIfSupabaseError(error);
+    items = ((data ?? []) as unknown as ItemRow[]).map((item) => {
+      const product = joined(item.products);
+      return {
+        id: Number(item.id),
+        cart_id: Number(item.cart_id),
+        product_id: Number(item.product_id),
+        quantity_hundredths: item.quantity_hundredths,
+        requested_unit_price_cents: item.requested_unit_price_cents,
+        actual_unit_price_cents: item.actual_unit_price_cents,
+        purchase_status: item.purchase_status,
+        ...product,
+      };
+    });
+  }
+
+  const monthlyTotals: Array<{ month: string; total_cents: number; carts_count: number }> = [];
+  if (viewer.role === "admin") {
+    const { data, error } = await db
+      .from("carts")
+      .select(
+        "id, completed_at, cart_items!inner(quantity_hundredths, actual_unit_price_cents, purchase_status)",
+      )
+      .eq("status", "completed")
+      .eq("cart_items.purchase_status", "bought")
+      .not("completed_at", "is", null)
+      .limit(1000);
+    throwIfSupabaseError(error);
+
+    const months = new Map<string, { total_cents: number; carts: Set<number> }>();
+    for (const cart of (data ?? []) as unknown as Array<{
+      id: number;
+      completed_at: string;
+      cart_items: Array<{ quantity_hundredths: number; actual_unit_price_cents: number }>;
+    }>) {
+      const month = cart.completed_at.slice(0, 7);
+      const entry = months.get(month) ?? { total_cents: 0, carts: new Set<number>() };
+      entry.carts.add(Number(cart.id));
+      for (const item of cart.cart_items) {
+        entry.total_cents += Math.round(
+          (item.actual_unit_price_cents * item.quantity_hundredths) / 100,
+        );
+      }
+      months.set(month, entry);
+    }
+    monthlyTotals.push(
+      ...[...months.entries()]
+        .sort(([left], [right]) => right.localeCompare(left))
+        .slice(0, 12)
+        .map(([month, value]) => ({
+          month,
+          total_cents: value.total_cents,
+          carts_count: value.carts.size,
+        })),
+    );
+  }
 
   return {
-    users:
-      viewer.role === "member"
-        ? users.results.filter((user) => user.id === viewer.id)
-        : users.results,
-    products: products.results,
+    users: viewer.role === "member" ? users.filter((user) => user.id === viewer.id) : users,
+    products,
     carts: visibleCarts,
-    items: items.results.filter((item) => visibleCartIds.has(item.cart_id)),
-    monthlyTotals: viewer.role === "admin" ? monthlyTotals.results : [],
+    items,
+    monthlyTotals,
   };
 }
 
@@ -376,9 +330,8 @@ export async function GET(request: Request) {
   try {
     const viewer = await getRequestFamilyUser(request);
     if (!viewer) return Response.json({ error: "Connexion requise." }, { status: 401 });
-    const db = getD1();
-    await seedIfNeeded(db);
-    return Response.json(await readState(db, viewer));
+    await syncHouseCatalogImages();
+    return Response.json(await readState(viewer));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erreur inattendue.";
     return Response.json({ error: message }, { status: 500 });
@@ -390,259 +343,261 @@ export async function POST(request: Request) {
     const body = (await request.json()) as ActionBody;
     const viewer = await getRequestFamilyUser(request);
     if (!viewer) return Response.json({ error: "Connexion requise." }, { status: 401 });
-    const db = getD1();
-    await seedIfNeeded(db);
+    const db = getSupabaseAdmin();
 
     switch (body.action) {
       case "submit_cart": {
         requireRole(viewer.role, "member");
-        const memberId = viewer.id;
         const items = Array.isArray(body.items) ? body.items : [];
         if (!items.length) throw new Error("Le panier est vide.");
 
-        const active = await db
-          .prepare(
-            "SELECT COUNT(*) AS count FROM carts WHERE member_id = ? AND status IN ('pending', 'ready', 'shopping')",
-          )
-          .bind(memberId)
-          .first<{ count: number }>();
-        if ((active?.count ?? 0) >= 3) {
-          throw new Error("Vous avez déjà trois paniers actifs.");
-        }
+        const { count, error: countError } = await db
+          .from("carts")
+          .select("id", { count: "exact", head: true })
+          .eq("member_id", viewer.id)
+          .in("status", ACTIVE_CART_STATUSES);
+        throwIfSupabaseError(countError);
+        if ((count ?? 0) >= 3) throw new Error("Vous avez déjà trois paniers actifs.");
 
-        const productIds = items.map((item) =>
-          asPositiveInt((item as Record<string, unknown>).productId, "productId"),
-        );
-        const quantityById = new Map(
-          items.map((item) => {
-            const entry = item as Record<string, unknown>;
-            return [
-              asPositiveInt(entry.productId, "productId"),
-              asPositiveInt(entry.quantityHundredths, "quantity"),
-            ];
-          }),
-        );
-        const placeholders = productIds.map(() => "?").join(",");
-        const productRows = await db
-          .prepare(
-            `SELECT id, unit_price_cents FROM products WHERE active = 1 AND id IN (${placeholders})`,
-          )
-          .bind(...productIds)
-          .all<{ id: number; unit_price_cents: number }>();
-        if (productRows.results.length !== new Set(productIds).size) {
+        const quantityById = new Map<number, number>();
+        for (const raw of items) {
+          const entry = raw as Record<string, unknown>;
+          quantityById.set(
+            asPositiveInt(entry.productId, "productId"),
+            asPositiveInt(entry.quantityHundredths, "quantity"),
+          );
+        }
+        const productIds = [...quantityById.keys()];
+        const { data: productRows, error: productsError } = await db
+          .from("products")
+          .select("id, unit_price_cents")
+          .eq("active", true)
+          .in("id", productIds);
+        throwIfSupabaseError(productsError);
+        if ((productRows?.length ?? 0) !== productIds.length) {
           throw new Error("Un produit du panier est indisponible.");
         }
 
         const timestamp = nowIso();
-        const created = await db
-          .prepare(
-            "INSERT INTO carts (member_id, status, created_at, submitted_at) VALUES (?, 'pending', ?, ?)",
-          )
-          .bind(memberId, timestamp, timestamp)
-          .run();
-        const cartId = Number(created.meta.last_row_id);
-        await db.batch(
-          productRows.results.map((product) =>
-            db
-              .prepare(
-                "INSERT INTO cart_items (cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status) VALUES (?, ?, ?, ?, ?, 'requested')",
-              )
-              .bind(
-                cartId,
-                product.id,
-                quantityById.get(product.id),
-                product.unit_price_cents,
-                product.unit_price_cents,
-              ),
-          ),
+        const { data: created, error: cartError } = await db
+          .from("carts")
+          .insert({ member_id: viewer.id, status: "pending", created_at: timestamp, submitted_at: timestamp })
+          .select("id")
+          .single();
+        throwIfSupabaseError(cartError);
+        if (!created) throw new Error("Le panier n’a pas pu être créé.");
+
+        const { error: itemError } = await db.from("cart_items").insert(
+          (productRows ?? []).map((product) => ({
+            cart_id: created.id,
+            product_id: product.id,
+            quantity_hundredths: quantityById.get(Number(product.id)),
+            requested_unit_price_cents: product.unit_price_cents,
+            actual_unit_price_cents: product.unit_price_cents,
+            purchase_status: "requested",
+          })),
         );
+        if (itemError) {
+          await db.from("carts").delete().eq("id", created.id);
+          throwIfSupabaseError(itemError);
+        }
         break;
       }
 
       case "update_cart": {
         requireRole(viewer.role, "member");
         const cartId = asPositiveInt(body.cartId, "cartId");
-        const memberId = viewer.id;
         const items = Array.isArray(body.items) ? body.items : [];
         if (!items.length) throw new Error("Le panier est vide.");
-        const cart = await db
-          .prepare(
-            "SELECT id FROM carts WHERE id = ? AND member_id = ? AND status IN ('pending', 'ready')",
-          )
-          .bind(cartId, memberId)
-          .first();
+        const { data: cart, error: cartError } = await db
+          .from("carts")
+          .select("id")
+          .eq("id", cartId)
+          .eq("member_id", viewer.id)
+          .in("status", ["pending", "ready"])
+          .maybeSingle();
+        throwIfSupabaseError(cartError);
         if (!cart) throw new Error("Ce panier ne peut plus être modifié.");
 
-        const productIds = items.map((item) =>
-          asPositiveInt((item as Record<string, unknown>).productId, "productId"),
+        const quantityById = new Map<number, number>();
+        for (const raw of items) {
+          const entry = raw as Record<string, unknown>;
+          quantityById.set(
+            asPositiveInt(entry.productId, "productId"),
+            asPositiveInt(entry.quantityHundredths, "quantity"),
+          );
+        }
+        const productIds = [...quantityById.keys()];
+        const { data: productRows, error: productsError } = await db
+          .from("products")
+          .select("id, unit_price_cents")
+          .eq("active", true)
+          .in("id", productIds);
+        throwIfSupabaseError(productsError);
+        if ((productRows?.length ?? 0) !== productIds.length) {
+          throw new Error("Un produit du panier est indisponible.");
+        }
+
+        const { error: deleteError } = await db.from("cart_items").delete().eq("cart_id", cartId);
+        throwIfSupabaseError(deleteError);
+        const { error: updateError } = await db
+          .from("carts")
+          .update({ status: "pending", priority: null, approved_at: null, submitted_at: nowIso() })
+          .eq("id", cartId);
+        throwIfSupabaseError(updateError);
+        const { error: insertError } = await db.from("cart_items").insert(
+          (productRows ?? []).map((product) => ({
+            cart_id: cartId,
+            product_id: product.id,
+            quantity_hundredths: quantityById.get(Number(product.id)),
+            requested_unit_price_cents: product.unit_price_cents,
+            actual_unit_price_cents: product.unit_price_cents,
+            purchase_status: "requested",
+          })),
         );
-        const quantityById = new Map(
-          items.map((item) => {
-            const entry = item as Record<string, unknown>;
-            return [
-              asPositiveInt(entry.productId, "productId"),
-              asPositiveInt(entry.quantityHundredths, "quantity"),
-            ];
-          }),
-        );
-        const placeholders = productIds.map(() => "?").join(",");
-        const productRows = await db
-          .prepare(
-            `SELECT id, unit_price_cents FROM products WHERE active = 1 AND id IN (${placeholders})`,
-          )
-          .bind(...productIds)
-          .all<{ id: number; unit_price_cents: number }>();
-        const timestamp = nowIso();
-        await db.batch([
-          db.prepare("DELETE FROM cart_items WHERE cart_id = ?").bind(cartId),
-          db
-            .prepare(
-              "UPDATE carts SET status = 'pending', priority = NULL, approved_at = NULL, submitted_at = ? WHERE id = ?",
-            )
-            .bind(timestamp, cartId),
-          ...productRows.results.map((product) =>
-            db
-              .prepare(
-                "INSERT INTO cart_items (cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status) VALUES (?, ?, ?, ?, ?, 'requested')",
-              )
-              .bind(
-                cartId,
-                product.id,
-                quantityById.get(product.id),
-                product.unit_price_cents,
-                product.unit_price_cents,
-              ),
-          ),
-        ]);
+        throwIfSupabaseError(insertError);
         break;
       }
 
       case "cancel_cart": {
         requireRole(viewer.role, "member");
-        const cartId = asPositiveInt(body.cartId, "cartId");
-        const memberId = viewer.id;
-        const result = await db
-          .prepare(
-            "UPDATE carts SET status = 'cancelled' WHERE id = ? AND member_id = ? AND status IN ('pending', 'ready')",
-          )
-          .bind(cartId, memberId)
-          .run();
-        if (!result.meta.changes) throw new Error("Ce panier ne peut plus être annulé.");
+        const { data, error } = await db
+          .from("carts")
+          .update({ status: "cancelled" })
+          .eq("id", asPositiveInt(body.cartId, "cartId"))
+          .eq("member_id", viewer.id)
+          .in("status", ["pending", "ready"])
+          .select("id")
+          .maybeSingle();
+        throwIfSupabaseError(error);
+        if (!data) throw new Error("Ce panier ne peut plus être annulé.");
         break;
       }
 
       case "set_priority": {
         requireRole(viewer.role, "admin");
         const cartId = asPositiveInt(body.cartId, "cartId");
-        const priority = body.priority === "urgent" ? "urgent" : "normal";
-        const result = await db
-          .prepare(
-            `UPDATE carts
-             SET status = CASE WHEN status = 'pending' THEN 'ready' ELSE status END,
-                 priority = ?, approved_at = ?
-             WHERE id = ? AND status IN ('pending', 'ready', 'shopping')`,
-          )
-          .bind(priority, nowIso(), cartId)
-          .run();
-        if (!result.meta.changes) throw new Error("Ce panier a déjà été traité.");
+        const { data: cart, error: cartError } = await db
+          .from("carts")
+          .select("status")
+          .eq("id", cartId)
+          .in("status", ACTIVE_CART_STATUSES)
+          .maybeSingle();
+        throwIfSupabaseError(cartError);
+        if (!cart) throw new Error("Ce panier a déjà été traité.");
+
+        const { error } = await db
+          .from("carts")
+          .update({
+            status: cart.status === "pending" ? "ready" : cart.status,
+            priority: body.priority === "urgent" ? "urgent" : "normal",
+            approved_at: nowIso(),
+          })
+          .eq("id", cartId);
+        throwIfSupabaseError(error);
         break;
       }
 
       case "update_item": {
         requireRole(viewer.role, "delivery");
         const itemId = asPositiveInt(body.itemId, "itemId");
-        const purchaseStatus =
-          body.purchaseStatus === "bought" ? "bought" : "unbought";
+        const purchaseStatus = body.purchaseStatus === "bought" ? "bought" : "unbought";
         const actualUnitPriceCents =
           purchaseStatus === "bought"
             ? asPositiveInt(body.actualUnitPriceCents, "actualUnitPriceCents")
             : asNonNegativeInt(body.actualUnitPriceCents, "actualUnitPriceCents");
-        const result = await db
-          .prepare(
-            `UPDATE cart_items
-             SET purchase_status = ?, actual_unit_price_cents = ?
-             WHERE id = ? AND cart_id IN (
-               SELECT id FROM carts WHERE status IN ('pending', 'ready', 'shopping')
-             )`,
-          )
-          .bind(purchaseStatus, actualUnitPriceCents, itemId)
-          .run();
-        if (!result.meta.changes) throw new Error("Cet article ne peut plus être modifié.");
-        await db
-          .prepare(
-            "UPDATE carts SET status = 'shopping' WHERE id = (SELECT cart_id FROM cart_items WHERE id = ?) AND status IN ('pending', 'ready')",
-          )
-          .bind(itemId)
-          .run();
+        const { data: item, error: itemError } = await db
+          .from("cart_items")
+          .select("id, cart_id, carts!inner(status)")
+          .eq("id", itemId)
+          .in("carts.status", ACTIVE_CART_STATUSES)
+          .maybeSingle();
+        throwIfSupabaseError(itemError);
+        if (!item) throw new Error("Cet article ne peut plus être modifié.");
+
+        const { error: updateError } = await db
+          .from("cart_items")
+          .update({ purchase_status: purchaseStatus, actual_unit_price_cents: actualUnitPriceCents })
+          .eq("id", itemId);
+        throwIfSupabaseError(updateError);
+        const { error: cartError } = await db
+          .from("carts")
+          .update({ status: "shopping" })
+          .eq("id", item.cart_id)
+          .in("status", ["pending", "ready"]);
+        throwIfSupabaseError(cartError);
         break;
       }
 
       case "finish_cart": {
         requireRole(viewer.role, "delivery");
         const cartId = asPositiveInt(body.cartId, "cartId");
-        const rows = await db
-          .prepare(
-            "SELECT product_id, actual_unit_price_cents, purchase_status FROM cart_items WHERE cart_id = ?",
-          )
-          .bind(cartId)
-          .all<{
-            product_id: number;
-            actual_unit_price_cents: number;
-            purchase_status: string;
-          }>();
-        if (!rows.results.length || rows.results.some((item) => item.purchase_status === "requested")) {
+        const { data: rows, error } = await db
+          .from("cart_items")
+          .select("product_id, actual_unit_price_cents, purchase_status, products!inner(purchase_count)")
+          .eq("cart_id", cartId);
+        throwIfSupabaseError(error);
+        if (!rows?.length || rows.some((item) => item.purchase_status === "requested")) {
           throw new Error("Marquez chaque article comme acheté ou non acheté.");
         }
-        await db.batch([
-          ...rows.results
-            .filter((item) => item.purchase_status === "bought")
-            .map((item) =>
-              db
-                .prepare(
-                  "UPDATE products SET unit_price_cents = ?, purchase_count = purchase_count + 1, updated_at = ? WHERE id = ?",
-                )
-                .bind(item.actual_unit_price_cents, nowIso(), item.product_id),
-            ),
-          db
-            .prepare(
-              "UPDATE carts SET status = 'completed', completed_at = ? WHERE id = ? AND status IN ('pending', 'ready', 'shopping')",
-            )
-            .bind(nowIso(), cartId),
-        ]);
+
+        for (const item of rows.filter((entry) => entry.purchase_status === "bought")) {
+          const product = joined(item.products as unknown as { purchase_count: number });
+          const { error: productError } = await db
+            .from("products")
+            .update({
+              unit_price_cents: item.actual_unit_price_cents,
+              purchase_count: product.purchase_count + 1,
+              updated_at: nowIso(),
+            })
+            .eq("id", item.product_id);
+          throwIfSupabaseError(productError);
+        }
+        const { data: finished, error: finishError } = await db
+          .from("carts")
+          .update({ status: "completed", completed_at: nowIso() })
+          .eq("id", cartId)
+          .in("status", ACTIVE_CART_STATUSES)
+          .select("id")
+          .maybeSingle();
+        throwIfSupabaseError(finishError);
+        if (!finished) throw new Error("Ce panier a déjà été traité.");
         break;
       }
 
       case "update_product": {
         requireRole(viewer.role, "admin");
-        const productId = asPositiveInt(body.productId, "productId");
-        const unitPriceCents = asPositiveInt(body.unitPriceCents, "unitPriceCents");
-        await db
-          .prepare(
-            "UPDATE products SET unit_price_cents = ?, updated_at = ? WHERE id = ?",
-          )
-          .bind(unitPriceCents, nowIso(), productId)
-          .run();
+        const { error } = await db
+          .from("products")
+          .update({
+            unit_price_cents: asPositiveInt(body.unitPriceCents, "unitPriceCents"),
+            updated_at: nowIso(),
+          })
+          .eq("id", asPositiveInt(body.productId, "productId"));
+        throwIfSupabaseError(error);
         break;
       }
 
       case "add_product": {
         requireRole(viewer.role, "admin");
         const nameFr = asText(body.nameFr);
-        const nameAr = asText(body.nameAr);
-        const nameEn = asText(body.nameEn);
         const category = asText(body.category);
         const unit = asText(body.unit);
-        const imageUrl = asProductImageUrl(body.imageUrl);
-        const unitPriceCents = asPositiveInt(body.unitPriceCents, "unitPriceCents");
         if (!nameFr || !PRODUCT_CATEGORIES.includes(category) || !["L", "kg", "pièce"].includes(unit)) {
           throw new Error("Les informations du produit sont incomplètes.");
         }
-        await db
-          .prepare(
-            "INSERT INTO products (name_fr, name_ar, name_en, category, unit, unit_price_cents, image_position, image_url, active) VALUES (?, ?, ?, ?, ?, ?, 'none', ?, 1)",
-          )
-          .bind(nameFr, nameAr, nameEn, category, unit, unitPriceCents, imageUrl)
-          .run();
+        const { error } = await db.from("products").insert({
+          name_fr: nameFr,
+          name_ar: asText(body.nameAr),
+          name_en: asText(body.nameEn),
+          category,
+          unit,
+          unit_price_cents: asPositiveInt(body.unitPriceCents, "unitPriceCents"),
+          image_position: "none",
+          image_url: asProductImageUrl(body.imageUrl),
+          active: true,
+        });
+        throwIfSupabaseError(error);
         break;
       }
 
@@ -650,70 +605,61 @@ export async function POST(request: Request) {
         requireRole(viewer.role, "admin");
         const productId = asPositiveInt(body.productId, "productId");
         const nameFr = asText(body.nameFr);
-        const nameAr = asText(body.nameAr);
-        const nameEn = asText(body.nameEn);
         const category = asText(body.category);
         const unit = asText(body.unit);
-        const unitPriceCents = asPositiveInt(body.unitPriceCents, "unitPriceCents");
         const removeImage = body.removeImage === true;
         const hasReplacementImage = body.imageUrl !== undefined && body.imageUrl !== null;
         const replacementImageUrl = hasReplacementImage ? asProductImageUrl(body.imageUrl) : null;
-
         if (!nameFr || !PRODUCT_CATEGORIES.includes(category) || !["L", "kg", "pièce"].includes(unit)) {
           throw new Error("Les informations du produit sont incomplètes.");
         }
 
-        const currentProduct = await db
-          .prepare("SELECT image_url, unit FROM products WHERE id = ? AND active = 1")
-          .bind(productId)
-          .first<{ image_url: string | null; unit: string }>();
+        const { data: currentProduct, error: currentError } = await db
+          .from("products")
+          .select("image_url, unit")
+          .eq("id", productId)
+          .eq("active", true)
+          .maybeSingle();
+        throwIfSupabaseError(currentError);
         if (!currentProduct) throw new Error("Produit introuvable.");
 
         if (unit !== currentProduct.unit) {
-          const previousOrder = await db
-            .prepare("SELECT id FROM cart_items WHERE product_id = ? LIMIT 1")
-            .bind(productId)
-            .first<{ id: number }>();
+          const { data: previousOrder, error: orderError } = await db
+            .from("cart_items")
+            .select("id")
+            .eq("product_id", productId)
+            .limit(1)
+            .maybeSingle();
+          throwIfSupabaseError(orderError);
           if (previousOrder) {
             throw new Error("L’unité ne peut plus être modifiée après la première commande.");
           }
         }
 
+        const updates: Record<string, unknown> = {
+          name_fr: nameFr,
+          name_ar: asText(body.nameAr),
+          name_en: asText(body.nameEn),
+          category,
+          unit,
+          unit_price_cents: asPositiveInt(body.unitPriceCents, "unitPriceCents"),
+          updated_at: nowIso(),
+        };
         if (removeImage || hasReplacementImage) {
-          await db
-            .prepare(
-              "UPDATE products SET name_fr = ?, name_ar = ?, name_en = ?, category = ?, unit = ?, unit_price_cents = ?, image_url = ?, image_position = ?, updated_at = ? WHERE id = ? AND active = 1",
-            )
-            .bind(
-              nameFr,
-              nameAr,
-              nameEn,
-              category,
-              unit,
-              unitPriceCents,
-              removeImage ? null : replacementImageUrl,
-              removeImage ? "none" : "0% 0%",
-              nowIso(),
-              productId,
-            )
-            .run();
-        } else {
-          await db
-            .prepare(
-              "UPDATE products SET name_fr = ?, name_ar = ?, name_en = ?, category = ?, unit = ?, unit_price_cents = ?, updated_at = ? WHERE id = ? AND active = 1",
-            )
-            .bind(nameFr, nameAr, nameEn, category, unit, unitPriceCents, nowIso(), productId)
-            .run();
+          updates.image_url = removeImage ? null : replacementImageUrl;
+          updates.image_position = removeImage ? "none" : "0% 0%";
         }
+        const { error: updateError } = await db
+          .from("products")
+          .update(updates)
+          .eq("id", productId)
+          .eq("active", true);
+        throwIfSupabaseError(updateError);
 
         const previousImageKey = uploadedProductImageKey(currentProduct.image_url);
         const replacementImageKey = uploadedProductImageKey(replacementImageUrl);
-        if (
-          previousImageKey &&
-          previousImageKey !== replacementImageKey &&
-          (removeImage || hasReplacementImage)
-        ) {
-          await env.BUCKET?.delete(previousImageKey).catch(() => undefined);
+        if (previousImageKey && previousImageKey !== replacementImageKey && (removeImage || hasReplacementImage)) {
+          await db.storage.from(PRODUCT_IMAGE_BUCKET).remove([previousImageKey]);
         }
         break;
       }
@@ -721,25 +667,25 @@ export async function POST(request: Request) {
       case "remove_product": {
         requireRole(viewer.role, "admin");
         const productId = asPositiveInt(body.productId, "productId");
-        const activeCartItem = await db
-          .prepare(
-            `SELECT ci.id
-             FROM cart_items ci
-             JOIN carts c ON c.id = ci.cart_id
-             WHERE ci.product_id = ? AND c.status IN ('pending', 'ready', 'shopping')
-             LIMIT 1`,
-          )
-          .bind(productId)
-          .first<{ id: number }>();
-        if (activeCartItem) {
-          throw new Error("Ce produit est encore présent dans un panier actif.");
-        }
+        const { data: activeItem, error: activeError } = await db
+          .from("cart_items")
+          .select("id, carts!inner(status)")
+          .eq("product_id", productId)
+          .in("carts.status", ACTIVE_CART_STATUSES)
+          .limit(1)
+          .maybeSingle();
+        throwIfSupabaseError(activeError);
+        if (activeItem) throw new Error("Ce produit est encore présent dans un panier actif.");
 
-        const result = await db
-          .prepare("UPDATE products SET active = 0, updated_at = ? WHERE id = ? AND active = 1")
-          .bind(nowIso(), productId)
-          .run();
-        if (!result.meta.changes) throw new Error("Produit introuvable.");
+        const { data, error } = await db
+          .from("products")
+          .update({ active: false, updated_at: nowIso() })
+          .eq("id", productId)
+          .eq("active", true)
+          .select("id")
+          .maybeSingle();
+        throwIfSupabaseError(error);
+        if (!data) throw new Error("Produit introuvable.");
         break;
       }
 
@@ -747,7 +693,7 @@ export async function POST(request: Request) {
         throw new Error("Action inconnue.");
     }
 
-    return Response.json(await readState(db, viewer));
+    return Response.json(await readState(viewer));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erreur inattendue.";
     return Response.json({ error: message }, { status: 400 });

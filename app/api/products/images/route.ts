@@ -1,17 +1,13 @@
-import { env } from "cloudflare:workers";
-
 import { getRequestFamilyUser } from "@/lib/family-auth";
+import { getSupabaseAdmin } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const PRODUCT_IMAGE_BUCKET = "product-images";
 const IMAGE_KEY_PATTERN =
   /^product-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/;
-
-function getBucket() {
-  if (!env.BUCKET) throw new Error("Le stockage des images est indisponible.");
-  return env.BUCKET;
-}
 
 function imageType(bytes: Uint8Array) {
   const isJpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
@@ -55,15 +51,16 @@ export async function GET(request: Request) {
   if (!key) return Response.json({ error: "Image invalide." }, { status: 400 });
 
   try {
-    const object = await getBucket().get(key);
-    if (!object) return Response.json({ error: "Image introuvable." }, { status: 404 });
+    const { data, error } = await getSupabaseAdmin().storage
+      .from(PRODUCT_IMAGE_BUCKET)
+      .download(key);
+    if (error || !data) return Response.json({ error: "Image introuvable." }, { status: 404 });
 
     const headers = new Headers();
-    object.writeHttpMetadata(headers);
-    headers.set("etag", object.httpEtag);
+    headers.set("content-type", data.type || "application/octet-stream");
     headers.set("cache-control", "private, max-age=31536000, immutable");
     headers.set("x-content-type-options", "nosniff");
-    return new Response(object.body, { headers });
+    return new Response(data, { headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Image indisponible.";
     return Response.json({ error: message }, { status: 500 });
@@ -97,12 +94,14 @@ export async function POST(request: Request) {
     }
 
     const key = `product-images/${crypto.randomUUID()}.${type.extension}`;
-    await getBucket().put(key, bytes, {
-      httpMetadata: {
+    const { error } = await getSupabaseAdmin().storage
+      .from(PRODUCT_IMAGE_BUCKET)
+      .upload(key, bytes, {
         contentType: type.contentType,
-        cacheControl: "private, max-age=31536000, immutable",
-      },
-    });
+        cacheControl: "31536000",
+        upsert: false,
+      });
+    if (error) throw new Error(error.message);
 
     return Response.json({ imageUrl: `/api/products/images?key=${encodeURIComponent(key)}` });
   } catch (error) {

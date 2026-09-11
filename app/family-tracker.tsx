@@ -710,7 +710,10 @@ export function FamilyTracker({
         current
           ? {
               ...current,
-              products: [product, ...current.products.filter((entry) => entry.id !== product.id)],
+              products: [
+                { ...product, has_orders: 0 },
+                ...current.products.filter((entry) => entry.id !== product.id),
+              ],
             }
           : current,
       );

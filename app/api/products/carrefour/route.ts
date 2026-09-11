@@ -1,8 +1,8 @@
-import { env } from "cloudflare:workers";
-
 import { getRequestFamilyUser } from "@/lib/family-auth";
+import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const CARREFOUR_API =
   "https://backend.carrefour.ma/api/products?isPromotion=true&status=active&limit=1000&page=1";
@@ -36,23 +36,6 @@ type CarrefourCatalogProduct = {
   crossed_price_cents: number | null;
   package_size: string | null;
   store: string;
-};
-
-type LocalProduct = {
-  id: number;
-  name_fr: string;
-  name_ar: string;
-  name_en: string;
-  category: string;
-  unit: "pièce";
-  unit_price_cents: number;
-  image_position: string;
-  image_url: string | null;
-  barcode: string | null;
-  package_size: string | null;
-  external_source: string | null;
-  external_id: string | null;
-  purchase_count: number;
 };
 
 const localProductColumns = `id, name_fr, name_ar, name_en, category, unit,
@@ -254,11 +237,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const access = await requireMember(request);
   if ("response" in access) return access.response;
-  if (!env.DB) {
-    return Response.json({ error: "La base de données est indisponible." }, { status: 500 });
-  }
-
   try {
+    const db = getSupabaseAdmin();
     const body = (await request.json()) as { externalId?: unknown };
     const externalId = cleanText(body.externalId, 100);
     if (!externalId) {
@@ -274,46 +254,43 @@ export async function POST(request: Request) {
       );
     }
 
-    const existing = await env.DB.prepare(
-      "SELECT id FROM products WHERE external_source = 'carrefour' AND external_id = ?",
-    )
-      .bind(source.external_id)
-      .first<{ id: number }>();
+    const { data: existing, error: existingError } = await db
+      .from("products")
+      .select("id, purchase_count")
+      .eq("external_source", "carrefour")
+      .eq("external_id", source.external_id)
+      .maybeSingle();
+    throwIfSupabaseError(existingError);
 
-    await env.DB.prepare(
-      `INSERT INTO products
-       (name_fr, name_ar, name_en, category, unit, unit_price_cents, image_position,
-        image_url, package_size, external_source, external_id, purchase_count, active, updated_at)
-       VALUES (?, ?, ?, ?, 'pièce', ?, '0% 0%', ?, ?, 'carrefour', ?, 0, 1, CURRENT_TIMESTAMP)
-       ON CONFLICT(external_source, external_id) DO UPDATE SET
-         name_fr = excluded.name_fr,
-         name_ar = excluded.name_ar,
-         name_en = excluded.name_en,
-         category = excluded.category,
-         unit_price_cents = excluded.unit_price_cents,
-         image_url = excluded.image_url,
-         package_size = excluded.package_size,
-         active = 1,
-         updated_at = CURRENT_TIMESTAMP`,
-    )
-      .bind(
-        source.name,
-        source.name,
-        source.name,
-        source.category,
-        source.price_cents,
-        source.image_url,
-        source.package_size,
-        source.external_id,
-      )
-      .run();
+    const { error: upsertError } = await db.from("products").upsert(
+      {
+        name_fr: source.name,
+        name_ar: source.name,
+        name_en: source.name,
+        category: source.category,
+        unit: "pièce",
+        unit_price_cents: source.price_cents,
+        image_position: "0% 0%",
+        image_url: source.image_url,
+        package_size: source.package_size,
+        external_source: "carrefour",
+        external_id: source.external_id,
+        purchase_count: existing?.purchase_count ?? 0,
+        active: true,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "external_source,external_id" },
+    );
+    throwIfSupabaseError(upsertError);
 
-    const product = await env.DB.prepare(
-      `SELECT ${localProductColumns}
-       FROM products WHERE external_source = 'carrefour' AND external_id = ? AND active = 1`,
-    )
-      .bind(source.external_id)
-      .first<LocalProduct>();
+    const { data: product, error: productError } = await db
+      .from("products")
+      .select(localProductColumns)
+      .eq("external_source", "carrefour")
+      .eq("external_id", source.external_id)
+      .eq("active", true)
+      .maybeSingle();
+    throwIfSupabaseError(productError);
     if (!product) throw new Error("Le produit Carrefour n’a pas pu être enregistré.");
 
     return Response.json({ product, imported: !existing });

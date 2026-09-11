@@ -1,6 +1,7 @@
 # Family Expense Tracker
 
-Family shopping and expense website with private, role-based family accounts.
+Family shopping and expense website with private, role-based family accounts,
+hosted on Vercel with Supabase for shared data and product images.
 
 ## Pages
 
@@ -15,12 +16,11 @@ Members can also browse the live Carrefour Morocco catalogue. The server keeps o
 
 ## Run locally
 
-```bash
-npm run dev
-```
+1. Run the SQL migration in `supabase/migrations/` on the Supabase project.
+2. Copy `.dev.vars.example` to `.env.local` and configure the three values.
+3. Run `npm run dev`. The home page opens the shared login.
 
-Open `http://localhost:5173`. The home page opens the shared login.
-
-Copy `.dev.vars.example` to `.dev.vars`, choose a private starter password, and never commit that local file. Real family PINs belong only in the private database—not in this public repository.
+Real family PINs and Supabase secret keys must remain in private environment
+variables and must never be committed.
 
 The website source is in `app/`, the database schema is in `db/`, and database migrations are in `drizzle/`.
