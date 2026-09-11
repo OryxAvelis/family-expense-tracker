@@ -46,12 +46,16 @@ export const products = sqliteTable(
     unit: text("unit", { enum: ["L", "kg", "pièce"] }).notNull(),
     unitPriceCents: integer("unit_price_cents").notNull(),
     imagePosition: text("image_position").notNull().default("0% 0%"),
+    imageUrl: text("image_url"),
+    barcode: text("barcode"),
+    packageSize: text("package_size"),
     purchaseCount: integer("purchase_count").notNull().default(0),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
-    uniqueIndex("idx_products_name_fr").on(table.nameFr),
+    index("idx_products_name_fr").on(table.nameFr),
+    uniqueIndex("idx_products_barcode").on(table.barcode),
     index("idx_products_category_active").on(table.category, table.active),
   ],
 );

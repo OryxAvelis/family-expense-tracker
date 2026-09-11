@@ -15,6 +15,13 @@
       "when": 1789145068372,
       "tag": "0001_slimy_hiroim",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789151558937,
+      "tag": "0002_romantic_trauma",
+      "breakpoints": true
     }
   ]
 }

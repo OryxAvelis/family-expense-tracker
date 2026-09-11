@@ -30,6 +30,14 @@ function asPositiveInt(value: unknown, field: string) {
   return parsed;
 }
 
+function asNonNegativeInt(value: unknown, field: string) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${field} est invalide.`);
+  }
+  return parsed;
+}
+
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -150,7 +158,9 @@ async function readState(db: D1Database, viewer: FamilySessionUser) {
       .all<{ id: number; name: string; username: string; role: FamilyRole; initials: string }>(),
     db
       .prepare(
-        "SELECT id, name_fr, name_ar, name_en, category, unit, unit_price_cents, image_position, purchase_count FROM products WHERE active = 1 ORDER BY purchase_count DESC, name_fr",
+        `SELECT id, name_fr, name_ar, name_en, category, unit, unit_price_cents,
+                image_position, image_url, barcode, package_size, purchase_count
+         FROM products WHERE active = 1 ORDER BY purchase_count DESC, name_fr`,
       )
       .all<{
         id: number;
@@ -161,6 +171,9 @@ async function readState(db: D1Database, viewer: FamilySessionUser) {
         unit: string;
         unit_price_cents: number;
         image_position: string;
+        image_url: string | null;
+        barcode: string | null;
+        package_size: string | null;
         purchase_count: number;
       }>(),
     db
@@ -181,7 +194,8 @@ async function readState(db: D1Database, viewer: FamilySessionUser) {
       .prepare(
         `SELECT ci.id, ci.cart_id, ci.product_id, ci.quantity_hundredths,
                 ci.requested_unit_price_cents, ci.actual_unit_price_cents, ci.purchase_status,
-                p.name_fr, p.name_ar, p.name_en, p.unit, p.image_position
+                p.name_fr, p.name_ar, p.name_en, p.unit, p.image_position,
+                p.image_url, p.package_size
          FROM cart_items ci
          JOIN products p ON p.id = ci.product_id
          JOIN carts c ON c.id = ci.cart_id
@@ -403,10 +417,10 @@ export async function POST(request: Request) {
         const itemId = asPositiveInt(body.itemId, "itemId");
         const purchaseStatus =
           body.purchaseStatus === "bought" ? "bought" : "unbought";
-        const actualUnitPriceCents = asPositiveInt(
-          body.actualUnitPriceCents,
-          "actualUnitPriceCents",
-        );
+        const actualUnitPriceCents =
+          purchaseStatus === "bought"
+            ? asPositiveInt(body.actualUnitPriceCents, "actualUnitPriceCents")
+            : asNonNegativeInt(body.actualUnitPriceCents, "actualUnitPriceCents");
         const result = await db
           .prepare(
             `UPDATE cart_items

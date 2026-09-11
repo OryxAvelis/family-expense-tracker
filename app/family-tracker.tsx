@@ -17,6 +17,7 @@ import {
   PackagePlus,
   Pencil,
   Plus,
+  ScanBarcode,
   Search,
   ShoppingBasket,
   ShoppingCart,
@@ -67,6 +68,10 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toaster } from "@/components/ui/sonner";
+import {
+  BarcodeScannerDialog,
+  type ScannedCatalogProduct,
+} from "@/app/barcode-scanner-dialog";
 import { useFamilyTheme } from "@/hooks/use-family-theme";
 import type { FamilySessionUser } from "@/lib/family-auth";
 
@@ -93,6 +98,9 @@ type Product = {
   unit: "L" | "kg" | "pièce";
   unit_price_cents: number;
   image_position: string;
+  image_url: string | null;
+  barcode: string | null;
+  package_size: string | null;
   purchase_count: number;
 };
 
@@ -122,6 +130,8 @@ type CartItem = {
   name_en: string;
   unit: Product["unit"];
   image_position: string;
+  image_url: string | null;
+  package_size: string | null;
 };
 
 type MonthlyTotal = {
@@ -202,6 +212,9 @@ const words = {
     darkMode: "Activer le mode sombre",
     logout: "Se déconnecter",
     newOrder: "Nouvelle",
+    scanProduct: "Scanner un produit",
+    priceToConfirm: "Prix à confirmer",
+    scannedAdded: "Produit scanné ajouté au panier.",
   },
   ar: {
     brand: "مصاريف العائلة",
@@ -266,6 +279,9 @@ const words = {
     darkMode: "تفعيل الوضع الداكن",
     logout: "تسجيل الخروج",
     newOrder: "جديدة",
+    scanProduct: "مسح منتج",
+    priceToConfirm: "السعر يحتاج إلى تأكيد",
+    scannedAdded: "تمت إضافة المنتج إلى السلة.",
   },
   en: {
     brand: "Family expenses",
@@ -330,6 +346,9 @@ const words = {
     darkMode: "Turn on dark mode",
     logout: "Sign out",
     newOrder: "New",
+    scanProduct: "Scan a product",
+    priceToConfirm: "Price to confirm",
+    scannedAdded: "Scanned product added to the cart.",
   },
 } as const;
 
@@ -350,21 +369,40 @@ const categoryKeys = ["all", "food", "cleaning", "hygiene", "school", "household
 function ProductImage({
   position,
   name,
+  imageUrl,
   className = "",
 }: {
   position: string;
   name: string;
+  imageUrl?: string | null;
   className?: string;
 }) {
+  let safeRemoteImage: string | null = null;
+  if (imageUrl) {
+    try {
+      const parsed = new URL(imageUrl);
+      if (
+        parsed.protocol === "https:" &&
+        (parsed.hostname === "openfoodfacts.org" || parsed.hostname.endsWith(".openfoodfacts.org"))
+      ) {
+        safeRemoteImage = parsed.toString();
+      }
+    } catch {
+      safeRemoteImage = null;
+    }
+  }
+
   return (
     <div
       role="img"
       aria-label={name}
-      className={`bg-cover bg-no-repeat ${className}`}
+      className={`bg-center bg-no-repeat ${safeRemoteImage ? "bg-white" : ""} ${className}`}
       style={{
-        backgroundImage: "url('/product-sprite.png')",
-        backgroundPosition: position,
-        backgroundSize: "200% 200%",
+        backgroundImage: safeRemoteImage
+          ? `url("${safeRemoteImage}")`
+          : "url('/product-sprite.png')",
+        backgroundPosition: safeRemoteImage ? "center" : position,
+        backgroundSize: safeRemoteImage ? "contain" : "200% 200%",
       }}
     />
   );
@@ -392,6 +430,7 @@ export function FamilyTracker({
   const [deliveryPrices, setDeliveryPrices] = useState<Record<number, string>>({});
   const [productPrices, setProductPrices] = useState<Record<number, string>>({});
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [scanDialogOpen, setScanDialogOpen] = useState(false);
   const [newProduct, setNewProduct] = useState({
     nameFr: "",
     nameAr: "",
@@ -489,6 +528,29 @@ export function FamilyTracker({
           ? product.name_en || product.name_fr
           : product.name_fr,
     [language],
+  );
+
+  const addScannedProduct = useCallback(
+    (product: ScannedCatalogProduct) => {
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              products: [product, ...current.products.filter((entry) => entry.id !== product.id)],
+            }
+          : current,
+      );
+      setProductPrices((current) => ({
+        ...current,
+        [product.id]: (product.unit_price_cents / 100).toFixed(2),
+      }));
+      setDraft((current) => ({
+        ...current,
+        [product.id]: (current[product.id] ?? 0) + 100,
+      }));
+      toast.success(t.scannedAdded);
+    },
+    [t.scannedAdded],
   );
 
   const money = (cents: number) => {
@@ -993,15 +1055,27 @@ export function FamilyTracker({
 
             {memberView === "catalog" ? (
               <>
-                <div className="relative mb-5 max-w-2xl">
-                  <Search className="pointer-events-none absolute start-4 top-1/2 z-10 size-5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    aria-label={t.search}
-                    placeholder={t.search}
-                    className="h-14 rounded-2xl border-border bg-card/75 ps-12 text-base placeholder:text-muted-foreground focus-visible:border-primary/60 focus-visible:ring-primary/15"
-                  />
+                <div className="mb-5 flex max-w-3xl gap-2">
+                  <div className="relative min-w-0 flex-1">
+                    <Search className="pointer-events-none absolute start-4 top-1/2 z-10 size-5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      aria-label={t.search}
+                      placeholder={t.search}
+                      className="h-14 rounded-2xl border-border bg-card/75 ps-12 text-base placeholder:text-muted-foreground focus-visible:border-primary/60 focus-visible:ring-primary/15"
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="h-14 shrink-0 rounded-2xl border-primary/25 bg-card/75 px-4 text-primary"
+                    onClick={() => setScanDialogOpen(true)}
+                    aria-label={t.scanProduct}
+                    title={t.scanProduct}
+                  >
+                    <ScanBarcode className="size-5" />
+                    <span className="hidden sm:inline">{t.scanProduct}</span>
+                  </Button>
                 </div>
 
                 <div className="scrollbar-none -mx-5 mb-8 flex gap-2 overflow-x-auto px-5 sm:-mx-8 sm:px-8 lg:mx-0 lg:px-0">
@@ -1034,6 +1108,7 @@ export function FamilyTracker({
                         <ProductImage
                           position={product.image_position}
                           name={productName(product)}
+                          imageUrl={product.image_url}
                           className="relative aspect-[1.05] transition-transform duration-500 group-hover:scale-[1.02]"
                         />
                         <div className="p-3.5 sm:p-4">
@@ -1044,10 +1119,12 @@ export function FamilyTracker({
                             )}
                           </div>
                           <Badge variant="outline" className="mb-3 border-border bg-muted/45 text-muted-foreground">
-                            1 {product.unit}
+                            {product.package_size || `1 ${product.unit}`}
                           </Badge>
                           <div className="flex items-end justify-between gap-2">
-                            <p className="text-lg font-bold tracking-tight sm:text-xl">{money(product.unit_price_cents)}</p>
+                            <p className="text-lg font-bold tracking-tight sm:text-xl">
+                              {product.unit_price_cents > 0 ? money(product.unit_price_cents) : t.priceToConfirm}
+                            </p>
                             <Button
                               size="icon-sm"
                               className="rounded-xl"
@@ -1155,6 +1232,15 @@ export function FamilyTracker({
         </nav>
       )}
 
+      {role === "member" && (
+        <BarcodeScannerDialog
+          open={scanDialogOpen}
+          onOpenChange={setScanDialogOpen}
+          language={language}
+          onProduct={addScannedProduct}
+        />
+      )}
+
       <Sheet open={cartOpen} onOpenChange={setCartOpen}>
         <SheetContent side={language === "ar" ? "left" : "right"} className="w-[92%] border-border bg-card sm:max-w-md">
           <SheetHeader className="p-5 pb-2">
@@ -1166,10 +1252,14 @@ export function FamilyTracker({
               <div className="space-y-3">
                 {draftProducts.map(({ product, quantity }) => (
                   <div key={product.id} className="flex items-center gap-3 rounded-2xl border border-border bg-muted/45 p-3">
-                    <ProductImage position={product.image_position} name={productName(product)} className="size-16 shrink-0 rounded-xl" />
+                    <ProductImage position={product.image_position} imageUrl={product.image_url} name={productName(product)} className="size-16 shrink-0 rounded-xl" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-semibold">{productName(product)}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{money(product.unit_price_cents)} / {product.unit}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {product.unit_price_cents > 0
+                          ? `${money(product.unit_price_cents)} / ${product.unit}`
+                          : t.priceToConfirm}
+                      </p>
                     </div>
                     <div className="flex items-center gap-1 rounded-xl bg-background p-1">
                       <Button size="icon-xs" variant="ghost" onClick={() => changeQuantity(product, -1)} aria-label="Réduire">
@@ -1505,10 +1595,12 @@ function AdminDashboard({
           <div className="grid gap-3 md:grid-cols-2">
             {data.products.map((product) => (
               <article key={product.id} className="flex items-center gap-4 rounded-2xl border border-border bg-card p-3">
-                <ProductImage position={product.image_position} name={productName(product)} className="size-16 shrink-0 rounded-xl" />
+                <ProductImage position={product.image_position} imageUrl={product.image_url} name={productName(product)} className="size-16 shrink-0 rounded-xl" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold">{productName(product)}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">1 {product.unit} · {t[product.category as keyof CopySet] ?? product.category}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {product.package_size || `1 ${product.unit}`} · {t[product.category as keyof CopySet] ?? product.category}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <Input
@@ -1651,10 +1743,13 @@ function DeliveryDashboard({
               <div className="space-y-3">
                 {activeItems.map((item) => (
                   <div key={item.id} className="grid gap-3 rounded-2xl border border-border bg-muted/35 p-3 sm:grid-cols-[64px_1fr_125px_auto] sm:items-center">
-                    <ProductImage position={item.image_position} name={productName(item)} className="size-16 rounded-xl" />
+                    <ProductImage position={item.image_position} imageUrl={item.image_url} name={productName(item)} className="size-16 rounded-xl" />
                     <div className="min-w-0">
                       <p className="truncate font-semibold">{productName(item)}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{quantityLabel(item.quantity_hundredths, item.unit)}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {quantityLabel(item.quantity_hundredths, item.unit)}
+                        {item.package_size ? ` · ${item.package_size}` : ""}
+                      </p>
                     </div>
                     <div>
                       <Label htmlFor={`delivery-price-${item.id}`} className="mb-1.5 text-xs text-muted-foreground">{t.price}</Label>

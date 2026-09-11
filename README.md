@@ -9,6 +9,8 @@ Family shopping and expense website with private, role-based family accounts.
 - `/livreur` — immediately receive new carts and record real prices
 - `/admin` — prioritize requests, manage products, and view the monthly total
 
+Members can scan a packaged product barcode to import its name, pack size, and photo from Open Food Facts. The buyer still records the real local price. Camera scanning works on `localhost` and deployed HTTPS pages; the code can always be entered manually.
+
 ## Run locally
 
 ```bash
