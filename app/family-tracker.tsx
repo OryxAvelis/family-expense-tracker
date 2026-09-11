@@ -419,7 +419,9 @@ function ProductImage({
   className?: string;
 }) {
   let safeRemoteImage: string | null = null;
-  if (imageUrl) {
+  if (imageUrl?.startsWith("/products/") && !imageUrl.includes("..")) {
+    safeRemoteImage = imageUrl;
+  } else if (imageUrl) {
     try {
       const parsed = new URL(imageUrl);
       const isCarrefourStorage =

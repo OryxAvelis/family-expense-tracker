@@ -9,7 +9,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const HOUSE_CATALOG_IMAGE_VERSION = "1";
+const HOUSE_CATALOG_IMAGE_VERSION = "2";
 const HOUSE_CATALOG_IMAGES = [
   [
     1,
@@ -34,7 +34,7 @@ const HOUSE_CATALOG_IMAGES = [
   [
     7,
     "Thé vert",
-    "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/713071-1-2.jpg",
+    "/products/tea-assam-401.png",
   ],
   [
     8,
@@ -116,6 +116,11 @@ async function syncHouseCatalogImages(db: D1Database) {
         )
         .bind(imageUrl, updatedAt, id, nameFr),
     ),
+    db
+      .prepare(
+        "UPDATE products SET unit_price_cents = ?, updated_at = ? WHERE id = ? AND name_fr = ?",
+      )
+      .bind(2000, updatedAt, 7, "Thé vert"),
     db
       .prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)")
       .bind("house_catalog_image_version", HOUSE_CATALOG_IMAGE_VERSION),
