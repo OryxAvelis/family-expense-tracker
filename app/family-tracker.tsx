@@ -180,7 +180,8 @@ const words = {
     queue: "File d’achats",
     history: "Historique",
     finish: "Terminer ce panier",
-    next: "Paniers suivants",
+    next: "Autres paniers",
+    openCart: "Ouvrir le panier de",
     noQueue: "Aucun panier à acheter.",
     notifications: "Notifications",
     rolePreview: "Aperçu du rôle",
@@ -243,7 +244,8 @@ const words = {
     queue: "قائمة الشراء",
     history: "السجل",
     finish: "إنهاء هذه السلة",
-    next: "السلال التالية",
+    next: "سلال أخرى",
+    openCart: "فتح سلة",
     noQueue: "لا توجد سلة للشراء.",
     notifications: "الإشعارات",
     rolePreview: "معاينة الدور",
@@ -306,7 +308,8 @@ const words = {
     queue: "Shopping queue",
     history: "History",
     finish: "Finish this cart",
-    next: "Next carts",
+    next: "Other carts",
+    openCart: "Open cart from",
     noQueue: "No cart to purchase.",
     notifications: "Notifications",
     rolePreview: "Role preview",
@@ -1594,8 +1597,12 @@ function DeliveryDashboard({
   t: CopySet;
   language: Language;
 }) {
-  const first = queue[0];
-  const activeItems = first ? itemsFor(first.id) : [];
+  const [selectedCartId, setSelectedCartId] = useState<number | null>(null);
+  const selectedCart = queue.find((cart) => cart.id === selectedCartId) ?? queue[0];
+  const otherCarts = selectedCart
+    ? queue.filter((cart) => cart.id !== selectedCart.id)
+    : [];
+  const activeItems = selectedCart ? itemsFor(selectedCart.id) : [];
   const completeReady = activeItems.length > 0 && activeItems.every((item) => item.purchase_status !== "requested");
 
   return (
@@ -1616,28 +1623,28 @@ function DeliveryDashboard({
       </div>
 
       {view === "queue" ? (
-        first ? (
+        selectedCart ? (
           <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
             <article className="rounded-[2rem] border border-border bg-card p-5 sm:p-7">
               <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <span className="grid size-12 place-items-center rounded-2xl bg-primary/12 font-bold text-primary">{first.member_initials}</span>
+                  <span className="grid size-12 place-items-center rounded-2xl bg-primary/12 font-bold text-primary">{selectedCart.member_initials}</span>
                   <div>
-                    <p className="text-lg font-semibold">{first.member_name} · {t.cart} #{first.id}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{new Date(first.submitted_at).toLocaleString(language === "ar" ? "ar-MA" : language === "en" ? "en-MA" : "fr-MA", { dateStyle: "medium", timeStyle: "short" })}</p>
+                    <p className="text-lg font-semibold">{selectedCart.member_name} · {t.cart} #{selectedCart.id}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{new Date(selectedCart.submitted_at).toLocaleString(language === "ar" ? "ar-MA" : language === "en" ? "en-MA" : "fr-MA", { dateStyle: "medium", timeStyle: "short" })}</p>
                   </div>
                 </div>
                 <Badge
                   className={
-                    first.priority === "urgent"
+                    selectedCart.priority === "urgent"
                       ? "bg-[#ffb454] text-[#211609]"
-                      : first.priority === "normal"
+                      : selectedCart.priority === "normal"
                         ? "bg-primary/12 text-primary"
                         : "bg-blue-500/12 text-blue-700 dark:text-blue-300"
                   }
                 >
-                  {first.priority === "urgent" ? <AlertTriangle /> : <Clock3 />}
-                  {first.priority === "urgent" ? t.urgent : first.priority === "normal" ? t.normal : t.newOrder}
+                  {selectedCart.priority === "urgent" ? <AlertTriangle /> : <Clock3 />}
+                  {selectedCart.priority === "urgent" ? t.urgent : selectedCart.priority === "normal" ? t.normal : t.newOrder}
                 </Badge>
               </div>
 
@@ -1700,7 +1707,7 @@ function DeliveryDashboard({
                   size="lg"
                   className="h-12 rounded-2xl"
                   disabled={!completeReady || busy}
-                  onClick={() => void act({ action: "finish_cart", actorRole: "delivery", cartId: first.id }, "Panier terminé et enregistré.")}
+                  onClick={() => void act({ action: "finish_cart", actorRole: "delivery", cartId: selectedCart.id }, "Panier terminé et enregistré.")}
                 >
                   {busy ? <Loader2 className="animate-spin" /> : <PackageCheck />}
                   {t.finish}
@@ -1711,13 +1718,19 @@ function DeliveryDashboard({
             <aside>
               <h2 className="mb-4 font-semibold">{t.next}</h2>
               <div className="space-y-3">
-                {queue.slice(1).map((cart, index) => (
-                  <div key={cart.id} className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4">
-                    <span className="grid size-10 place-items-center rounded-xl bg-muted text-sm font-bold text-primary">{index + 2}</span>
+                {otherCarts.map((cart) => (
+                  <button
+                    key={cart.id}
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-4 text-start transition hover:border-primary/35 hover:bg-primary/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    onClick={() => setSelectedCartId(cart.id)}
+                    aria-label={`${t.openCart} ${cart.member_name} #${cart.id}`}
+                  >
+                    <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-muted text-sm font-bold text-primary">{queue.findIndex((entry) => entry.id === cart.id) + 1}</span>
                     <div className="min-w-0 flex-1"><p className="truncate font-semibold">{cart.member_name}</p><p className="text-xs text-muted-foreground">{itemsFor(cart.id).length} {t.items}</p></div>
                     {cart.priority === "urgent" && <AlertTriangle className="size-4 text-[#ffb454]" />}
                     <ChevronRight className="size-4 text-muted-foreground" />
-                  </div>
+                  </button>
                 ))}
                 {queue.length === 1 && <p className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">—</p>}
               </div>
