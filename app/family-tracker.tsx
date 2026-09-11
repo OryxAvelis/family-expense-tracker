@@ -426,7 +426,9 @@ function ProductImage({
         parsed.hostname === "storage.googleapis.com" &&
         parsed.pathname.startsWith("/crftobringo-sharing-ma-prelive/");
       const isCarrefourHost =
-        parsed.hostname === "backend.carrefour.ma" || parsed.hostname === "assets.carrefour.ma";
+        parsed.hostname === "backend.carrefour.ma" ||
+        parsed.hostname === "assets.carrefour.ma" ||
+        parsed.hostname === "media.carrefour.fr";
       if (
         parsed.protocol === "https:" &&
         (parsed.hostname === "openfoodfacts.org" ||

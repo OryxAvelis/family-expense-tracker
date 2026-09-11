@@ -9,6 +9,60 @@ import {
 
 export const dynamic = "force-dynamic";
 
+const HOUSE_CATALOG_IMAGE_VERSION = "1";
+const HOUSE_CATALOG_IMAGES = [
+  [
+    1,
+    "Lait entier",
+    "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/559965-1-5.jpg",
+  ],
+  [
+    3,
+    "Huile d’olive",
+    "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/571202-1-2.jpg",
+  ],
+  [
+    5,
+    "Sucre",
+    "https://media.carrefour.fr/medias/5127cba8d810345e86422a69e8d91a60/p_1500x1500/3560071410964-photosite-20211005-181348-0.jpg",
+  ],
+  [
+    6,
+    "Œufs",
+    "https://media.carrefour.fr/medias/9af29a281e983cfe972ae7035de9bcd2/p_1500x1500/3348680000123-photosite-20160831-084739-0.jpg",
+  ],
+  [
+    7,
+    "Thé vert",
+    "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/713071-1-2.jpg",
+  ],
+  [
+    8,
+    "Lessive",
+    "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/704718-1-2.jpg",
+  ],
+  [
+    9,
+    "Savon",
+    "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/747002-1-3.jpg",
+  ],
+  [
+    10,
+    "Dentifrice",
+    "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/163607-1-2.jpg",
+  ],
+  [
+    11,
+    "Cahier",
+    "https://media.carrefour.fr/medias/02251d8f86ee43908b21141159cf43e5/p_1500x1500/3616958825946_0.jpg",
+  ],
+  [
+    12,
+    "Papier cuisine",
+    "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/530609-1-4.jpg",
+  ],
+] as const;
+
 type ActionBody = {
   action?: string;
   actorRole?: "admin" | "delivery" | "member";
@@ -46,12 +100,37 @@ function requireRole(actualRole: FamilyRole, requiredRole: FamilyRole) {
   if (actualRole !== requiredRole) throw new Error("Action non autorisée pour ce rôle.");
 }
 
+async function syncHouseCatalogImages(db: D1Database) {
+  const synced = await db
+    .prepare("SELECT value FROM app_meta WHERE key = ?")
+    .bind("house_catalog_image_version")
+    .first<{ value: string }>();
+  if (synced?.value === HOUSE_CATALOG_IMAGE_VERSION) return;
+
+  const updatedAt = nowIso();
+  await db.batch([
+    ...HOUSE_CATALOG_IMAGES.map(([id, nameFr, imageUrl]) =>
+      db
+        .prepare(
+          "UPDATE products SET image_url = ?, image_position = '0% 0%', updated_at = ? WHERE id = ? AND name_fr = ?",
+        )
+        .bind(imageUrl, updatedAt, id, nameFr),
+    ),
+    db
+      .prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)")
+      .bind("house_catalog_image_version", HOUSE_CATALOG_IMAGE_VERSION),
+  ]);
+}
+
 async function seedIfNeeded(db: D1Database) {
   const seeded = await db
     .prepare("SELECT value FROM app_meta WHERE key = ?")
     .bind("starter_seed")
     .first<{ value: string }>();
-  if (seeded) return;
+  if (seeded) {
+    await syncHouseCatalogImages(db);
+    return;
+  }
 
   const current = new Date();
   const isoDaysAgo = (days: number) =>
@@ -147,6 +226,7 @@ async function seedIfNeeded(db: D1Database) {
   ];
 
   await db.batch(statements);
+  await syncHouseCatalogImages(db);
 }
 
 async function readState(db: D1Database, viewer: FamilySessionUser) {
