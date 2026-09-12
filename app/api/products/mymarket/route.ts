@@ -9,6 +9,8 @@ const SHOPIFY_PAGE_SIZE = 250;
 const MAX_CATALOG_PAGES = 20;
 const PAGE_BATCH_SIZE = 4;
 const CACHE_DURATION_MS = 30 * 60 * 1000;
+const SEARCH_CACHE_DURATION_MS = 5 * 60 * 1000;
+const MAX_SEARCH_CACHE_ENTRIES = 60;
 
 type Language = "fr" | "ar" | "en";
 
@@ -37,6 +39,27 @@ type MyMarketApiResponse = {
   products?: MyMarketApiProduct[];
 };
 
+type MyMarketSearchProduct = {
+  available?: unknown;
+  compare_at_price_max?: unknown;
+  featured_image?: { url?: unknown } | null;
+  handle?: unknown;
+  id?: unknown;
+  image?: unknown;
+  price?: unknown;
+  tags?: unknown;
+  title?: unknown;
+  type?: unknown;
+};
+
+type MyMarketSearchResponse = {
+  resources?: {
+    results?: {
+      products?: MyMarketSearchProduct[];
+    };
+  };
+};
+
 type MyMarketCatalogProduct = {
   external_id: string;
   name: string;
@@ -58,6 +81,10 @@ const catalogueCache = new Map<
   { expiresAt: number; products: MyMarketCatalogProduct[] }
 >();
 const catalogueRequests = new Map<Language, Promise<MyMarketCatalogProduct[]>>();
+const searchCache = new Map<
+  string,
+  { expiresAt: number; products: MyMarketCatalogProduct[] }
+>();
 let animalIdsCache: { expiresAt: number; ids: Set<string> } | null = null;
 let animalIdsRequest: Promise<Set<string>> | null = null;
 
@@ -91,6 +118,15 @@ function collectionUrl(handle: string, language: Language, page: number) {
 
 function productUrl(handle: string, language: Language) {
   return `${MYMARKET_BASE_URL}${localizedPath(language)}/products/${encodeURIComponent(handle)}.js`;
+}
+
+function searchUrl(query: string, language: Language) {
+  const url = new URL(`${MYMARKET_BASE_URL}${localizedPath(language)}/search/suggest.json`);
+  url.searchParams.set("q", query);
+  url.searchParams.set("resources[type]", "product");
+  url.searchParams.set("resources[limit]", "10");
+  url.searchParams.set("resources[options][unavailable_products]", "hide");
+  return url.toString();
 }
 
 async function fetchJson<T>(url: string, unavailableMessage: string) {
@@ -267,6 +303,54 @@ function toCatalogProduct(
   };
 }
 
+function toSearchCatalogProduct(
+  source: MyMarketSearchProduct,
+  animalIds: Set<string>,
+): MyMarketCatalogProduct | null {
+  const product: MyMarketApiProduct = {
+    id: source.id,
+    title: source.title,
+    handle: source.handle,
+    product_type: source.type,
+    tags: source.tags,
+  };
+  const externalId = identifier(source.id);
+  const name = cleanText(source.title);
+  const handle = cleanText(source.handle, 180);
+  const price = Number(source.price);
+  const priceCents = Math.round(price * 100);
+
+  if (
+    source.available !== true ||
+    !externalId ||
+    !name ||
+    !handle ||
+    !Number.isFinite(price) ||
+    priceCents <= 0 ||
+    isAnimalProduct(product, animalIds)
+  ) {
+    return null;
+  }
+
+  const compareAtPrice = Number(source.compare_at_price_max);
+  const crossedPriceCents =
+    Number.isFinite(compareAtPrice) && compareAtPrice > price
+      ? Math.round(compareAtPrice * 100)
+      : null;
+
+  return {
+    external_id: externalId,
+    name,
+    category: appCategory(product),
+    image_url: safeImageUrl(source.featured_image?.url ?? source.image),
+    price_cents: priceCents,
+    crossed_price_cents: crossedPriceCents,
+    package_size: packageSize(source.title),
+    store: "MyMarket",
+    handle,
+  };
+}
+
 async function fetchAnimalIds() {
   if (animalIdsCache && animalIdsCache.expiresAt > Date.now()) return animalIdsCache.ids;
   if (animalIdsRequest) return animalIdsRequest;
@@ -317,6 +401,55 @@ async function fetchMyMarketCatalogue(language: Language) {
   }
 }
 
+async function searchMyMarketCatalogue(query: string, preferredLanguage: Language) {
+  const cacheKey = `${preferredLanguage}:${normalized(query)}`;
+  const cached = searchCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.products;
+
+  const languages = [
+    preferredLanguage,
+    ...(["fr", "ar", "en"] as Language[]).filter(
+      (language) => language !== preferredLanguage,
+    ),
+  ];
+  const [responses, animalIds] = await Promise.all([
+    Promise.all(
+      languages.map((language) =>
+        fetchJson<MyMarketSearchResponse>(
+          searchUrl(query, language),
+          "La recherche MyMarket est momentanément indisponible.",
+        ),
+      ),
+    ),
+    fetchAnimalIds(),
+  ]);
+  const products = new Map<string, MyMarketCatalogProduct>();
+
+  for (const response of responses) {
+    const results = response.resources?.results?.products;
+    if (!Array.isArray(results)) {
+      throw new Error("Le format de recherche MyMarket a changé.");
+    }
+    for (const source of results) {
+      const product = toSearchCatalogProduct(source, animalIds);
+      if (product && !products.has(product.external_id)) {
+        products.set(product.external_id, product);
+      }
+    }
+  }
+
+  const searchResults = [...products.values()];
+  if (searchCache.size >= MAX_SEARCH_CACHE_ENTRIES) {
+    const oldestKey = searchCache.keys().next().value;
+    if (oldestKey) searchCache.delete(oldestKey);
+  }
+  searchCache.set(cacheKey, {
+    expiresAt: Date.now() + SEARCH_CACHE_DURATION_MS,
+    products: searchResults,
+  });
+  return searchResults;
+}
+
 function requestedLanguage(request: Request): Language {
   const value = new URL(request.url).searchParams.get("lang");
   return value === "ar" || value === "en" ? value : "fr";
@@ -353,7 +486,11 @@ export async function GET(request: Request) {
   if ("response" in access) return access.response;
 
   try {
-    const products = await fetchMyMarketCatalogue(requestedLanguage(request));
+    const language = requestedLanguage(request);
+    const query = cleanText(new URL(request.url).searchParams.get("q"), 120);
+    const products = query
+      ? await searchMyMarketCatalogue(query, language)
+      : await fetchMyMarketCatalogue(language);
     return Response.json(
       {
         products: products.map((product) => ({

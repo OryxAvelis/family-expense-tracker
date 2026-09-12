@@ -277,6 +277,7 @@ const words = {
     myMarketHint: "Prix MyMarket en ligne — Salma confirme le prix réel.",
     myMarketRules: "Tous les rayons sauf Animaux",
     myMarketLoading: "Chargement du catalogue MyMarket…",
+    myMarketSearching: "Recherche dans les trois langues…",
     myMarketAdded: "Produit MyMarket ajouté au panier.",
     promotion: "Promo",
     loadMore: "Afficher plus",
@@ -369,6 +370,7 @@ const words = {
     myMarketHint: "ثمن MyMarket على الإنترنت — سلمى تؤكد الثمن الحقيقي.",
     myMarketRules: "كل الأقسام ما عدا الحيوانات",
     myMarketLoading: "جارٍ تحميل منتجات MyMarket…",
+    myMarketSearching: "جارٍ البحث باللغات الثلاث…",
     myMarketAdded: "تمت إضافة منتج MyMarket إلى السلة.",
     promotion: "تخفيض",
     loadMore: "عرض المزيد",
@@ -461,6 +463,7 @@ const words = {
     myMarketHint: "Online MyMarket price — Salma confirms the real price.",
     myMarketRules: "All departments except Animals",
     myMarketLoading: "Loading the MyMarket catalog…",
+    myMarketSearching: "Searching in all three languages…",
     myMarketAdded: "MyMarket product added to the cart.",
     promotion: "Promo",
     loadMore: "Show more",
@@ -612,6 +615,12 @@ export function FamilyTracker({
   const [myMarketError, setMyMarketError] = useState("");
   const [myMarketVisible, setMyMarketVisible] = useState(24);
   const [myMarketBusyId, setMyMarketBusyId] = useState<string | null>(null);
+  const [myMarketRemoteSearch, setMyMarketRemoteSearch] = useState<{
+    query: string;
+    products: MyMarketProduct[];
+  }>({ query: "", products: [] });
+  const [myMarketSearchingQuery, setMyMarketSearchingQuery] = useState("");
+  const myMarketSearchSequence = useRef(0);
   const [newProduct, setNewProduct] = useState({
     nameFr: "",
     nameAr: "",
@@ -623,6 +632,9 @@ export function FamilyTracker({
   const { theme, toggleTheme } = useFamilyTheme();
 
   const t = words[language];
+  const myMarketSearching =
+    search.trim().length >= 2 &&
+    myMarketSearchingQuery === search.trim().toLocaleLowerCase();
 
   const applyData = useCallback((payload: AppData) => {
     setData(payload);
@@ -695,6 +707,50 @@ export function FamilyTracker({
     const initialLoad = window.setTimeout(() => void loadMyMarketCatalogue(), 0);
     return () => window.clearTimeout(initialLoad);
   }, [catalogSource, language, loadMyMarketCatalogue, myMarketLoadedLanguage, role]);
+
+  useEffect(() => {
+    const query = search.trim();
+    const normalizedQuery = query.toLocaleLowerCase();
+    const sequence = ++myMarketSearchSequence.current;
+
+    if (role !== "member" || catalogSource !== "mymarket" || query.length < 2) {
+      return;
+    }
+
+    const searchDelay = window.setTimeout(async () => {
+      setMyMarketSearchingQuery(normalizedQuery);
+      try {
+        const parameters = new URLSearchParams({ lang: language, q: query });
+        const response = await fetch(`/api/products/mymarket?${parameters.toString()}`, {
+          cache: "no-store",
+        });
+        const payload = (await response.json()) as {
+          products?: MyMarketProduct[];
+          error?: string;
+        };
+        if (response.status === 401) {
+          window.location.replace("/connexion");
+          return;
+        }
+        if (!response.ok || !Array.isArray(payload.products)) {
+          throw new Error(payload.error || "Recherche MyMarket indisponible.");
+        }
+        if (myMarketSearchSequence.current === sequence) {
+          setMyMarketRemoteSearch({ query: normalizedQuery, products: payload.products });
+        }
+      } catch {
+        if (myMarketSearchSequence.current === sequence) {
+          setMyMarketRemoteSearch({ query: normalizedQuery, products: [] });
+        }
+      } finally {
+        if (myMarketSearchSequence.current === sequence) {
+          setMyMarketSearchingQuery("");
+        }
+      }
+    }, 300);
+
+    return () => window.clearTimeout(searchDelay);
+  }, [catalogSource, language, role, search]);
 
   useEffect(() => {
     const refreshWhenVisible = () => {
@@ -857,12 +913,21 @@ export function FamilyTracker({
 
   const filteredMyMarketProducts = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase();
-    return myMarketProducts.filter((product) => {
+    const localMatches = myMarketProducts.filter((product) => {
       const categoryMatch = category === "all" || product.category === category;
       const textMatch = !needle || product.name.toLocaleLowerCase().includes(needle);
       return categoryMatch && textMatch;
     });
-  }, [myMarketProducts, category, search]);
+    if (!needle || myMarketRemoteSearch.query !== needle) return localMatches;
+
+    const mergedMatches = new Map<string, MyMarketProduct>();
+    for (const product of [...myMarketRemoteSearch.products, ...localMatches]) {
+      if (category === "all" || product.category === category) {
+        mergedMatches.set(product.external_id, product);
+      }
+    }
+    return [...mergedMatches.values()];
+  }, [category, myMarketProducts, myMarketRemoteSearch, search]);
 
   const visibleMyMarketProducts = filteredMyMarketProducts.slice(0, myMarketVisible);
 
@@ -1574,6 +1639,11 @@ export function FamilyTracker({
                       </div>
                     )}
                   </>
+                ) : myMarketSearching && search.trim().length >= 2 ? (
+                  <div className="rounded-3xl border border-dashed border-border bg-card/60 p-10 text-center text-muted-foreground">
+                    <Loader2 className="mx-auto mb-3 size-7 animate-spin text-primary" />
+                    {t.myMarketSearching}
+                  </div>
                 ) : (
                   <div className="rounded-3xl border border-dashed border-border bg-card/60 p-10 text-center text-muted-foreground">
                     <Search className="mx-auto mb-3 size-7" />
