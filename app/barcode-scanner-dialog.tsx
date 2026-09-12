@@ -6,12 +6,13 @@ import {
   Flashlight,
   FlashlightOff,
   Focus,
+  ImageUp,
   Keyboard,
   Loader2,
   ScanBarcode,
   Search,
 } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -72,6 +73,8 @@ const fallbackCameraConstraints: MediaStreamConstraints = {
   },
 };
 
+const maxBarcodeImageBytes = 12 * 1024 * 1024;
+
 async function applyAdvancedCameraConstraint(
   track: MediaStreamTrack,
   constraint: CameraConstraintSet,
@@ -86,6 +89,8 @@ const scannerCopy = {
     title: "Scanner un produit",
     description: "Visez son code-barres : le produit sera ajouté directement au panier.",
     start: "Activer la caméra",
+    upload: "Importer une photo",
+    readingImage: "Lecture de la photo…",
     scanning: "Gardez le code à 15–25 cm, bien à plat dans le cadre",
     refocus: "Refaire la mise au point",
     torchOn: "Allumer la lampe",
@@ -95,14 +100,19 @@ const scannerCopy = {
     placeholder: "Ex. 3017624010701",
     lookup: "Rechercher",
     invalid: "Saisissez un code-barres de 8 à 14 chiffres.",
+    imageInvalid: "Choisissez une image contenant un code-barres.",
+    imageTooLarge: "Cette image est trop lourde (12 Mo maximum).",
+    imageNotFound: "Aucun code-barres lisible dans cette image.",
     permission: "Autorisez la caméra, puis réessayez. Vous pouvez aussi saisir le code.",
-    source: "Nom, format et photo via Open Food Facts. Le prix réel sera confirmé par Salma.",
+    source: "Recherche d’abord dans MyMarket, puis dans Open Food Facts. Salma confirme le prix réel.",
     fallback: "Impossible d’ouvrir la caméra. Saisissez le code ci-dessous.",
   },
   ar: {
     title: "مسح منتج",
     description: "وجّه الكاميرا نحو الرمز وسيُضاف المنتج مباشرة إلى السلة.",
     start: "تشغيل الكاميرا",
+    upload: "رفع صورة",
+    readingImage: "جارٍ قراءة الصورة…",
     scanning: "أبقِ الرمز على بُعد 15–25 سم وبشكل مستقيم داخل الإطار",
     refocus: "إعادة التركيز",
     torchOn: "تشغيل الضوء",
@@ -112,14 +122,19 @@ const scannerCopy = {
     placeholder: "مثال 3017624010701",
     lookup: "بحث",
     invalid: "أدخل رمزاً من 8 إلى 14 رقماً.",
+    imageInvalid: "اختر صورة تحتوي على رمز شريطي.",
+    imageTooLarge: "حجم الصورة كبير جداً (الحد الأقصى 12 ميغابايت).",
+    imageNotFound: "لم يتم العثور على رمز شريطي واضح في الصورة.",
     permission: "اسمح باستخدام الكاميرا ثم أعد المحاولة، أو أدخل الرمز يدوياً.",
-    source: "الاسم والحجم والصورة من Open Food Facts. تؤكد سلمى السعر الحقيقي.",
+    source: "يبدأ البحث في MyMarket ثم Open Food Facts. تؤكد سلمى السعر الحقيقي.",
     fallback: "تعذر تشغيل الكاميرا. أدخل الرمز أدناه.",
   },
   en: {
     title: "Scan a product",
     description: "Point at its barcode and the product will be added directly to the cart.",
     start: "Turn on camera",
+    upload: "Upload a photo",
+    readingImage: "Reading photo…",
     scanning: "Hold it flat, 15–25 cm away, inside the frame",
     refocus: "Refocus camera",
     torchOn: "Turn on light",
@@ -129,8 +144,11 @@ const scannerCopy = {
     placeholder: "Example: 3017624010701",
     lookup: "Search",
     invalid: "Enter a barcode containing 8 to 14 digits.",
+    imageInvalid: "Choose an image that contains a barcode.",
+    imageTooLarge: "This image is too large (12 MB maximum).",
+    imageNotFound: "No readable barcode was found in this image.",
     permission: "Allow camera access and try again, or enter the code manually.",
-    source: "Name, pack size, and photo come from Open Food Facts. Salma confirms the real price.",
+    source: "Searches MyMarket first, then Open Food Facts. Salma confirms the real price.",
     fallback: "The camera could not open. Enter the code below.",
   },
 } as const;
@@ -150,7 +168,9 @@ export function BarcodeScannerDialog({
   const [cameraStatus, setCameraStatus] = useState<"idle" | "starting" | "scanning">("idle");
   const [error, setError] = useState("");
   const [lookupBusy, setLookupBusy] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
   const lookupControllerRef = useRef<AbortController | null>(null);
   const cameraAttemptRef = useRef(0);
@@ -188,6 +208,7 @@ export function BarcodeScannerDialog({
         setBarcode("");
         setError("");
         setLookupBusy(false);
+        setImageBusy(false);
         setCameraStatus("idle");
         setFocusAvailable(false);
         setTorchAvailable(false);
@@ -434,10 +455,57 @@ export function BarcodeScannerDialog({
     void lookup(barcode);
   };
 
+  const scanBarcodeImage = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError(t.imageInvalid);
+      return;
+    }
+    if (file.size > maxBarcodeImageBytes) {
+      setError(t.imageTooLarge);
+      return;
+    }
+
+    stopCamera();
+    const imageAttempt = cameraAttemptRef.current;
+    setCameraStatus("idle");
+    setImageBusy(true);
+    setError("");
+    const imageUrl = URL.createObjectURL(file);
+    try {
+      const { BarcodeFormat, BrowserMultiFormatOneDReader } = await import("@zxing/browser");
+      const reader = new BrowserMultiFormatOneDReader();
+      reader.possibleFormats = [
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E,
+        BarcodeFormat.CODE_128,
+        BarcodeFormat.CODE_39,
+        BarcodeFormat.ITF,
+      ];
+      const result = await reader.decodeFromImageUrl(imageUrl);
+      if (cameraAttemptRef.current !== imageAttempt) return;
+      await lookup(result.getText());
+    } catch {
+      if (cameraAttemptRef.current === imageAttempt) setError(t.imageNotFound);
+    } finally {
+      URL.revokeObjectURL(imageUrl);
+      if (cameraAttemptRef.current === imageAttempt) setImageBusy(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogContent className="max-h-[92svh] overflow-y-auto rounded-[1.75rem] border-border bg-card sm:max-w-xl">
-        <DialogHeader>
+      <DialogContent
+        className="max-h-[94svh] overflow-hidden rounded-[1.5rem] border-border bg-card p-0 sm:max-w-lg"
+        dir={language === "ar" ? "rtl" : "ltr"}
+        lang={language}
+      >
+        <div className="grid max-h-[94svh] gap-4 overflow-y-auto p-4 sm:p-6">
+        <DialogHeader className="pe-10">
           <div className="mb-1 flex items-center gap-3">
             <span className="grid size-11 place-items-center rounded-2xl bg-primary/12 text-primary">
               <ScanBarcode className="size-5" />
@@ -447,7 +515,40 @@ export function BarcodeScannerDialog({
           <DialogDescription className="leading-6">{t.description}</DialogDescription>
         </DialogHeader>
 
-        <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-[#08110f]">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <Button
+            type="button"
+            className="h-11 rounded-xl"
+            onClick={() => void startCamera()}
+            disabled={cameraStatus !== "idle" || lookupBusy || imageBusy}
+          >
+            {cameraStatus === "starting" ? <Loader2 className="animate-spin" /> : <Camera />}
+            {t.start}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11 rounded-xl"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={lookupBusy || imageBusy}
+          >
+            {imageBusy ? <Loader2 className="animate-spin" /> : <ImageUp />}
+            {imageBusy ? t.readingImage : t.upload}
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={(event) => void scanBarcodeImage(event)}
+          />
+        </div>
+
+        <div
+          className={`relative aspect-video max-h-[34svh] overflow-hidden rounded-2xl bg-[#08110f] ${
+            cameraStatus === "idle" ? "hidden" : ""
+          }`}
+        >
           <video ref={videoRef} muted playsInline className="size-full object-cover" />
           {cameraStatus === "scanning" ? (
             <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/10">
@@ -459,7 +560,7 @@ export function BarcodeScannerDialog({
                       type="button"
                       size="icon-sm"
                       variant="secondary"
-                      className="rounded-full bg-black/70 text-white hover:bg-black/85 hover:text-white"
+                      className="size-11 rounded-full bg-black/70 text-white hover:bg-black/85 hover:text-white"
                       onClick={() => void refocusCamera()}
                       aria-label={t.refocus}
                       title={t.refocus}
@@ -472,7 +573,7 @@ export function BarcodeScannerDialog({
                       type="button"
                       size="icon-sm"
                       variant="secondary"
-                      className="rounded-full bg-black/70 text-white hover:bg-black/85 hover:text-white"
+                      className="size-11 rounded-full bg-black/70 text-white hover:bg-black/85 hover:text-white"
                       onClick={() => void toggleTorch()}
                       aria-label={torchOn ? t.torchOff : t.torchOn}
                       aria-pressed={torchOn}
@@ -488,16 +589,8 @@ export function BarcodeScannerDialog({
               </p>
             </div>
           ) : (
-            <div className="absolute inset-0 grid place-items-center bg-gradient-to-b from-black/15 to-black/55 p-6 text-center">
-              <Button
-                type="button"
-                className="rounded-xl"
-                onClick={() => void startCamera()}
-                disabled={cameraStatus === "starting" || lookupBusy}
-              >
-                {cameraStatus === "starting" ? <Loader2 className="animate-spin" /> : <Camera />}
-                {t.start}
-              </Button>
+            <div className="absolute inset-0 grid place-items-center bg-gradient-to-b from-black/15 to-black/55">
+              <Loader2 className="size-7 animate-spin text-white" />
             </div>
           )}
         </div>
@@ -521,7 +614,12 @@ export function BarcodeScannerDialog({
               placeholder={t.placeholder}
               className="h-11 rounded-xl"
             />
-            <Button type="submit" className="h-11 rounded-xl" disabled={lookupBusy}>
+            <Button
+              type="submit"
+              className="h-11 rounded-xl"
+              disabled={lookupBusy}
+              aria-label={t.lookup}
+            >
               {lookupBusy ? <Loader2 className="animate-spin" /> : <Search />}
               <span className="hidden sm:inline">{t.lookup}</span>
             </Button>
@@ -534,6 +632,7 @@ export function BarcodeScannerDialog({
           </p>
         )}
         <p className="text-xs leading-5 text-muted-foreground">{t.source}</p>
+        </div>
       </DialogContent>
     </Dialog>
   );

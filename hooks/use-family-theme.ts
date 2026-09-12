@@ -10,12 +10,12 @@ function applyTheme(theme: FamilyTheme) {
 }
 
 export function useFamilyTheme() {
-  const [theme, setTheme] = useState<FamilyTheme>("dark");
+  const [theme, setTheme] = useState<FamilyTheme>("light");
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       const savedTheme = window.localStorage.getItem("family-expense-theme");
-      const nextTheme: FamilyTheme = savedTheme === "light" ? "light" : "dark";
+      const nextTheme: FamilyTheme = savedTheme === "dark" ? "dark" : "light";
       setTheme(nextTheme);
       applyTheme(nextTheme);
     });

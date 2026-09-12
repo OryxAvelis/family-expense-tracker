@@ -21,6 +21,7 @@ import {
   Plus,
   ScanBarcode,
   Search,
+  Settings2,
   ShoppingBasket,
   ShoppingCart,
   Sparkles,
@@ -85,6 +86,7 @@ import {
   BarcodeScannerDialog,
   type ScannedCatalogProduct,
 } from "@/app/barcode-scanner-dialog";
+import { AdminAnalyticsCharts } from "@/app/admin-analytics-charts";
 import { useFamilyTheme } from "@/hooks/use-family-theme";
 import type { FamilySessionUser } from "@/lib/family-auth";
 
@@ -282,6 +284,16 @@ const words = {
     promotion: "Promo",
     loadMore: "Afficher plus",
     noProducts: "Aucun produit trouvé.",
+    settings: "Réglages",
+    settingsTitle: "Vos réglages",
+    settingsDescription: "Personnalisez l’affichage et consultez votre compte.",
+    account: "Compte",
+    appearance: "Apparence",
+    languageSetting: "Langue de l’interface",
+    themeSetting: "Thème de l’application",
+    light: "Clair",
+    dark: "Sombre",
+    username: "Nom d’utilisateur",
   },
   ar: {
     brand: "مصاريف العائلة",
@@ -375,6 +387,16 @@ const words = {
     promotion: "تخفيض",
     loadMore: "عرض المزيد",
     noProducts: "لم يتم العثور على أي منتج.",
+    settings: "الإعدادات",
+    settingsTitle: "إعداداتك",
+    settingsDescription: "خصّص المظهر وراجع معلومات حسابك.",
+    account: "الحساب",
+    appearance: "المظهر",
+    languageSetting: "لغة الواجهة",
+    themeSetting: "مظهر التطبيق",
+    light: "فاتح",
+    dark: "داكن",
+    username: "اسم المستخدم",
   },
   en: {
     brand: "Family expenses",
@@ -468,6 +490,16 @@ const words = {
     promotion: "Promo",
     loadMore: "Show more",
     noProducts: "No products found.",
+    settings: "Settings",
+    settingsTitle: "Your settings",
+    settingsDescription: "Personalize the display and review your account.",
+    account: "Account",
+    appearance: "Appearance",
+    languageSetting: "Interface language",
+    themeSetting: "App theme",
+    light: "Light",
+    dark: "Dark",
+    username: "Username",
   },
 } as const;
 
@@ -596,7 +628,7 @@ export function FamilyTracker({
   const [busy, setBusy] = useState(false);
   const [language, setLanguage] = useState<Language>("fr");
   const [memberId] = useState(currentUser.id);
-  const [memberView, setMemberView] = useState<"catalog" | "carts">("catalog");
+  const [memberView, setMemberView] = useState<"catalog" | "carts" | "settings">("catalog");
   const [deliveryView, setDeliveryView] = useState<"queue" | "history">("queue");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
@@ -630,6 +662,11 @@ export function FamilyTracker({
     price: "",
   });
   const { theme, toggleTheme } = useFamilyTheme();
+
+  const updateLanguage = useCallback((nextLanguage: Language) => {
+    setLanguage(nextLanguage);
+    window.localStorage.setItem("family-expense-language", nextLanguage);
+  }, []);
 
   const t = words[language];
   const myMarketSearching =
@@ -767,6 +804,16 @@ export function FamilyTracker({
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [loadData]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const savedLanguage = window.localStorage.getItem("family-expense-language");
+      if (savedLanguage === "fr" || savedLanguage === "ar" || savedLanguage === "en") {
+        setLanguage(savedLanguage);
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     document.documentElement.lang = language;
@@ -1294,6 +1341,15 @@ export function FamilyTracker({
               >
                 <ListChecks />
               </Button>
+              <Button
+                size="icon-lg"
+                variant={memberView === "settings" ? "default" : "ghost"}
+                className="rounded-2xl"
+                onClick={() => setMemberView("settings")}
+                aria-label={t.settings}
+              >
+                <Settings2 />
+              </Button>
             </>
           )}
           {role === "admin" && <UserCog className="mt-3 size-6 text-primary" />}
@@ -1304,10 +1360,10 @@ export function FamilyTracker({
         </div>
       </aside>
 
-      <div className="min-h-screen pb-24 lg:ps-24 lg:pb-0">
-        <header className="sticky top-0 z-20 border-b border-border/80 bg-background/88 px-4 py-3 backdrop-blur-xl sm:px-8 lg:px-12">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
+      <div className="min-h-screen pb-[calc(6rem+env(safe-area-inset-bottom))] lg:ps-24 lg:pb-0">
+        <header className="sticky top-0 z-20 border-b border-border/80 bg-background/88 px-3 py-3 backdrop-blur-xl sm:px-8 lg:px-12">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 sm:gap-3">
+            <div className="flex min-w-0 items-center gap-3 max-[430px]:hidden">
               <div className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary font-black text-primary-foreground lg:hidden">
                 D
               </div>
@@ -1317,11 +1373,11 @@ export function FamilyTracker({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="ms-auto flex items-center gap-1 sm:gap-2">
               <Button
-                size="icon-lg"
+                size="icon"
                 variant="ghost"
-                className="rounded-xl border border-border bg-card/70"
+                className="size-11 rounded-xl border border-border bg-card/70"
                 onClick={toggleTheme}
                 aria-label={theme === "dark" ? t.lightMode : t.darkMode}
                 title={theme === "dark" ? t.lightMode : t.darkMode}
@@ -1329,8 +1385,8 @@ export function FamilyTracker({
                 {theme === "dark" ? <Sun /> : <Moon />}
               </Button>
 
-              <Select value={language} onValueChange={(value) => setLanguage(value as Language)}>
-                <SelectTrigger aria-label="Langue" className="h-10 w-12 rounded-xl border-border bg-card/70 px-3 sm:w-[7.2rem]">
+              <Select value={language} onValueChange={(value) => updateLanguage(value as Language)}>
+                <SelectTrigger aria-label="Langue" className="h-11 w-11 rounded-xl border-border bg-card/70 px-3 sm:w-[7.2rem]">
                   <Languages className="size-4" />
                   <span className="hidden sm:inline"><SelectValue /></span>
                 </SelectTrigger>
@@ -1344,9 +1400,9 @@ export function FamilyTracker({
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
-                    size="icon-lg"
+                    size="icon"
                     variant="ghost"
-                    className="relative rounded-xl border border-border bg-card/70"
+                    className="relative size-11 rounded-xl border border-border bg-card/70"
                     aria-label={t.notifications}
                   >
                     <Bell />
@@ -1368,9 +1424,9 @@ export function FamilyTracker({
               </Popover>
 
               <Button
-                size="icon-lg"
+                size="icon"
                 variant="ghost"
-                className="rounded-xl border border-border bg-card/70"
+                className="size-11 rounded-xl border border-border bg-card/70"
                 onClick={() => {
                   void fetch("/api/auth/logout", { method: "POST" }).finally(() => {
                     window.location.assign("/connexion");
@@ -1384,7 +1440,7 @@ export function FamilyTracker({
 
               {role === "member" && (
                 <Button
-                  className="h-10 rounded-xl px-3"
+                  className="h-11 rounded-xl px-2 sm:px-3"
                   onClick={() => setCartOpen(true)}
                   aria-label={t.cart}
                 >
@@ -1404,7 +1460,12 @@ export function FamilyTracker({
             <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
               <div>
                 <p className="mb-2 text-sm font-semibold text-[#b76500] dark:text-[#ffb454]">{t.hello}, {currentUser.name} 👋</p>
-                <h1 className="max-w-2xl text-3xl font-bold leading-tight tracking-[-0.045em] sm:text-4xl">{t.question}</h1>
+                <h1 className="max-w-2xl text-3xl font-bold leading-tight tracking-[-0.045em] sm:text-4xl">
+                  {memberView === "catalog" ? t.question : memberView === "carts" ? t.carts : t.settingsTitle}
+                </h1>
+                {memberView === "settings" && (
+                  <p className="mt-2 text-sm text-muted-foreground sm:text-base">{t.settingsDescription}</p>
+                )}
               </div>
               <div className="flex h-11 items-center gap-2 rounded-xl border border-border bg-card/70 px-4 text-sm font-medium">
                 <UserRound className="size-4 text-primary" /> {currentUser.name}
@@ -1505,7 +1566,7 @@ export function FamilyTracker({
 
                 {catalogSource === "family" ? (
                   filteredProducts.length ? (
-                    <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
+                    <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
                       {filteredProducts.map((product) => (
                         <article key={product.id} className="group overflow-hidden rounded-[1.35rem] border border-border bg-card shadow-[0_18px_50px_rgba(0,0,0,0.10)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.15)]">
                           <ProductImage
@@ -1548,7 +1609,7 @@ export function FamilyTracker({
                     </div>
                   )
                 ) : myMarketLoading ? (
-                  <div aria-label={t.myMarketLoading} className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
+                  <div aria-label={t.myMarketLoading} className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
                     {Array.from({ length: 8 }, (_, index) => (
                       <div key={index} className="overflow-hidden rounded-[1.35rem] border border-border bg-card p-3">
                         <Skeleton className="aspect-[1.05] w-full rounded-2xl" />
@@ -1567,7 +1628,7 @@ export function FamilyTracker({
                   </div>
                 ) : visibleMyMarketProducts.length ? (
                   <>
-                    <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
+                    <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
                       {visibleMyMarketProducts.map((product) => (
                         <article
                           key={product.external_id}
@@ -1651,7 +1712,7 @@ export function FamilyTracker({
                   </div>
                 )}
               </>
-            ) : (
+            ) : memberView === "carts" ? (
               <MemberCarts
                 carts={memberActive}
                 latestResult={latestMemberResult}
@@ -1669,6 +1730,15 @@ export function FamilyTracker({
                     "Panier annulé.",
                   )
                 }
+              />
+            ) : (
+              <MemberSettings
+                currentUser={currentUser}
+                language={language}
+                setLanguage={updateLanguage}
+                theme={theme}
+                toggleTheme={toggleTheme}
+                t={t}
               />
             )}
           </section>
@@ -1720,7 +1790,7 @@ export function FamilyTracker({
       </div>
 
       {role === "member" && (
-        <nav aria-label="Navigation mobile" className="fixed inset-x-3 bottom-3 z-30 grid grid-cols-2 rounded-[1.4rem] border border-border bg-card/95 p-2 shadow-[0_20px_60px_rgba(0,0,0,0.20)] backdrop-blur-xl lg:hidden">
+        <nav aria-label="Navigation mobile" className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 grid grid-cols-3 rounded-[1.4rem] border border-border bg-card/95 p-2 shadow-[0_20px_60px_rgba(0,0,0,0.20)] backdrop-blur-xl lg:hidden">
           <Button
             variant="ghost"
             className={`h-14 flex-col gap-1 rounded-2xl ${memberView === "catalog" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`}
@@ -1734,6 +1804,13 @@ export function FamilyTracker({
             onClick={() => setMemberView("carts")}
           >
             <ListChecks className="size-5" /><span className="text-[11px]">{t.carts}</span>
+          </Button>
+          <Button
+            variant="ghost"
+            className={`h-14 flex-col gap-1 rounded-2xl ${memberView === "settings" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`}
+            onClick={() => setMemberView("settings")}
+          >
+            <Settings2 className="size-5" /><span className="text-[11px]">{t.settings}</span>
           </Button>
         </nav>
       )}
@@ -1757,8 +1834,8 @@ export function FamilyTracker({
             {draftProducts.length ? (
               <div className="space-y-3">
                 {draftProducts.map(({ product, quantity }) => (
-                  <div key={product.id} className="flex items-center gap-3 rounded-2xl border border-border bg-muted/45 p-3">
-                    <ProductImage position={product.image_position} imageUrl={product.image_url} name={productName(product)} className="size-16 shrink-0 rounded-xl" />
+                  <div key={product.id} className="grid grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-3 rounded-2xl border border-border bg-muted/45 p-3 min-[390px]:flex">
+                    <ProductImage position={product.image_position} imageUrl={product.image_url} name={productName(product)} className="size-14 shrink-0 rounded-xl min-[390px]:size-16" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-semibold">{productName(product)}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
@@ -1767,7 +1844,7 @@ export function FamilyTracker({
                           : t.priceToConfirm}
                       </p>
                     </div>
-                    <div className="flex items-center gap-1 rounded-xl bg-background p-1">
+                    <div className="col-span-2 ms-auto flex w-full items-center justify-between gap-1 rounded-xl bg-background p-1 min-[390px]:w-auto">
                       <Button size="icon-xs" variant="ghost" onClick={() => changeQuantity(product, -1)} aria-label="Réduire">
                         <X />
                       </Button>
@@ -1805,7 +1882,7 @@ export function FamilyTracker({
               <p className="text-end text-xs text-muted-foreground">{missingProductsNote.length}/500</p>
             </div>
           </div>
-          <SheetFooter className="border-t border-border p-5">
+          <SheetFooter className="border-t border-border p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm text-muted-foreground">{t.estimate}</span>
               <strong className="text-xl">{money(draftTotal)}</strong>
@@ -1827,6 +1904,116 @@ export function FamilyTracker({
 }
 
 type CopySet = (typeof words)[Language];
+
+function MemberSettings({
+  currentUser,
+  language,
+  setLanguage,
+  theme,
+  toggleTheme,
+  t,
+}: {
+  currentUser: FamilySessionUser;
+  language: Language;
+  setLanguage: (language: Language) => void;
+  theme: "light" | "dark";
+  toggleTheme: () => void;
+  t: CopySet;
+}) {
+  const logout = () => {
+    void fetch("/api/auth/logout", { method: "POST" }).finally(() => {
+      window.location.assign("/connexion");
+    });
+  };
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
+      <article className="rounded-[1.75rem] border border-border bg-card p-5 sm:p-6">
+        <div className="mb-6 flex items-center gap-4">
+          <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-primary text-lg font-black text-primary-foreground">
+            {currentUser.initials}
+          </span>
+          <div className="min-w-0">
+            <h2 className="truncate text-xl font-semibold">{currentUser.name}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{t.member}</p>
+          </div>
+        </div>
+        <div className="rounded-2xl bg-muted/55 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {t.username}
+          </p>
+          <p className="mt-2 break-all font-medium">@{currentUser.username}</p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-5 h-11 w-full rounded-xl border-destructive/25 text-destructive hover:bg-destructive/8 hover:text-destructive"
+          onClick={logout}
+        >
+          <LogOut /> {t.logout}
+        </Button>
+      </article>
+
+      <article className="rounded-[1.75rem] border border-border bg-card p-5 sm:p-6">
+        <div className="mb-6 flex items-center gap-3">
+          <span className="grid size-10 place-items-center rounded-xl bg-primary/12 text-primary">
+            <Settings2 className="size-5" />
+          </span>
+          <div>
+            <h2 className="font-semibold">{t.appearance}</h2>
+            <p className="text-sm text-muted-foreground">{t.settingsDescription}</p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div>
+            <Label className="mb-2.5 block">{t.languageSetting}</Label>
+            <div className="grid grid-cols-3 gap-2" role="group" aria-label={t.languageSetting}>
+              {(Object.keys(languageNames) as Language[]).map((key) => (
+                <Button
+                  key={key}
+                  type="button"
+                  variant={language === key ? "default" : "outline"}
+                  className="min-w-0 rounded-xl px-2"
+                  aria-pressed={language === key}
+                  onClick={() => setLanguage(key)}
+                >
+                  <span className="truncate">{languageNames[key]}</span>
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <Separator />
+
+          <div>
+            <Label className="mb-2.5 block">{t.themeSetting}</Label>
+            <div className="grid grid-cols-2 gap-2" role="group" aria-label={t.themeSetting}>
+              <Button
+                type="button"
+                variant={theme === "light" ? "default" : "outline"}
+                className="rounded-xl"
+                aria-pressed={theme === "light"}
+                onClick={() => theme === "dark" && toggleTheme()}
+              >
+                <Sun /> {t.light}
+              </Button>
+              <Button
+                type="button"
+                variant={theme === "dark" ? "default" : "outline"}
+                className="rounded-xl"
+                aria-pressed={theme === "dark"}
+                onClick={() => theme === "light" && toggleTheme()}
+              >
+                <Moon /> {t.dark}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </article>
+    </div>
+  );
+}
 
 function MemberCarts({
   carts,
@@ -2208,17 +2395,17 @@ function AdminDashboard({
           <div className="grid gap-4 lg:grid-cols-2">
             {pendingCarts.length ? pendingCarts.map((cart) => (
               <article key={cart.id} className="rounded-3xl border border-border bg-card p-5">
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
                     <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 font-bold text-primary">{cart.member_initials}</span>
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-semibold">{cart.member_name}</p>
                       <p className="text-xs text-muted-foreground">
                         {new Date(cart.submitted_at).toLocaleString(language === "ar" ? "ar-MA" : "fr-MA", { dateStyle: "medium", timeStyle: "short" })}
                       </p>
                     </div>
                   </div>
-                  <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                  <Badge variant="outline" className="shrink-0 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
                     {itemsFor(cart.id).length} {t.items}
                   </Badge>
                 </div>
@@ -2262,7 +2449,7 @@ function AdminDashboard({
         </TabsContent>
 
         <TabsContent value="products">
-          <div className="mb-5 flex items-center justify-between gap-4">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
             <div>
               <h2 className="text-xl font-semibold">{t.products}</h2>
               <p className="mt-1 text-sm text-muted-foreground">{data.products.length} produits actifs</p>
@@ -2586,6 +2773,15 @@ function AdminDashboard({
               </div>
             </article>
           </div>
+          <AdminAnalyticsCharts
+            language={language}
+            currentMonth={currentMonth}
+            users={data.users}
+            products={data.products}
+            carts={data.carts}
+            items={data.items}
+            formatMoney={money}
+          />
         </TabsContent>
       </Tabs>
     </section>
@@ -2644,7 +2840,7 @@ function DeliveryDashboard({
           <p className="mb-2 text-sm font-semibold text-[#b76500] dark:text-[#ffb454]">{t.delivery}</p>
           <h1 className="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">{view === "queue" ? t.queue : t.history}</h1>
         </div>
-        <div className="flex rounded-2xl bg-muted/60 p-1">
+        <div className="flex max-w-full overflow-x-auto rounded-2xl bg-muted/60 p-1">
           <Button variant="ghost" className={`rounded-xl ${view === "queue" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`} onClick={() => setView("queue")}>
             <ShoppingBasket /> {t.queue}
           </Button>
@@ -2714,7 +2910,7 @@ function DeliveryDashboard({
                       <Button
                         size="icon"
                         variant={item.purchase_status === "bought" ? "default" : "outline"}
-                        className="rounded-xl border-border"
+                        className="h-11 w-full rounded-xl border-border sm:size-11"
                         disabled={busy}
                         onClick={() => void act({ action: "update_item", actorRole: "delivery", itemId: item.id, purchaseStatus: "bought", actualUnitPriceCents: parsePrice(prices[item.id] ?? "") }, "Article marqué acheté.")}
                         aria-label={t.bought}
@@ -2724,7 +2920,7 @@ function DeliveryDashboard({
                       <Button
                         size="icon"
                         variant={item.purchase_status === "unbought" ? "destructive" : "outline"}
-                        className="rounded-xl border-border"
+                        className="h-11 w-full rounded-xl border-border sm:size-11"
                         disabled={busy}
                         onClick={() => void act({ action: "update_item", actorRole: "delivery", itemId: item.id, purchaseStatus: "unbought", actualUnitPriceCents: parsePrice(prices[item.id] ?? "") }, "Article marqué non acheté.")}
                         aria-label={t.unbought}
