@@ -90,7 +90,7 @@ import type { FamilySessionUser } from "@/lib/family-auth";
 
 type Language = "fr" | "ar" | "en";
 type Role = "member" | "admin" | "delivery";
-type CatalogSource = "family" | "carrefour";
+type CatalogSource = "family" | "mymarket";
 type CartStatus = "pending" | "ready" | "shopping" | "completed";
 type Priority = "urgent" | "normal" | null;
 type PurchaseStatus = "requested" | "bought" | "unbought";
@@ -133,7 +133,7 @@ type ProductFormDraft = {
   price: string;
 };
 
-type CarrefourProduct = {
+type MyMarketProduct = {
   external_id: string;
   name: string;
   category: Product["category"];
@@ -273,11 +273,11 @@ const words = {
     priceToConfirm: "Prix à confirmer",
     scannedAdded: "Produit scanné ajouté au panier.",
     familyCatalog: "Catalogue maison",
-    carrefourCatalog: "Catalogue Carrefour",
-    carrefourHint: "Prix Carrefour en ligne — Salma confirme le prix réel.",
-    carrefourRules: "Maximum 500 DH · appareils électriques exclus",
-    carrefourLoading: "Chargement du catalogue Carrefour…",
-    carrefourAdded: "Produit Carrefour ajouté au panier.",
+    myMarketCatalog: "Catalogue MyMarket",
+    myMarketHint: "Prix MyMarket en ligne — Salma confirme le prix réel.",
+    myMarketRules: "Tous les rayons sauf Animaux",
+    myMarketLoading: "Chargement du catalogue MyMarket…",
+    myMarketAdded: "Produit MyMarket ajouté au panier.",
     promotion: "Promo",
     loadMore: "Afficher plus",
     noProducts: "Aucun produit trouvé.",
@@ -365,11 +365,11 @@ const words = {
     priceToConfirm: "السعر يحتاج إلى تأكيد",
     scannedAdded: "تمت إضافة المنتج إلى السلة.",
     familyCatalog: "منتجات البيت",
-    carrefourCatalog: "منتجات كارفور",
-    carrefourHint: "ثمن كارفور على الإنترنت — سلمى تؤكد الثمن الحقيقي.",
-    carrefourRules: "500 درهم كحد أقصى · الأجهزة الكهربائية مستثناة",
-    carrefourLoading: "جارٍ تحميل منتجات كارفور…",
-    carrefourAdded: "تمت إضافة منتج كارفور إلى السلة.",
+    myMarketCatalog: "منتجات MyMarket",
+    myMarketHint: "ثمن MyMarket على الإنترنت — سلمى تؤكد الثمن الحقيقي.",
+    myMarketRules: "كل الأقسام ما عدا الحيوانات",
+    myMarketLoading: "جارٍ تحميل منتجات MyMarket…",
+    myMarketAdded: "تمت إضافة منتج MyMarket إلى السلة.",
     promotion: "تخفيض",
     loadMore: "عرض المزيد",
     noProducts: "لم يتم العثور على أي منتج.",
@@ -457,11 +457,11 @@ const words = {
     priceToConfirm: "Price to confirm",
     scannedAdded: "Scanned product added to the cart.",
     familyCatalog: "House catalog",
-    carrefourCatalog: "Carrefour catalog",
-    carrefourHint: "Online Carrefour price — Salma confirms the real price.",
-    carrefourRules: "Maximum 500 DH · electrical products excluded",
-    carrefourLoading: "Loading the Carrefour catalog…",
-    carrefourAdded: "Carrefour product added to the cart.",
+    myMarketCatalog: "MyMarket catalog",
+    myMarketHint: "Online MyMarket price — Salma confirms the real price.",
+    myMarketRules: "All departments except Animals",
+    myMarketLoading: "Loading the MyMarket catalog…",
+    myMarketAdded: "MyMarket product added to the cart.",
     promotion: "Promo",
     loadMore: "Show more",
     noProducts: "No products found.",
@@ -512,12 +512,17 @@ function ProductImage({
         parsed.hostname === "backend.carrefour.ma" ||
         parsed.hostname === "assets.carrefour.ma" ||
         parsed.hostname === "media.carrefour.fr";
+      const isMyMarketImage =
+        parsed.hostname === "cdn.shopify.com" ||
+        ((parsed.hostname === "www.mymarket.ma" || parsed.hostname === "mymarket.ma") &&
+          parsed.pathname.startsWith("/cdn/shop/"));
       if (
         parsed.protocol === "https:" &&
         (parsed.hostname === "openfoodfacts.org" ||
           parsed.hostname.endsWith(".openfoodfacts.org") ||
           isCarrefourStorage ||
-          isCarrefourHost)
+          isCarrefourHost ||
+          isMyMarketImage)
       ) {
         safeRemoteImage = parsed.toString();
       }
@@ -601,12 +606,12 @@ export function FamilyTracker({
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [scanDialogOpen, setScanDialogOpen] = useState(false);
   const [catalogSource, setCatalogSource] = useState<CatalogSource>("family");
-  const [carrefourProducts, setCarrefourProducts] = useState<CarrefourProduct[]>([]);
-  const [carrefourLoading, setCarrefourLoading] = useState(false);
-  const [carrefourLoaded, setCarrefourLoaded] = useState(false);
-  const [carrefourError, setCarrefourError] = useState("");
-  const [carrefourVisible, setCarrefourVisible] = useState(24);
-  const [carrefourBusyId, setCarrefourBusyId] = useState<string | null>(null);
+  const [myMarketProducts, setMyMarketProducts] = useState<MyMarketProduct[]>([]);
+  const [myMarketLoading, setMyMarketLoading] = useState(false);
+  const [myMarketLoadedLanguage, setMyMarketLoadedLanguage] = useState<Language | null>(null);
+  const [myMarketError, setMyMarketError] = useState("");
+  const [myMarketVisible, setMyMarketVisible] = useState(24);
+  const [myMarketBusyId, setMyMarketBusyId] = useState<string | null>(null);
   const [newProduct, setNewProduct] = useState({
     nameFr: "",
     nameAr: "",
@@ -645,13 +650,15 @@ export function FamilyTracker({
     }
   }, [applyData]);
 
-  const loadCarrefourCatalogue = useCallback(async () => {
+  const loadMyMarketCatalogue = useCallback(async () => {
     try {
-      setCarrefourLoading(true);
-      setCarrefourError("");
-      const response = await fetch("/api/products/carrefour", { cache: "no-store" });
+      setMyMarketLoading(true);
+      setMyMarketError("");
+      const response = await fetch(`/api/products/mymarket?lang=${language}`, {
+        cache: "no-store",
+      });
       const payload = (await response.json()) as {
-        products?: CarrefourProduct[];
+        products?: MyMarketProduct[];
         error?: string;
       };
       if (response.status === 401) {
@@ -659,18 +666,18 @@ export function FamilyTracker({
         return;
       }
       if (!response.ok || !Array.isArray(payload.products)) {
-        throw new Error(payload.error || "Catalogue Carrefour indisponible.");
+        throw new Error(payload.error || "Catalogue MyMarket indisponible.");
       }
-      setCarrefourProducts(payload.products);
-      setCarrefourLoaded(true);
+      setMyMarketProducts(payload.products);
+      setMyMarketLoadedLanguage(language);
     } catch (error) {
-      setCarrefourError(
-        error instanceof Error ? error.message : "Catalogue Carrefour indisponible.",
+      setMyMarketError(
+        error instanceof Error ? error.message : "Catalogue MyMarket indisponible.",
       );
     } finally {
-      setCarrefourLoading(false);
+      setMyMarketLoading(false);
     }
-  }, []);
+  }, [language]);
 
   useEffect(() => {
     const initialLoad = window.setTimeout(() => void loadData(), 0);
@@ -678,10 +685,16 @@ export function FamilyTracker({
   }, [loadData]);
 
   useEffect(() => {
-    if (role !== "member" || catalogSource !== "carrefour" || carrefourLoaded) return;
-    const initialLoad = window.setTimeout(() => void loadCarrefourCatalogue(), 0);
+    if (
+      role !== "member" ||
+      catalogSource !== "mymarket" ||
+      myMarketLoadedLanguage === language
+    ) {
+      return;
+    }
+    const initialLoad = window.setTimeout(() => void loadMyMarketCatalogue(), 0);
     return () => window.clearTimeout(initialLoad);
-  }, [carrefourLoaded, catalogSource, loadCarrefourCatalogue, role]);
+  }, [catalogSource, language, loadMyMarketCatalogue, myMarketLoadedLanguage, role]);
 
   useEffect(() => {
     const refreshWhenVisible = () => {
@@ -765,11 +778,11 @@ export function FamilyTracker({
     [t.scannedAdded],
   );
 
-  const addCarrefourProduct = useCallback(
-    async (source: CarrefourProduct) => {
+  const addMyMarketProduct = useCallback(
+    async (source: MyMarketProduct) => {
       try {
-        setCarrefourBusyId(source.external_id);
-        const response = await fetch("/api/products/carrefour", {
+        setMyMarketBusyId(source.external_id);
+        const response = await fetch("/api/products/mymarket", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ externalId: source.external_id }),
@@ -780,7 +793,7 @@ export function FamilyTracker({
           return;
         }
         if (!response.ok || !payload.product) {
-          throw new Error(payload.error || "Import Carrefour impossible.");
+          throw new Error(payload.error || "Import MyMarket impossible.");
         }
 
         const product = payload.product;
@@ -800,14 +813,14 @@ export function FamilyTracker({
           ...current,
           [product.id]: (current[product.id] ?? 0) + 100,
         }));
-        toast.success(t.carrefourAdded);
+        toast.success(t.myMarketAdded);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Import Carrefour impossible.");
+        toast.error(error instanceof Error ? error.message : "Import MyMarket impossible.");
       } finally {
-        setCarrefourBusyId(null);
+        setMyMarketBusyId(null);
       }
     },
-    [t.carrefourAdded],
+    [t.myMarketAdded],
   );
 
   const money = (cents: number) => {
@@ -842,16 +855,16 @@ export function FamilyTracker({
     });
   }, [category, data, search]);
 
-  const filteredCarrefourProducts = useMemo(() => {
+  const filteredMyMarketProducts = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase();
-    return carrefourProducts.filter((product) => {
+    return myMarketProducts.filter((product) => {
       const categoryMatch = category === "all" || product.category === category;
       const textMatch = !needle || product.name.toLocaleLowerCase().includes(needle);
       return categoryMatch && textMatch;
     });
-  }, [carrefourProducts, category, search]);
+  }, [myMarketProducts, category, search]);
 
-  const visibleCarrefourProducts = filteredCarrefourProducts.slice(0, carrefourVisible);
+  const visibleMyMarketProducts = filteredMyMarketProducts.slice(0, myMarketVisible);
 
   const draftProducts = Object.entries(draft)
     .filter(([, quantity]) => quantity > 0)
@@ -1346,21 +1359,21 @@ export function FamilyTracker({
                     aria-pressed={catalogSource === "family"}
                     onClick={() => {
                       setCatalogSource("family");
-                      setCarrefourVisible(24);
+                      setMyMarketVisible(24);
                     }}
                   >
                     <ShoppingBasket /> {t.familyCatalog}
                   </Button>
                   <Button
-                    variant={catalogSource === "carrefour" ? "default" : "ghost"}
+                    variant={catalogSource === "mymarket" ? "default" : "ghost"}
                     className="rounded-xl"
-                    aria-pressed={catalogSource === "carrefour"}
+                    aria-pressed={catalogSource === "mymarket"}
                     onClick={() => {
-                      setCatalogSource("carrefour");
-                      setCarrefourVisible(24);
+                      setCatalogSource("mymarket");
+                      setMyMarketVisible(24);
                     }}
                   >
-                    Carrefour
+                    MyMarket
                   </Button>
                 </div>
 
@@ -1371,7 +1384,7 @@ export function FamilyTracker({
                       value={search}
                       onChange={(event) => {
                         setSearch(event.target.value);
-                        setCarrefourVisible(24);
+                        setMyMarketVisible(24);
                       }}
                       aria-label={t.search}
                       placeholder={t.search}
@@ -1398,7 +1411,7 @@ export function FamilyTracker({
                       className={category === key ? "h-10 rounded-full px-5" : "h-10 rounded-full border-border bg-card/65 px-5 text-muted-foreground"}
                       onClick={() => {
                         setCategory(key);
-                        setCarrefourVisible(24);
+                        setMyMarketVisible(24);
                       }}
                     >
                       {t[key]}
@@ -1409,18 +1422,18 @@ export function FamilyTracker({
                 <div className="mb-4 flex items-end justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-semibold tracking-tight">
-                      {catalogSource === "carrefour" ? t.carrefourCatalog : t.essentials}
+                      {catalogSource === "mymarket" ? t.myMarketCatalog : t.essentials}
                     </h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {catalogSource === "carrefour" ? t.carrefourHint : t.estimated}
+                      {catalogSource === "mymarket" ? t.myMarketHint : t.estimated}
                     </p>
-                    {catalogSource === "carrefour" && (
-                      <p className="mt-1 text-xs font-medium text-primary">{t.carrefourRules}</p>
+                    {catalogSource === "mymarket" && (
+                      <p className="mt-1 text-xs font-medium text-primary">{t.myMarketRules}</p>
                     )}
                   </div>
                   <Badge variant="outline" className="border-border bg-card/70 px-3 py-1.5 text-muted-foreground">
-                    {catalogSource === "carrefour"
-                      ? filteredCarrefourProducts.length
+                    {catalogSource === "mymarket"
+                      ? filteredMyMarketProducts.length
                       : filteredProducts.length}
                   </Badge>
                 </div>
@@ -1469,8 +1482,8 @@ export function FamilyTracker({
                       {t.noProducts}
                     </div>
                   )
-                ) : carrefourLoading ? (
-                  <div aria-label={t.carrefourLoading} className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
+                ) : myMarketLoading ? (
+                  <div aria-label={t.myMarketLoading} className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
                     {Array.from({ length: 8 }, (_, index) => (
                       <div key={index} className="overflow-hidden rounded-[1.35rem] border border-border bg-card p-3">
                         <Skeleton className="aspect-[1.05] w-full rounded-2xl" />
@@ -1479,18 +1492,18 @@ export function FamilyTracker({
                       </div>
                     ))}
                   </div>
-                ) : carrefourError ? (
+                ) : myMarketError ? (
                   <div className="rounded-3xl border border-dashed border-destructive/40 bg-card/60 p-10 text-center">
                     <AlertTriangle className="mx-auto mb-3 size-7 text-destructive" />
-                    <p className="text-muted-foreground">{carrefourError}</p>
-                    <Button className="mt-5 rounded-xl" onClick={() => void loadCarrefourCatalogue()}>
+                    <p className="text-muted-foreground">{myMarketError}</p>
+                    <Button className="mt-5 rounded-xl" onClick={() => void loadMyMarketCatalogue()}>
                       {t.retry}
                     </Button>
                   </div>
-                ) : visibleCarrefourProducts.length ? (
+                ) : visibleMyMarketProducts.length ? (
                   <>
                     <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
-                      {visibleCarrefourProducts.map((product) => (
+                      {visibleMyMarketProducts.map((product) => (
                         <article
                           key={product.external_id}
                           className="group flex min-w-0 flex-col overflow-hidden rounded-[1.35rem] border border-border bg-card shadow-[0_18px_50px_rgba(0,0,0,0.10)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.15)]"
@@ -1534,11 +1547,11 @@ export function FamilyTracker({
                               <Button
                                 size="icon-sm"
                                 className="shrink-0 rounded-xl"
-                                disabled={carrefourBusyId === product.external_id}
-                                onClick={() => void addCarrefourProduct(product)}
+                                disabled={myMarketBusyId === product.external_id}
+                                onClick={() => void addMyMarketProduct(product)}
                                 aria-label={`${t.addProduct}: ${product.name}`}
                               >
-                                {carrefourBusyId === product.external_id ? (
+                                {myMarketBusyId === product.external_id ? (
                                   <Loader2 className="animate-spin" />
                                 ) : (
                                   <Plus />
@@ -1549,12 +1562,12 @@ export function FamilyTracker({
                         </article>
                       ))}
                     </div>
-                    {visibleCarrefourProducts.length < filteredCarrefourProducts.length && (
+                    {visibleMyMarketProducts.length < filteredMyMarketProducts.length && (
                       <div className="mt-7 flex justify-center">
                         <Button
                           variant="outline"
                           className="rounded-xl bg-card"
-                          onClick={() => setCarrefourVisible((current) => current + 24)}
+                          onClick={() => setMyMarketVisible((current) => current + 24)}
                         >
                           {t.loadMore}
                         </Button>

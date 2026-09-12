@@ -12,7 +12,7 @@ hosted on Vercel with Supabase for shared data and product images.
 
 Members can scan a packaged product barcode to import its name, pack size, and photo from Open Food Facts. The buyer still records the real local price. Camera scanning works on `localhost` and deployed HTTPS pages; the code can always be entered manually.
 
-Members can also browse the live Carrefour Morocco catalogue. The server keeps only products with a usable price of 500 DH or less and excludes electrical products before they reach the website. Selecting one safely imports it into the family catalogue and adds it to the member's cart; the buyer can still correct the real market price.
+Members can also browse the live MyMarket Morocco catalogue in French, Arabic, or English. Every available department is included except Animals. Selecting a product safely imports its localized name, current price, pack size, and image into the family catalogue and adds it to the member's cart; the buyer can still correct the real market price.
 
 ## Run locally
 
