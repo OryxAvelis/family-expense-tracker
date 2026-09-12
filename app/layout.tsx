@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
+import { FAMILY_THEME_STORAGE_KEY } from "@/lib/family-theme";
+
 export const metadata: Metadata = {
   title: "Dépenses famille",
   description: "Courses, demandes et dépenses mensuelles de la famille.",
@@ -16,7 +18,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{if(localStorage.getItem("family-expense-theme")==="dark")document.documentElement.classList.add("dark")}catch{}`,
+            __html: `try{const theme=localStorage.getItem(${JSON.stringify(FAMILY_THEME_STORAGE_KEY)});document.documentElement.classList.toggle("dark",theme==="dark");document.documentElement.style.colorScheme=theme==="dark"?"dark":"light"}catch{}`,
           }}
         />
       </head>
