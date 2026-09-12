@@ -28,7 +28,6 @@ import {
   Sun,
   Trash2,
   UserCog,
-  UserRound,
   X,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -87,6 +86,7 @@ import {
   type ScannedCatalogProduct,
 } from "@/app/barcode-scanner-dialog";
 import { AdminAnalyticsCharts } from "@/app/admin-analytics-charts";
+import { ProfileAvatar, ProfilePhotoEditor } from "@/app/profile-photo";
 import { useFamilyTheme } from "@/hooks/use-family-theme";
 import type { FamilySessionUser } from "@/lib/family-auth";
 
@@ -294,6 +294,9 @@ const words = {
     light: "Clair",
     dark: "Sombre",
     username: "Nom d’utilisateur",
+    profilePhoto: "Photo de profil",
+    profilePhotoDescription: "Choisissez la photo qui vous représentera dans l’espace familial.",
+    editProfilePhoto: "Modifier la photo de profil",
   },
   ar: {
     brand: "مصاريف العائلة",
@@ -397,6 +400,9 @@ const words = {
     light: "فاتح",
     dark: "داكن",
     username: "اسم المستخدم",
+    profilePhoto: "صورة الملف الشخصي",
+    profilePhotoDescription: "اختر الصورة التي ستمثلك داخل مساحة العائلة.",
+    editProfilePhoto: "تعديل صورة الملف الشخصي",
   },
   en: {
     brand: "Family expenses",
@@ -500,6 +506,9 @@ const words = {
     light: "Light",
     dark: "Dark",
     username: "Username",
+    profilePhoto: "Profile photo",
+    profilePhotoDescription: "Choose the photo that represents you in the family space.",
+    editProfilePhoto: "Edit profile photo",
   },
 } as const;
 
@@ -640,6 +649,8 @@ export function FamilyTracker({
   const [productPrices, setProductPrices] = useState<Record<number, string>>({});
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [scanDialogOpen, setScanDialogOpen] = useState(false);
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [profileImageVersion, setProfileImageVersion] = useState(0);
   const [catalogSource, setCatalogSource] = useState<CatalogSource>("family");
   const [myMarketProducts, setMyMarketProducts] = useState<MyMarketProduct[]>([]);
   const [myMarketLoading, setMyMarketLoading] = useState(false);
@@ -1355,15 +1366,25 @@ export function FamilyTracker({
           {role === "admin" && <UserCog className="mt-3 size-6 text-primary" />}
           {role === "delivery" && <PackageCheck className="mt-3 size-6 text-primary" />}
         </div>
-        <div className="grid size-10 place-items-center rounded-2xl bg-sidebar-accent text-sm font-bold text-sidebar-primary">
-          {currentUser.initials}
-        </div>
+        <button
+          type="button"
+          className="grid size-11 place-items-center rounded-2xl border border-sidebar-border bg-sidebar-accent p-0.5 transition hover:border-sidebar-primary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+          onClick={() => setProfileDialogOpen(true)}
+          aria-label={t.editProfilePhoto}
+          title={t.editProfilePhoto}
+        >
+          <ProfileAvatar
+            user={currentUser}
+            version={profileImageVersion}
+            className="size-full rounded-[0.8rem] text-xs"
+          />
+        </button>
       </aside>
 
       <div className="min-h-screen pb-[calc(6rem+env(safe-area-inset-bottom))] lg:ps-24 lg:pb-0">
         <header className="sticky top-0 z-20 border-b border-border/80 bg-background/88 px-3 py-3 backdrop-blur-xl sm:px-8 lg:px-12">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 sm:gap-3">
-            <div className="flex min-w-0 items-center gap-3 max-[430px]:hidden">
+            <div className="flex min-w-0 items-center gap-3 max-[639px]:hidden">
               <div className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary font-black text-primary-foreground lg:hidden">
                 D
               </div>
@@ -1374,6 +1395,20 @@ export function FamilyTracker({
             </div>
 
             <div className="ms-auto flex items-center gap-1 sm:gap-2">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-11 overflow-hidden rounded-xl border border-border bg-card/70 p-1 lg:hidden"
+                onClick={() => setProfileDialogOpen(true)}
+                aria-label={t.editProfilePhoto}
+                title={t.editProfilePhoto}
+              >
+                <ProfileAvatar
+                  user={currentUser}
+                  version={profileImageVersion}
+                  className="size-full rounded-lg text-[10px]"
+                />
+              </Button>
               <Button
                 size="icon"
                 variant="ghost"
@@ -1426,7 +1461,7 @@ export function FamilyTracker({
               <Button
                 size="icon"
                 variant="ghost"
-                className="size-11 rounded-xl border border-border bg-card/70"
+                className={`size-11 rounded-xl border border-border bg-card/70 ${role === "member" ? "hidden sm:inline-flex" : ""}`}
                 onClick={() => {
                   void fetch("/api/auth/logout", { method: "POST" }).finally(() => {
                     window.location.assign("/connexion");
@@ -1468,7 +1503,12 @@ export function FamilyTracker({
                 )}
               </div>
               <div className="flex h-11 items-center gap-2 rounded-xl border border-border bg-card/70 px-4 text-sm font-medium">
-                <UserRound className="size-4 text-primary" /> {currentUser.name}
+                <ProfileAvatar
+                  user={currentUser}
+                  version={profileImageVersion}
+                  className="size-6 rounded-lg text-[8px]"
+                />
+                {currentUser.name}
               </div>
             </div>
 
@@ -1738,6 +1778,8 @@ export function FamilyTracker({
                 setLanguage={updateLanguage}
                 theme={theme}
                 toggleTheme={toggleTheme}
+                profileImageVersion={profileImageVersion}
+                onEditProfile={() => setProfileDialogOpen(true)}
                 t={t}
               />
             )}
@@ -1765,6 +1807,7 @@ export function FamilyTracker({
             busy={busy}
             t={t}
             language={language}
+            profileImageVersion={profileImageVersion}
           />
         )}
 
@@ -1785,6 +1828,7 @@ export function FamilyTracker({
             busy={busy}
             t={t}
             language={language}
+            profileImageVersion={profileImageVersion}
           />
         )}
       </div>
@@ -1823,6 +1867,25 @@ export function FamilyTracker({
           onProduct={addScannedProduct}
         />
       )}
+
+      <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
+        <DialogContent
+          className="max-h-[94svh] overflow-y-auto rounded-[1.75rem] border-border bg-card p-5 sm:max-w-lg sm:p-6"
+          dir={language === "ar" ? "rtl" : "ltr"}
+          lang={language}
+        >
+          <DialogHeader className="pe-10">
+            <DialogTitle>{t.profilePhoto}</DialogTitle>
+            <DialogDescription>{t.profilePhotoDescription}</DialogDescription>
+          </DialogHeader>
+          <ProfilePhotoEditor
+            user={currentUser}
+            language={language}
+            version={profileImageVersion}
+            onChanged={setProfileImageVersion}
+          />
+        </DialogContent>
+      </Dialog>
 
       <Sheet open={cartOpen} onOpenChange={setCartOpen}>
         <SheetContent side={language === "ar" ? "left" : "right"} className="w-[92%] border-border bg-card sm:max-w-md">
@@ -1911,6 +1974,8 @@ function MemberSettings({
   setLanguage,
   theme,
   toggleTheme,
+  profileImageVersion,
+  onEditProfile,
   t,
 }: {
   currentUser: FamilySessionUser;
@@ -1918,6 +1983,8 @@ function MemberSettings({
   setLanguage: (language: Language) => void;
   theme: "light" | "dark";
   toggleTheme: () => void;
+  profileImageVersion: number;
+  onEditProfile: () => void;
   t: CopySet;
 }) {
   const logout = () => {
@@ -1930,9 +1997,22 @@ function MemberSettings({
     <div className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
       <article className="rounded-[1.75rem] border border-border bg-card p-5 sm:p-6">
         <div className="mb-6 flex items-center gap-4">
-          <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-primary text-lg font-black text-primary-foreground">
-            {currentUser.initials}
-          </span>
+          <button
+            type="button"
+            className="group relative shrink-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            onClick={onEditProfile}
+            aria-label={t.editProfilePhoto}
+            title={t.editProfilePhoto}
+          >
+            <ProfileAvatar
+              user={currentUser}
+              version={profileImageVersion}
+              className="size-14 rounded-2xl text-lg"
+            />
+            <span className="absolute -bottom-1 -end-1 grid size-6 place-items-center rounded-full border-2 border-card bg-primary text-primary-foreground shadow-sm transition-transform group-hover:scale-105">
+              <Pencil className="size-3" />
+            </span>
+          </button>
           <div className="min-w-0">
             <h2 className="truncate text-xl font-semibold">{currentUser.name}</h2>
             <p className="mt-1 text-sm text-muted-foreground">{t.member}</p>
@@ -2155,6 +2235,7 @@ function AdminDashboard({
   busy,
   t,
   language,
+  profileImageVersion,
 }: {
   data: AppData;
   pendingCarts: Cart[];
@@ -2175,6 +2256,7 @@ function AdminDashboard({
   busy: boolean;
   t: CopySet;
   language: Language;
+  profileImageVersion: number;
 }) {
   const [newProductImage, setNewProductImage] = useState<File | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -2397,7 +2479,11 @@ function AdminDashboard({
               <article key={cart.id} className="rounded-3xl border border-border bg-card p-5">
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 font-bold text-primary">{cart.member_initials}</span>
+                    <ProfileAvatar
+                      user={{ id: cart.member_id, name: cart.member_name, initials: cart.member_initials }}
+                      version={profileImageVersion}
+                      className="size-11 rounded-2xl text-sm"
+                    />
                     <div className="min-w-0">
                       <p className="font-semibold">{cart.member_name}</p>
                       <p className="text-xs text-muted-foreground">
@@ -2804,6 +2890,7 @@ function DeliveryDashboard({
   busy,
   t,
   language,
+  profileImageVersion,
 }: {
   queue: Cart[];
   history: Cart[];
@@ -2820,6 +2907,7 @@ function DeliveryDashboard({
   busy: boolean;
   t: CopySet;
   language: Language;
+  profileImageVersion: number;
 }) {
   const [selectedCartId, setSelectedCartId] = useState<number | null>(null);
   const selectedCart = queue.find((cart) => cart.id === selectedCartId) ?? queue[0];
@@ -2856,7 +2944,11 @@ function DeliveryDashboard({
             <article className="rounded-[2rem] border border-border bg-card p-5 sm:p-7">
               <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <span className="grid size-12 place-items-center rounded-2xl bg-primary/12 font-bold text-primary">{selectedCart.member_initials}</span>
+                  <ProfileAvatar
+                    user={{ id: selectedCart.member_id, name: selectedCart.member_name, initials: selectedCart.member_initials }}
+                    version={profileImageVersion}
+                    className="size-12 rounded-2xl text-sm"
+                  />
                   <div>
                     <p className="text-lg font-semibold">{selectedCart.member_name} · {t.cart} #{selectedCart.id}</p>
                     <p className="mt-1 text-xs text-muted-foreground">{new Date(selectedCart.submitted_at).toLocaleString(language === "ar" ? "ar-MA" : language === "en" ? "en-MA" : "fr-MA", { dateStyle: "medium", timeStyle: "short" })}</p>
