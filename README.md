@@ -18,6 +18,8 @@ Members can scan a packaged product barcode to import its name, pack size, and p
 
 Members can also browse the live MyMarket Morocco catalogue in French, Arabic, or English. Every available department is included except Animals. Selecting a product safely imports its localized name, current price, pack size, and image into the family catalogue and adds it to the member's cart; the buyer can still correct the real market price.
 
+Each completed order adds a fixed 0.50 DH delivery service fee. The fee is included in member totals and admin analytics, while the delivery page shows Josef's monthly service earnings.
+
 ## Run locally
 
 1. Run the SQL migration in `supabase/migrations/` on the Supabase project.

@@ -200,6 +200,7 @@ type AppData = {
   items: CartItem[];
   monthlyTotals: MonthlyTotal[];
   pendingUsers: PendingUser[];
+  deliveryServiceFeeCents: number;
 };
 
 const words = {
@@ -266,7 +267,12 @@ const words = {
     confirmDelete: "Supprimer",
     unitLocked: "L’unité est verrouillée après la première commande.",
     monthlyTotal: "Total dépensé ce mois",
-    boughtOnly: "Uniquement les produits achetés",
+    boughtOnly: "Produits achetés et service de livraison",
+    serviceFee: "Service de livraison",
+    serviceFeeHelp: "0,50 DH par commande terminée",
+    totalWithService: "Total avec service",
+    serviceEarnings: "Gains de service ce mois",
+    completedOrders: "commandes terminées",
     delivery: "Livraison",
     queue: "File d’achats",
     history: "Historique",
@@ -383,7 +389,12 @@ const words = {
     confirmDelete: "حذف",
     unitLocked: "تُقفل الوحدة بعد أول طلب.",
     monthlyTotal: "مجموع مصاريف هذا الشهر",
-    boughtOnly: "المنتجات التي تم شراؤها فقط",
+    boughtOnly: "المنتجات المشتراة وخدمة التوصيل",
+    serviceFee: "خدمة التوصيل",
+    serviceFeeHelp: "0.50 درهم لكل طلب مكتمل",
+    totalWithService: "المجموع مع الخدمة",
+    serviceEarnings: "أرباح الخدمة هذا الشهر",
+    completedOrders: "طلبات مكتملة",
     delivery: "المشتريات",
     queue: "قائمة الشراء",
     history: "السجل",
@@ -500,7 +511,12 @@ const words = {
     confirmDelete: "Remove",
     unitLocked: "The unit is locked after the first order.",
     monthlyTotal: "Total spent this month",
-    boughtOnly: "Bought products only",
+    boughtOnly: "Purchased products and delivery service",
+    serviceFee: "Delivery service",
+    serviceFeeHelp: "0.50 DH per completed order",
+    totalWithService: "Total with service",
+    serviceEarnings: "Service earnings this month",
+    completedOrders: "completed orders",
     delivery: "Purchasing",
     queue: "Shopping queue",
     history: "History",
@@ -1041,6 +1057,7 @@ export function FamilyTracker({
     }))
     .filter((entry): entry is { product: Product; quantity: number } => Boolean(entry.product));
 
+  const deliveryServiceFeeCents = data?.deliveryServiceFeeCents ?? 50;
   const draftTotal = draftProducts.reduce(
     (sum, entry) => sum + Math.round((entry.product.unit_price_cents * entry.quantity) / 100),
     0,
@@ -1812,6 +1829,7 @@ export function FamilyTracker({
                 money={money}
                 statusText={statusText}
                 t={t}
+                serviceFeeCents={deliveryServiceFeeCents}
                 busy={busy}
                 onEdit={editCart}
                 onCancel={(cart) =>
@@ -1847,6 +1865,7 @@ export function FamilyTracker({
             quantityLabel={quantityLabel}
             currentMonthlyTotal={currentMonthlyTotal}
             currentMonth={currentMonth}
+            serviceFeeCents={deliveryServiceFeeCents}
             productPrices={productPrices}
             setProductPrices={setProductPrices}
             newProduct={newProduct}
@@ -1880,6 +1899,7 @@ export function FamilyTracker({
             t={t}
             language={language}
             profileImageVersion={profileImageVersion}
+            serviceFeeCents={deliveryServiceFeeCents}
           />
         )}
       </div>
@@ -1999,7 +2019,15 @@ export function FamilyTracker({
           <SheetFooter className="border-t border-border p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm text-muted-foreground">{t.estimate}</span>
-              <strong className="text-xl">{money(draftTotal)}</strong>
+              <span className="font-medium">{money(draftTotal)}</span>
+            </div>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">{t.serviceFee}</span>
+              <span className="font-medium">{money(deliveryServiceFeeCents)}</span>
+            </div>
+            <div className="mb-3 flex items-center justify-between border-t border-border pt-3">
+              <span className="font-semibold">{t.totalWithService}</span>
+              <strong className="text-xl">{money(draftTotal + deliveryServiceFeeCents)}</strong>
             </div>
             <Button
               size="lg"
@@ -2155,6 +2183,7 @@ function MemberCarts({
   money,
   statusText,
   t,
+  serviceFeeCents,
   busy,
   onEdit,
   onCancel,
@@ -2167,6 +2196,7 @@ function MemberCarts({
   money: (cents: number) => string;
   statusText: Record<CartStatus, string>;
   t: CopySet;
+  serviceFeeCents: number;
   busy: boolean;
   onEdit: (cart: Cart) => void;
   onCancel: (cart: Cart) => void;
@@ -2177,6 +2207,15 @@ function MemberCarts({
     shopping: "border-primary/25 bg-primary/10 text-primary",
     completed: "border-primary/25 bg-primary/10 text-primary",
   };
+  const latestBoughtTotal = latestResult
+    ? itemsFor(latestResult.id)
+        .filter((item) => item.purchase_status === "bought")
+        .reduce(
+          (sum, item) =>
+            sum + Math.round((item.actual_unit_price_cents * item.quantity_hundredths) / 100),
+          0,
+        )
+    : 0;
 
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_0.75fr]">
@@ -2210,6 +2249,10 @@ function MemberCarts({
                 label={t.missingProducts}
                 className="mt-3"
               />
+              <div className="mt-3 flex items-center justify-between rounded-xl bg-primary/[0.055] px-3 py-2 text-sm">
+                <span className="text-muted-foreground">{t.serviceFee}</span>
+                <strong>{money(serviceFeeCents)}</strong>
+              </div>
               {cart.status !== "shopping" && (
                 <div className="mt-4 flex gap-2">
                   <Button variant="outline" className="flex-1 rounded-xl border-border" onClick={() => onEdit(cart)} disabled={busy}>
@@ -2257,6 +2300,16 @@ function MemberCarts({
               label={t.missingProducts}
               className="mt-3"
             />
+            <div className="mt-4 space-y-2 border-t border-primary/15 pt-4 text-sm">
+              <div className="flex items-center justify-between gap-3 text-muted-foreground">
+                <span>{t.serviceFee}</span>
+                <span>{money(serviceFeeCents)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-3 font-semibold">
+                <span>{t.totalWithService}</span>
+                <strong>{money(latestBoughtTotal + serviceFeeCents)}</strong>
+              </div>
+            </div>
           </article>
         ) : (
           <div className="rounded-3xl border border-border bg-card/50 p-8 text-center text-sm text-muted-foreground">—</div>
@@ -2276,6 +2329,7 @@ function AdminDashboard({
   quantityLabel,
   currentMonthlyTotal,
   currentMonth,
+  serviceFeeCents,
   productPrices,
   setProductPrices,
   newProduct,
@@ -2298,6 +2352,7 @@ function AdminDashboard({
   quantityLabel: (quantity: number, unit: Product["unit"]) => string;
   currentMonthlyTotal: number;
   currentMonth: string;
+  serviceFeeCents: number;
   productPrices: Record<number, string>;
   setProductPrices: React.Dispatch<React.SetStateAction<Record<number, string>>>;
   newProduct: ProductFormDraft;
@@ -2633,6 +2688,10 @@ function AdminDashboard({
                   label={t.missingProducts}
                   className="mt-3"
                 />
+                <div className="mt-3 flex items-center justify-between rounded-xl bg-primary/[0.055] px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">{t.serviceFee}</span>
+                  <strong>{money(serviceFeeCents)}</strong>
+                </div>
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   <Button
                     variant="outline"
@@ -2991,6 +3050,7 @@ function AdminDashboard({
             products={data.products}
             carts={data.carts}
             items={data.items}
+            serviceFeeCents={serviceFeeCents}
             formatMoney={money}
           />
         </TabsContent>
@@ -3044,6 +3104,7 @@ function DeliveryDashboard({
   t,
   language,
   profileImageVersion,
+  serviceFeeCents,
 }: {
   queue: Cart[];
   history: Cart[];
@@ -3061,6 +3122,7 @@ function DeliveryDashboard({
   t: CopySet;
   language: Language;
   profileImageVersion: number;
+  serviceFeeCents: number;
 }) {
   const [selectedCartId, setSelectedCartId] = useState<number | null>(null);
   const selectedCart = queue.find((cart) => cart.id === selectedCartId) ?? queue[0];
@@ -3073,6 +3135,18 @@ function DeliveryDashboard({
       ? activeItems.every((item) => item.purchase_status !== "requested")
       : Boolean(selectedCart.missing_products_note.trim())
     : false;
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const completedThisMonth = history.filter(
+    (cart) => cart.completed_at?.slice(0, 7) === currentMonth,
+  ).length;
+  const serviceEarnings = completedThisMonth * serviceFeeCents;
+  const activeBoughtTotal = activeItems
+    .filter((item) => item.purchase_status === "bought")
+    .reduce(
+      (sum, item) =>
+        sum + Math.round((item.actual_unit_price_cents * item.quantity_hundredths) / 100),
+      0,
+    );
 
   return (
     <section className="mx-auto max-w-7xl px-5 pb-10 pt-7 sm:px-8 lg:px-12 lg:pt-10">
@@ -3090,6 +3164,22 @@ function DeliveryDashboard({
           </Button>
         </div>
       </div>
+
+      <article className="mb-5 flex flex-wrap items-center gap-4 rounded-3xl border border-primary/15 bg-primary/[0.055] p-4 sm:p-5">
+        <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
+          <PackageCheck className="size-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold">{t.serviceEarnings}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{t.serviceFeeHelp}</p>
+        </div>
+        <div className="text-end">
+          <strong className="text-xl tabular-nums">{money(serviceEarnings)}</strong>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {completedThisMonth} {t.completedOrders}
+          </p>
+        </div>
+      </article>
 
       {view === "queue" ? (
         selectedCart ? (
@@ -3181,8 +3271,11 @@ function DeliveryDashboard({
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <p className="text-sm text-muted-foreground">{activeItems.filter((item) => item.purchase_status !== "requested").length}/{activeItems.length} {t.items}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t.serviceFee}: {money(serviceFeeCents)}
+                  </p>
                   <p className="mt-1 font-semibold">
-                    {money(activeItems.filter((item) => item.purchase_status === "bought").reduce((sum, item) => sum + Math.round(item.actual_unit_price_cents * item.quantity_hundredths / 100), 0))}
+                    {t.totalWithService}: {money(activeBoughtTotal + serviceFeeCents)}
                   </p>
                 </div>
                 <Button
@@ -3233,12 +3326,13 @@ function DeliveryDashboard({
         <div className="space-y-3">
           {history.map((cart) => {
             const boughtItems = itemsFor(cart.id).filter((item) => item.purchase_status === "bought");
-            const total = boughtItems.reduce((sum, item) => sum + Math.round(item.actual_unit_price_cents * item.quantity_hundredths / 100), 0);
+            const purchasedTotal = boughtItems.reduce((sum, item) => sum + Math.round(item.actual_unit_price_cents * item.quantity_hundredths / 100), 0);
+            const total = purchasedTotal + serviceFeeCents;
             return (
               <article key={cart.id} className="rounded-2xl border border-border bg-card p-4">
                 <div className="flex flex-wrap items-center gap-4">
                   <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary"><Check /></span>
-                  <div className="min-w-0 flex-1"><p className="font-semibold">{cart.member_name} · #{cart.id}</p><p className="mt-1 text-xs text-muted-foreground">{cart.completed_at ? new Date(cart.completed_at).toLocaleDateString("fr-MA", { dateStyle: "medium" }) : ""}</p></div>
+                  <div className="min-w-0 flex-1"><p className="font-semibold">{cart.member_name} · #{cart.id}</p><p className="mt-1 text-xs text-muted-foreground">{cart.completed_at ? new Date(cart.completed_at).toLocaleDateString("fr-MA", { dateStyle: "medium" }) : ""}</p><p className="mt-1 text-xs text-primary">{t.serviceFee}: {money(serviceFeeCents)}</p></div>
                   <Badge variant="outline" className="border-border">{boughtItems.length}/{itemsFor(cart.id).length} {t.bought.toLocaleLowerCase()}</Badge>
                   <strong>{money(total)}</strong>
                 </div>

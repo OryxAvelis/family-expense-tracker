@@ -54,21 +54,23 @@ type AdminAnalyticsChartsProps = {
   products: readonly AnalyticsProduct[];
   carts: readonly AnalyticsCart[];
   items: readonly AnalyticsItem[];
+  serviceFeeCents: number;
   formatMoney: (cents: number) => string;
 };
 
 const copy = {
   fr: {
     categoryTitle: "Dépenses par catégorie",
-    categoryDescription: "Répartition des achats de ce mois",
+    categoryDescription: "Achats et service de livraison de ce mois",
     memberTitle: "Dépenses par membre",
-    memberDescription: "Total acheté pour chaque membre ce mois-ci",
+    memberDescription: "Achats et service pour chaque membre ce mois-ci",
     emptyTitle: "Pas encore d’achats ce mois-ci",
     emptyDescription: "Les graphiques apparaîtront dès qu’un panier sera terminé.",
     spent: "Dépensé",
     total: "Total",
     other: "Autres",
     items: "articles",
+    orders: "commandes",
     categories: {
       food: "Alimentation",
       cleaning: "Nettoyage",
@@ -76,19 +78,21 @@ const copy = {
       school: "École",
       household: "Maison",
       health: "Santé",
+      service: "Service de livraison",
     },
   },
   ar: {
     categoryTitle: "المصاريف حسب الفئة",
-    categoryDescription: "توزيع مشتريات هذا الشهر",
+    categoryDescription: "مشتريات وخدمة توصيل هذا الشهر",
     memberTitle: "المصاريف حسب فرد العائلة",
-    memberDescription: "إجمالي مشتريات كل فرد خلال هذا الشهر",
+    memberDescription: "مشتريات وخدمة كل فرد خلال هذا الشهر",
     emptyTitle: "لا توجد مشتريات هذا الشهر بعد",
     emptyDescription: "ستظهر الرسوم بعد إنهاء أول سلة.",
     spent: "المبلغ",
     total: "المجموع",
     other: "أخرى",
     items: "منتجات",
+    orders: "طلبات",
     categories: {
       food: "مواد غذائية",
       cleaning: "التنظيف",
@@ -96,19 +100,21 @@ const copy = {
       school: "المدرسة",
       household: "المنزل",
       health: "الصحة",
+      service: "خدمة التوصيل",
     },
   },
   en: {
     categoryTitle: "Spending by category",
-    categoryDescription: "This month’s purchased items",
+    categoryDescription: "This month’s purchases and delivery service",
     memberTitle: "Spending by family member",
-    memberDescription: "This month’s total for every family member",
+    memberDescription: "Purchases and service for every family member this month",
     emptyTitle: "No purchases yet this month",
     emptyDescription: "Charts will appear after the first cart is completed.",
     spent: "Spent",
     total: "Total",
     other: "Other",
     items: "items",
+    orders: "orders",
     categories: {
       food: "Food",
       cleaning: "Cleaning",
@@ -116,6 +122,7 @@ const copy = {
       school: "School",
       household: "Household",
       health: "Health",
+      service: "Delivery service",
     },
   },
 } as const;
@@ -128,6 +135,7 @@ const categoryColors = [
   "var(--chart-5)",
   "#2aa198",
   "#77858f",
+  "#f59e0b",
 ];
 
 function normalizedAmount(item: AnalyticsItem) {
@@ -167,6 +175,7 @@ export function AdminAnalyticsCharts({
   products,
   carts,
   items,
+  serviceFeeCents,
   formatMoney,
 }: AdminAnalyticsChartsProps) {
   const t = copy[language];
@@ -207,6 +216,15 @@ export function AdminAnalyticsCharts({
           value: 0,
         });
       }
+      const memberEntry = memberTotals.get(cart.member_id);
+      if (memberEntry) memberEntry.value += serviceFeeCents;
+    }
+
+    if (completedCarts.length && serviceFeeCents > 0) {
+      categoryTotals.set("service", {
+        value: completedCarts.length * serviceFeeCents,
+        count: completedCarts.length,
+      });
     }
 
     for (const item of items) {
@@ -253,7 +271,7 @@ export function AdminAnalyticsCharts({
       .sort((left, right) => right.value - left.value || left.name.localeCompare(right.name, locale));
 
     return { categoryData: categories, memberData: members, totalSpent: total };
-  }, [carts, currentMonth, items, locale, products, t, users]);
+  }, [carts, currentMonth, items, locale, products, serviceFeeCents, t, users]);
 
   const hasPurchases = totalSpent > 0;
   const percentageFormatter = new Intl.NumberFormat(locale, {
@@ -349,7 +367,8 @@ export function AdminAnalyticsCharts({
             <ul className="sr-only">
               {categoryData.map((entry) => (
                 <li key={entry.key}>
-                  {entry.name}: {formatMoney(entry.value)}, {entry.count} {t.items}
+                  {entry.name}: {formatMoney(entry.value)}, {entry.count}{" "}
+                  {entry.key === "service" ? t.orders : t.items}
                 </li>
               ))}
             </ul>

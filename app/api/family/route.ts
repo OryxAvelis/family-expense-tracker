@@ -30,6 +30,7 @@ const PRODUCT_IMAGE_KEY_PATTERN =
   /^product-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/;
 const ACTIVE_CART_STATUSES = ["pending", "ready", "shopping"];
 const PRODUCT_IMAGE_BUCKET = "product-images";
+const DELIVERY_SERVICE_FEE_CENTS = 50;
 
 type ActionBody = {
   action?: string;
@@ -308,10 +309,9 @@ async function readState(viewer: FamilySessionUser) {
     const { data, error } = await db
       .from("carts")
       .select(
-        "id, completed_at, cart_items!inner(quantity_hundredths, actual_unit_price_cents, purchase_status)",
+        "id, completed_at, cart_items(quantity_hundredths, actual_unit_price_cents, purchase_status)",
       )
       .eq("status", "completed")
-      .eq("cart_items.purchase_status", "bought")
       .not("completed_at", "is", null)
       .limit(1000);
     throwIfSupabaseError(error);
@@ -320,12 +320,18 @@ async function readState(viewer: FamilySessionUser) {
     for (const cart of (data ?? []) as unknown as Array<{
       id: number;
       completed_at: string;
-      cart_items: Array<{ quantity_hundredths: number; actual_unit_price_cents: number }>;
+      cart_items: Array<{
+        quantity_hundredths: number;
+        actual_unit_price_cents: number;
+        purchase_status: string;
+      }>;
     }>) {
       const month = cart.completed_at.slice(0, 7);
       const entry = months.get(month) ?? { total_cents: 0, carts: new Set<number>() };
       entry.carts.add(Number(cart.id));
+      entry.total_cents += DELIVERY_SERVICE_FEE_CENTS;
       for (const item of cart.cart_items) {
+        if (item.purchase_status !== "bought") continue;
         entry.total_cents += Math.round(
           (item.actual_unit_price_cents * item.quantity_hundredths) / 100,
         );
@@ -351,6 +357,7 @@ async function readState(viewer: FamilySessionUser) {
     items,
     monthlyTotals,
     pendingUsers,
+    deliveryServiceFeeCents: DELIVERY_SERVICE_FEE_CENTS,
   };
 }
 
