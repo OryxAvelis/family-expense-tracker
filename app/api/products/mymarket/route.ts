@@ -121,12 +121,7 @@ function productUrl(handle: string, language: Language) {
 }
 
 function searchUrl(query: string, language: Language) {
-  const url = new URL(`${MYMARKET_BASE_URL}${localizedPath(language)}/search/suggest.json`);
-  url.searchParams.set("q", query);
-  url.searchParams.set("resources[type]", "product");
-  url.searchParams.set("resources[limit]", "10");
-  url.searchParams.set("resources[options][unavailable_products]", "hide");
-  return url.toString();
+  return `${MYMARKET_BASE_URL}${localizedPath(language)}/search/suggest.json?q=${encodeURIComponent(query)}&resources[type]=product&resources[limit]=10`;
 }
 
 async function fetchJson<T>(url: string, unavailableMessage: string) {
@@ -414,18 +409,26 @@ async function searchMyMarketCatalogue(query: string, preferredLanguage: Languag
   ];
   const [responses, animalIds] = await Promise.all([
     Promise.all(
-      languages.map((language) =>
-        fetchJson<MyMarketSearchResponse>(
-          searchUrl(query, language),
-          "La recherche MyMarket est momentanément indisponible.",
-        ),
-      ),
+      languages.map(async (language) => {
+        try {
+          return await fetchJson<MyMarketSearchResponse>(
+            searchUrl(query, language),
+            "La recherche MyMarket est momentanément indisponible.",
+          );
+        } catch {
+          return null;
+        }
+      }),
     ),
     fetchAnimalIds(),
   ]);
+  if (responses.every((response) => response === null)) {
+    throw new Error("La recherche MyMarket est momentanément indisponible.");
+  }
   const products = new Map<string, MyMarketCatalogProduct>();
 
   for (const response of responses) {
+    if (!response) continue;
     const results = response.resources?.results?.products;
     if (!Array.isArray(results)) {
       throw new Error("Le format de recherche MyMarket a changé.");
