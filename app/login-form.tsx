@@ -3,10 +3,12 @@
 import {
   AlertCircle,
   Apple,
+  CheckCircle2,
   Eye,
   EyeOff,
   Languages,
   Loader2,
+  LogIn,
   LockKeyhole,
   Milk,
   Moon,
@@ -14,6 +16,7 @@ import {
   ShoppingBasket,
   Sparkles,
   Sun,
+  UserPlus,
   UserRound,
   Wheat,
 } from "lucide-react";
@@ -29,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFamilyTheme } from "@/hooks/use-family-theme";
 
 type LoginLanguage = "fr" | "ar" | "en";
@@ -36,46 +40,97 @@ type LoginLanguage = "fr" | "ar" | "en";
 const copy = {
   fr: {
     title: "Bienvenue à la maison",
-    description: "Connectez-vous avec le code donné par l’administrateur.",
-    username: "Nom d’utilisateur",
-    usernamePlaceholder: "Ex. papa",
-    password: "Mot de passe",
-    submit: "Se connecter",
+    description: "Connectez-vous ou créez votre accès familial.",
+    loginTab: "Connexion",
+    signupTab: "Créer un compte",
+    username: "Votre nom",
+    usernamePlaceholder: "Ex. Mohamed",
+    password: "Code PIN à 4 chiffres",
+    submit: "Entrer dans mon espace",
+    signupTitle: "Rejoindre la famille",
+    signupDescription: "Choisissez votre nom et votre propre code PIN.",
+    confirmPin: "Confirmer le code PIN",
+    signupSubmit: "Créer mon compte",
+    pinMismatch: "Les deux codes PIN ne correspondent pas.",
+    invalidPin: "Le code PIN doit contenir exactement 4 chiffres.",
+    pending: "Votre compte attend l’approbation de Youssef.",
+    created: "Compte créé !",
+    createdDescription: "Youssef doit maintenant approuver votre accès. Vous pourrez ensuite vous connecter avec ce nom et ce code PIN.",
+    backToLogin: "Aller à la connexion",
+    nameTaken: "Ce nom est déjà utilisé.",
+    invalidName: "Saisissez un nom valide.",
+    invalidCredentials: "Nom ou code PIN incorrect.",
+    rateLimited: "Trop de tentatives. Réessayez plus tard.",
     error: "Connexion impossible.",
-    secure: "Chaque personne ouvre automatiquement son propre espace.",
+    signupError: "Création du compte impossible.",
+    secure: "Votre code reste personnel. Youssef valide chaque nouveau membre.",
     access: "Accès réservé à la famille",
-    showPassword: "Afficher le mot de passe",
-    hidePassword: "Masquer le mot de passe",
+    showPassword: "Afficher le code PIN",
+    hidePassword: "Masquer le code PIN",
     light: "Mode clair",
     dark: "Mode sombre",
   },
   ar: {
     title: "مرحبا بكم في البيت",
-    description: "سجّل الدخول بالرمز الذي أعطاك المسؤول.",
-    username: "اسم المستخدم",
-    usernamePlaceholder: "مثال: papa",
-    password: "كلمة المرور",
-    submit: "تسجيل الدخول",
+    description: "سجّل الدخول أو أنشئ حسابك العائلي.",
+    loginTab: "تسجيل الدخول",
+    signupTab: "إنشاء حساب",
+    username: "اسمك",
+    usernamePlaceholder: "مثال: Mohamed",
+    password: "رمز PIN من 4 أرقام",
+    submit: "الدخول إلى فضائي",
+    signupTitle: "الانضمام إلى العائلة",
+    signupDescription: "اختر اسمك ورمز PIN الخاص بك.",
+    confirmPin: "تأكيد رمز PIN",
+    signupSubmit: "إنشاء حسابي",
+    pinMismatch: "رمزا PIN غير متطابقين.",
+    invalidPin: "يجب أن يتكون رمز PIN من 4 أرقام بالضبط.",
+    pending: "حسابك ينتظر موافقة يوسف.",
+    created: "تم إنشاء الحساب!",
+    createdDescription: "يجب على يوسف الموافقة على دخولك. بعد ذلك يمكنك تسجيل الدخول بهذا الاسم ورمز PIN.",
+    backToLogin: "الذهاب إلى تسجيل الدخول",
+    nameTaken: "هذا الاسم مستخدم بالفعل.",
+    invalidName: "أدخل اسماً صالحاً.",
+    invalidCredentials: "الاسم أو رمز PIN غير صحيح.",
+    rateLimited: "محاولات كثيرة. حاول لاحقاً.",
     error: "تعذر تسجيل الدخول.",
-    secure: "كل شخص يدخل مباشرة إلى فضائه الخاص.",
+    signupError: "تعذر إنشاء الحساب.",
+    secure: "رمزك شخصي، ويوسف يوافق على كل عضو جديد.",
     access: "الدخول مخصص للعائلة",
-    showPassword: "إظهار كلمة المرور",
-    hidePassword: "إخفاء كلمة المرور",
+    showPassword: "إظهار رمز PIN",
+    hidePassword: "إخفاء رمز PIN",
     light: "الوضع الفاتح",
     dark: "الوضع الداكن",
   },
   en: {
     title: "Welcome home",
-    description: "Sign in with the code provided by the administrator.",
-    username: "Username",
-    usernamePlaceholder: "Example: papa",
-    password: "Password",
-    submit: "Sign in",
+    description: "Sign in or create your family access.",
+    loginTab: "Sign in",
+    signupTab: "Create account",
+    username: "Your name",
+    usernamePlaceholder: "Example: Mohamed",
+    password: "4-digit PIN",
+    submit: "Enter my space",
+    signupTitle: "Join the family",
+    signupDescription: "Choose your name and your own PIN.",
+    confirmPin: "Confirm PIN",
+    signupSubmit: "Create my account",
+    pinMismatch: "The two PINs do not match.",
+    invalidPin: "The PIN must contain exactly 4 digits.",
+    pending: "Your account is waiting for Youssef’s approval.",
+    created: "Account created!",
+    createdDescription: "Youssef now needs to approve your access. You can then sign in with this name and PIN.",
+    backToLogin: "Go to sign in",
+    nameTaken: "This name is already in use.",
+    invalidName: "Enter a valid name.",
+    invalidCredentials: "Incorrect name or PIN.",
+    rateLimited: "Too many attempts. Try again later.",
     error: "Unable to sign in.",
-    secure: "Each person automatically opens their own space.",
+    signupError: "Unable to create the account.",
+    secure: "Your PIN stays personal. Youssef approves each new member.",
     access: "Family access only",
-    showPassword: "Show password",
-    hidePassword: "Hide password",
+    showPassword: "Show PIN",
+    hidePassword: "Hide PIN",
     light: "Light mode",
     dark: "Dark mode",
   },
@@ -89,11 +144,16 @@ const languageNames: Record<LoginLanguage, string> = {
 
 export function LoginForm() {
   const [language, setLanguage] = useState<LoginLanguage>("fr");
+  const [mode, setMode] = useState<"login" | "signup">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [signupName, setSignupName] = useState("");
+  const [signupPin, setSignupPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [createdUsername, setCreatedUsername] = useState("");
   const { theme, toggleTheme } = useFamilyTheme();
   const t = copy[language];
 
@@ -102,9 +162,25 @@ export function LoginForm() {
     document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
   }, [language]);
 
+  const numericPin = (value: string) => value.replace(/\D/g, "").slice(0, 4);
+
+  const messageForCode = (code: string | undefined, fallback: string) => {
+    if (code === "ACCOUNT_PENDING") return t.pending;
+    if (code === "INVALID_PIN") return t.invalidPin;
+    if (code === "INVALID_NAME") return t.invalidName;
+    if (code === "INVALID_CREDENTIALS") return t.invalidCredentials;
+    if (code === "NAME_TAKEN") return t.nameTaken;
+    if (code === "RATE_LIMITED") return t.rateLimited;
+    return fallback;
+  };
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
+    if (!/^\d{4}$/.test(password)) {
+      setError(t.invalidPin);
+      return;
+    }
     setBusy(true);
 
     try {
@@ -113,13 +189,62 @@ export function LoginForm() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
-      const payload = (await response.json()) as { route?: string; error?: string };
-      if (!response.ok || !payload.route) throw new Error(payload.error || t.error);
+      const payload = (await response.json()) as { route?: string; error?: string; code?: string };
+      if (!response.ok || !payload.route) {
+        throw new Error(messageForCode(payload.code, payload.error || t.error));
+      }
       window.location.assign(payload.route);
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : t.error);
       setBusy(false);
     }
+  };
+
+  const submitSignup = async (event: FormEvent) => {
+    event.preventDefault();
+    setError("");
+    if (!/^\d{4}$/.test(signupPin)) {
+      setError(t.invalidPin);
+      return;
+    }
+    if (signupPin !== confirmPin) {
+      setError(t.pinMismatch);
+      return;
+    }
+    setBusy(true);
+
+    try {
+      const response = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: signupName, pin: signupPin }),
+      });
+      const payload = (await response.json()) as {
+        created?: boolean;
+        username?: string;
+        error?: string;
+        code?: string;
+      };
+      if (!response.ok || !payload.created) {
+        throw new Error(messageForCode(payload.code, payload.error || t.signupError));
+      }
+      setCreatedUsername(signupName.trim());
+      setUsername(signupName.trim());
+      setPassword("");
+      setSignupPin("");
+      setConfirmPin("");
+    } catch (signupError) {
+      setError(signupError instanceof Error ? signupError.message : t.signupError);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const changeMode = (value: string) => {
+    setMode(value === "signup" ? "signup" : "login");
+    setError("");
+    setCreatedUsername("");
+    setShowPassword(false);
   };
 
   return (
@@ -219,64 +344,178 @@ export function LoginForm() {
                 <span className="login-twinkle ms-1 text-primary"><Sparkles className="size-4" /></span>
               </div>
             </div>
-            <h1 className="text-[1.7rem] font-bold leading-tight tracking-[-0.04em] sm:text-3xl">{t.title}</h1>
-            <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground sm:text-base">{t.description}</p>
+            <h1 className="text-[1.7rem] font-bold leading-tight tracking-[-0.04em] sm:text-3xl">
+              {mode === "signup" ? t.signupTitle : t.title}
+            </h1>
+            <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground sm:text-base">
+              {mode === "signup" ? t.signupDescription : t.description}
+            </p>
 
-            <form className="mt-4 space-y-3 sm:mt-6 sm:space-y-4" onSubmit={(event) => void submit(event)}>
-              <div className="space-y-1.5">
-                <Label htmlFor="family-username">{t.username}</Label>
-                <div className="relative">
-                  <UserRound className="pointer-events-none absolute start-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="family-username"
-                    autoComplete="username"
-                    autoCapitalize="none"
-                    required
-                    value={username}
-                    onChange={(event) => setUsername(event.target.value)}
-                    placeholder={t.usernamePlaceholder}
-                    className="h-11 rounded-2xl border-border bg-background/70 ps-12 text-base shadow-sm transition-[border-color,box-shadow,background-color] focus-visible:bg-card sm:h-12"
-                  />
-                </div>
-              </div>
+            <Tabs value={mode} onValueChange={changeMode} className="mt-4 sm:mt-5">
+              <TabsList className="grid h-11 w-full grid-cols-2 rounded-2xl bg-muted/70 p-1">
+                <TabsTrigger value="login" className="h-9 min-w-0 rounded-xl px-2 text-xs sm:text-sm">
+                  <LogIn className="size-4" /> {t.loginTab}
+                </TabsTrigger>
+                <TabsTrigger value="signup" className="h-9 min-w-0 rounded-xl px-2 text-xs sm:text-sm">
+                  <UserPlus className="size-4" /> {t.signupTab}
+                </TabsTrigger>
+              </TabsList>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="family-password">{t.password}</Label>
-                <div className="relative">
-                  <LockKeyhole className="pointer-events-none absolute start-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="family-password"
-                    type={showPassword ? "text" : "password"}
-                    autoComplete="current-password"
-                    required
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    className="h-11 rounded-2xl border-border bg-background/70 px-12 text-base shadow-sm transition-[border-color,box-shadow,background-color] focus-visible:bg-card sm:h-12"
-                  />
-                  <Button
-                    type="button"
-                    size="icon-sm"
-                    variant="ghost"
-                    className="absolute end-2 top-1/2 -translate-y-1/2 rounded-xl text-muted-foreground"
-                    onClick={() => setShowPassword((current) => !current)}
-                    aria-label={showPassword ? t.hidePassword : t.showPassword}
-                  >
-                    {showPassword ? <EyeOff /> : <Eye />}
+              <TabsContent value="login" className="mt-4">
+                <form className="space-y-3 sm:space-y-4" onSubmit={(event) => void submit(event)}>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="family-login-name">{t.username}</Label>
+                    <div className="relative">
+                      <UserRound className="pointer-events-none absolute start-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="family-login-name"
+                        autoComplete="username"
+                        required
+                        maxLength={40}
+                        value={username}
+                        onChange={(event) => setUsername(event.target.value)}
+                        placeholder={t.usernamePlaceholder}
+                        className="h-11 rounded-2xl border-border bg-background/70 ps-12 text-base shadow-sm transition-[border-color,box-shadow,background-color] focus-visible:bg-card sm:h-12"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="family-login-pin">{t.password}</Label>
+                    <div className="relative">
+                      <LockKeyhole className="pointer-events-none absolute start-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="family-login-pin"
+                        type={showPassword ? "text" : "password"}
+                        inputMode="numeric"
+                        pattern="[0-9]{4}"
+                        maxLength={4}
+                        autoComplete="current-password"
+                        required
+                        value={password}
+                        onChange={(event) => setPassword(numericPin(event.target.value))}
+                        className="h-11 rounded-2xl border-border bg-background/70 px-12 text-base tracking-[0.28em] shadow-sm transition-[border-color,box-shadow,background-color] focus-visible:bg-card sm:h-12"
+                      />
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        className="absolute end-1.5 top-1/2 size-10 -translate-y-1/2 rounded-xl text-muted-foreground"
+                        onClick={() => setShowPassword((current) => !current)}
+                        aria-label={showPassword ? t.hidePassword : t.showPassword}
+                      >
+                        {showPassword ? <EyeOff /> : <Eye />}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {error && (
+                    <p role="alert" className="flex items-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+                      <AlertCircle className="size-4 shrink-0" /> {error}
+                    </p>
+                  )}
+
+                  <Button type="submit" size="lg" className="h-11 w-full rounded-2xl text-base shadow-lg shadow-primary/15 transition-transform active:scale-[0.99] sm:h-12" disabled={busy}>
+                    {busy ? <Loader2 className="animate-spin" /> : <LogIn />}
+                    {t.submit}
                   </Button>
-                </div>
-              </div>
+                </form>
+              </TabsContent>
 
-              {error && (
-                <p role="alert" className="flex items-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive">
-                  <AlertCircle className="size-4 shrink-0" /> {error}
-                </p>
-              )}
+              <TabsContent value="signup" className="mt-4">
+                {createdUsername ? (
+                  <div className="rounded-3xl border border-primary/20 bg-primary/7 p-5 text-center" aria-live="polite">
+                    <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+                      <CheckCircle2 className="size-6" />
+                    </span>
+                    <h2 className="mt-4 text-lg font-semibold">{t.created}</h2>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">{t.createdDescription}</p>
+                    <Button type="button" className="mt-5 h-11 w-full rounded-2xl" onClick={() => changeMode("login")}>
+                      <LogIn /> {t.backToLogin}
+                    </Button>
+                  </div>
+                ) : (
+                  <form className="space-y-3" onSubmit={(event) => void submitSignup(event)}>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="family-signup-name">{t.username}</Label>
+                      <div className="relative">
+                        <UserRound className="pointer-events-none absolute start-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          id="family-signup-name"
+                          autoComplete="name"
+                          required
+                          minLength={2}
+                          maxLength={40}
+                          value={signupName}
+                          onChange={(event) => setSignupName(event.target.value)}
+                          placeholder={t.usernamePlaceholder}
+                          className="h-11 rounded-2xl border-border bg-background/70 ps-12 text-base shadow-sm sm:h-12"
+                        />
+                      </div>
+                    </div>
 
-              <Button type="submit" size="lg" className="h-11 w-full rounded-2xl text-base shadow-lg shadow-primary/15 transition-transform active:scale-[0.99] sm:h-12" disabled={busy}>
-                {busy && <Loader2 className="animate-spin" />}
-                {t.submit}
-              </Button>
-            </form>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="family-signup-pin">{t.password}</Label>
+                      <div className="relative">
+                        <LockKeyhole className="pointer-events-none absolute start-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          id="family-signup-pin"
+                          type={showPassword ? "text" : "password"}
+                          inputMode="numeric"
+                          pattern="[0-9]{4}"
+                          maxLength={4}
+                          autoComplete="new-password"
+                          required
+                          value={signupPin}
+                          onChange={(event) => setSignupPin(numericPin(event.target.value))}
+                          className="h-11 rounded-2xl border-border bg-background/70 px-12 text-base tracking-[0.28em] shadow-sm sm:h-12"
+                        />
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          className="absolute end-1.5 top-1/2 size-10 -translate-y-1/2 rounded-xl text-muted-foreground"
+                          onClick={() => setShowPassword((current) => !current)}
+                          aria-label={showPassword ? t.hidePassword : t.showPassword}
+                        >
+                          {showPassword ? <EyeOff /> : <Eye />}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="family-confirm-pin">{t.confirmPin}</Label>
+                      <div className="relative">
+                        <LockKeyhole className="pointer-events-none absolute start-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          id="family-confirm-pin"
+                          type={showPassword ? "text" : "password"}
+                          inputMode="numeric"
+                          pattern="[0-9]{4}"
+                          maxLength={4}
+                          autoComplete="new-password"
+                          required
+                          value={confirmPin}
+                          onChange={(event) => setConfirmPin(numericPin(event.target.value))}
+                          className="h-11 rounded-2xl border-border bg-background/70 ps-12 text-base tracking-[0.28em] shadow-sm sm:h-12"
+                        />
+                      </div>
+                    </div>
+
+                    {error && (
+                      <p role="alert" className="flex items-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+                        <AlertCircle className="size-4 shrink-0" /> {error}
+                      </p>
+                    )}
+
+                    <Button type="submit" size="lg" className="h-11 w-full rounded-2xl text-base shadow-lg shadow-primary/15 transition-transform active:scale-[0.99] sm:h-12" disabled={busy}>
+                      {busy ? <Loader2 className="animate-spin" /> : <UserPlus />}
+                      {t.signupSubmit}
+                    </Button>
+                  </form>
+                )}
+              </TabsContent>
+            </Tabs>
           </div>
 
           <p className="relative z-[1] mt-auto pt-3 text-center text-xs text-muted-foreground">{t.access}</p>

@@ -104,7 +104,7 @@ const scannerCopy = {
     imageTooLarge: "Cette image est trop lourde (12 Mo maximum).",
     imageNotFound: "Aucun code-barres lisible dans cette image.",
     permission: "Autorisez la caméra, puis réessayez. Vous pouvez aussi saisir le code.",
-    source: "Recherche d’abord dans MyMarket, puis dans Open Food Facts. Salma confirme le prix réel.",
+    source: "Recherche d’abord dans MyMarket, puis dans Open Food Facts. Josef confirme le prix réel.",
     fallback: "Impossible d’ouvrir la caméra. Saisissez le code ci-dessous.",
   },
   ar: {
@@ -126,7 +126,7 @@ const scannerCopy = {
     imageTooLarge: "حجم الصورة كبير جداً (الحد الأقصى 12 ميغابايت).",
     imageNotFound: "لم يتم العثور على رمز شريطي واضح في الصورة.",
     permission: "اسمح باستخدام الكاميرا ثم أعد المحاولة، أو أدخل الرمز يدوياً.",
-    source: "يبدأ البحث في MyMarket ثم Open Food Facts. تؤكد سلمى السعر الحقيقي.",
+    source: "يبدأ البحث في MyMarket ثم Open Food Facts. يؤكد جوزيف السعر الحقيقي.",
     fallback: "تعذر تشغيل الكاميرا. أدخل الرمز أدناه.",
   },
   en: {
@@ -148,7 +148,7 @@ const scannerCopy = {
     imageTooLarge: "This image is too large (12 MB maximum).",
     imageNotFound: "No readable barcode was found in this image.",
     permission: "Allow camera access and try again, or enter the code manually.",
-    source: "Searches MyMarket first, then Open Food Facts. Salma confirms the real price.",
+    source: "Searches MyMarket first, then Open Food Facts. Josef confirms the real price.",
     fallback: "The camera could not open. Enter the code below.",
   },
 } as const;

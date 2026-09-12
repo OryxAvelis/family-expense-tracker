@@ -28,6 +28,8 @@ import {
   Sun,
   Trash2,
   UserCog,
+  UserCheck,
+  UserPlus,
   X,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -106,6 +108,14 @@ type FamilyUser = {
   username: string;
   role: Role;
   initials: string;
+};
+
+type PendingUser = {
+  id: number;
+  name: string;
+  username: string;
+  initials: string;
+  created_at: string;
 };
 
 type Product = {
@@ -189,6 +199,7 @@ type AppData = {
   carts: Cart[];
   items: CartItem[];
   monthlyTotals: MonthlyTotal[];
+  pendingUsers: PendingUser[];
 };
 
 const words = {
@@ -227,6 +238,17 @@ const words = {
     urgent: "Urgent",
     normal: "Normal",
     noRequests: "Aucune demande en attente.",
+    accountRequests: "Nouveaux membres",
+    accountRequestsHelp: "Vérifiez la personne avant de lui ouvrir l’accès familial.",
+    noAccountRequests: "Aucune demande de compte.",
+    approveAccount: "Approuver",
+    rejectAccount: "Refuser",
+    rejectAccountTitle: "Refuser cette demande ?",
+    rejectAccountHelp: "La demande sera supprimée. Cette personne pourra créer un nouveau compte plus tard.",
+    keepRequest: "Garder la demande",
+    accountApproved: "Compte approuvé.",
+    accountRejected: "Demande refusée.",
+    requestedOn: "Demandé le",
     price: "Prix unitaire",
     save: "Enregistrer",
     addProduct: "Ajouter un produit",
@@ -276,7 +298,7 @@ const words = {
     scannedAdded: "Produit scanné ajouté au panier.",
     familyCatalog: "Catalogue maison",
     myMarketCatalog: "Catalogue MyMarket",
-    myMarketHint: "Prix MyMarket en ligne — Salma confirme le prix réel.",
+    myMarketHint: "Prix MyMarket en ligne — Josef confirme le prix réel.",
     myMarketRules: "Tous les rayons sauf Animaux",
     myMarketLoading: "Chargement du catalogue MyMarket…",
     myMarketSearching: "Recherche dans les trois langues…",
@@ -333,6 +355,17 @@ const words = {
     urgent: "مستعجل",
     normal: "عادي",
     noRequests: "لا توجد طلبات منتظرة.",
+    accountRequests: "أعضاء جدد",
+    accountRequestsHelp: "تحقق من الشخص قبل السماح له بدخول مساحة العائلة.",
+    noAccountRequests: "لا توجد طلبات حساب جديدة.",
+    approveAccount: "قبول",
+    rejectAccount: "رفض",
+    rejectAccountTitle: "رفض هذا الطلب؟",
+    rejectAccountHelp: "سيتم حذف الطلب، ويمكن لهذا الشخص إنشاء حساب جديد لاحقاً.",
+    keepRequest: "الاحتفاظ بالطلب",
+    accountApproved: "تم قبول الحساب.",
+    accountRejected: "تم رفض الطلب.",
+    requestedOn: "طُلب في",
     price: "ثمن الوحدة",
     save: "حفظ",
     addProduct: "إضافة منتج",
@@ -382,7 +415,7 @@ const words = {
     scannedAdded: "تمت إضافة المنتج إلى السلة.",
     familyCatalog: "منتجات البيت",
     myMarketCatalog: "منتجات MyMarket",
-    myMarketHint: "ثمن MyMarket على الإنترنت — سلمى تؤكد الثمن الحقيقي.",
+    myMarketHint: "ثمن MyMarket على الإنترنت — جوزيف يؤكد الثمن الحقيقي.",
     myMarketRules: "كل الأقسام ما عدا الحيوانات",
     myMarketLoading: "جارٍ تحميل منتجات MyMarket…",
     myMarketSearching: "جارٍ البحث باللغات الثلاث…",
@@ -439,6 +472,17 @@ const words = {
     urgent: "Urgent",
     normal: "Normal",
     noRequests: "No requests are waiting.",
+    accountRequests: "New members",
+    accountRequestsHelp: "Verify the person before opening family access.",
+    noAccountRequests: "No account requests.",
+    approveAccount: "Approve",
+    rejectAccount: "Reject",
+    rejectAccountTitle: "Reject this request?",
+    rejectAccountHelp: "The request will be removed. This person can create a new account later.",
+    keepRequest: "Keep request",
+    accountApproved: "Account approved.",
+    accountRejected: "Request rejected.",
+    requestedOn: "Requested on",
     price: "Unit price",
     save: "Save",
     addProduct: "Add product",
@@ -488,7 +532,7 @@ const words = {
     scannedAdded: "Scanned product added to the cart.",
     familyCatalog: "House catalog",
     myMarketCatalog: "MyMarket catalog",
-    myMarketHint: "Online MyMarket price — Salma confirms the real price.",
+    myMarketHint: "Online MyMarket price — Josef confirms the real price.",
     myMarketRules: "All departments except Animals",
     myMarketLoading: "Loading the MyMarket catalog…",
     myMarketSearching: "Searching in all three languages…",
@@ -1251,6 +1295,7 @@ export function FamilyTracker({
     data?.carts.filter(
       (cart) => cart.priority === null && ["pending", "ready", "shopping"].includes(cart.status),
     ) ?? [];
+  const pendingUsers = data?.pendingUsers ?? [];
   const deliveryQueue =
     data?.carts.filter((cart) => ["pending", "ready", "shopping"].includes(cart.status)) ?? [];
   const deliveryHistory =
@@ -1269,7 +1314,7 @@ export function FamilyTracker({
 
   const notificationCount =
     role === "admin"
-      ? pendingCarts.length
+      ? pendingCarts.length + pendingUsers.length
       : role === "delivery"
         ? deliveryQueue.length
         : memberActive.filter((cart) => cart.status !== "pending").length;
@@ -1451,7 +1496,12 @@ export function FamilyTracker({
                 <PopoverContent align="end" className="w-72 rounded-2xl border-border bg-card p-4">
                   <p className="font-semibold">{t.notifications}</p>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    {role === "admin" && `${pendingCarts.length} ${t.awaiting.toLocaleLowerCase()}.`}
+                    {role === "admin" && (
+                      <>
+                        {pendingCarts.length} {t.awaiting.toLocaleLowerCase()} · {pendingUsers.length}{" "}
+                        {t.accountRequests.toLocaleLowerCase()}.
+                      </>
+                    )}
                     {role === "delivery" && `${deliveryQueue.length} ${t.carts.toLocaleLowerCase()}.`}
                     {role === "member" && `${notificationCount} ${t.carts.toLocaleLowerCase()} mis à jour.`}
                   </p>
@@ -1790,6 +1840,7 @@ export function FamilyTracker({
           <AdminDashboard
             data={data}
             pendingCarts={pendingCarts}
+            pendingUsers={pendingUsers}
             itemsFor={itemsFor}
             productName={productName}
             money={money}
@@ -2218,6 +2269,7 @@ function MemberCarts({
 function AdminDashboard({
   data,
   pendingCarts,
+  pendingUsers,
   itemsFor,
   productName,
   money,
@@ -2239,6 +2291,7 @@ function AdminDashboard({
 }: {
   data: AppData;
   pendingCarts: Cart[];
+  pendingUsers: PendingUser[];
   itemsFor: (cartId: number) => CartItem[];
   productName: (product: Pick<Product, "name_fr" | "name_ar" | "name_en">) => string;
   money: (cents: number) => string;
@@ -2271,6 +2324,7 @@ function AdminDashboard({
   const [editProductImage, setEditProductImage] = useState<File | null>(null);
   const [removeEditProductImage, setRemoveEditProductImage] = useState(false);
   const [productToRemove, setProductToRemove] = useState<Product | null>(null);
+  const [memberToReject, setMemberToReject] = useState<PendingUser | null>(null);
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const editImageInputRef = useRef<HTMLInputElement>(null);
@@ -2452,6 +2506,15 @@ function AdminDashboard({
     if (ok) setProductToRemove(null);
   };
 
+  const rejectPendingUser = async () => {
+    if (!memberToReject) return;
+    const ok = await act(
+      { action: "reject_user", userId: memberToReject.id },
+      t.accountRejected,
+    );
+    if (ok) setMemberToReject(null);
+  };
+
   return (
     <section className="mx-auto max-w-7xl px-5 pb-10 pt-7 sm:px-8 lg:px-12 lg:pt-10">
       <div className="mb-7">
@@ -2463,13 +2526,75 @@ function AdminDashboard({
         <TabsList className="mb-7 h-11 w-full justify-start gap-1 overflow-x-auto overflow-y-hidden rounded-2xl bg-muted/60 p-1 sm:w-fit">
           <TabsTrigger value="requests" className="h-9 rounded-xl px-4">
             <ListChecks /> {t.requests}
-            {pendingCarts.length > 0 && <Badge className="ms-1 h-5 min-w-5 px-1.5">{pendingCarts.length}</Badge>}
+            {pendingCarts.length + pendingUsers.length > 0 && (
+              <Badge className="ms-1 h-5 min-w-5 px-1.5">{pendingCarts.length + pendingUsers.length}</Badge>
+            )}
           </TabsTrigger>
           <TabsTrigger value="products" className="h-9 rounded-xl px-4"><PackagePlus /> {t.products}</TabsTrigger>
           <TabsTrigger value="analytics" className="h-9 rounded-xl px-4"><BarChart3 /> {t.analytics}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="requests">
+          <div className="mb-8 rounded-3xl border border-primary/20 bg-primary/[0.035] p-4 sm:p-5">
+            <div className="mb-4 flex items-start gap-3">
+              <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
+                <UserPlus className="size-5" />
+              </span>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-lg font-semibold">{t.accountRequests}</h2>
+                  {pendingUsers.length > 0 && <Badge>{pendingUsers.length}</Badge>}
+                </div>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">{t.accountRequestsHelp}</p>
+              </div>
+            </div>
+
+            {pendingUsers.length ? (
+              <div className="grid gap-3 lg:grid-cols-2">
+                {pendingUsers.map((member) => (
+                  <article key={member.id} className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-center">
+                    <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-secondary font-bold text-primary">
+                      {member.initials}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold">{member.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">@{member.username}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t.requestedOn}{" "}
+                        {new Date(member.created_at).toLocaleString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                        })}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
+                      <Button
+                        variant="outline"
+                        className="h-10 min-w-0 rounded-xl px-3 text-destructive hover:text-destructive"
+                        disabled={busy}
+                        onClick={() => setMemberToReject(member)}
+                      >
+                        <X /> {t.rejectAccount}
+                      </Button>
+                      <Button
+                        className="h-10 min-w-0 rounded-xl px-3"
+                        disabled={busy}
+                        onClick={() => void act({ action: "approve_user", userId: member.id }, t.accountApproved)}
+                      >
+                        <UserCheck /> {t.approveAccount}
+                      </Button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-border bg-card/50 px-4 py-5 text-center text-sm text-muted-foreground">
+                <UserCheck className="mx-auto mb-2 size-6 text-primary" />
+                {t.noAccountRequests}
+              </div>
+            )}
+          </div>
+
           <div className="mb-4">
             <h2 className="text-xl font-semibold">{t.awaiting}</h2>
             <p className="mt-1 text-sm text-muted-foreground">{t.choosePriority}</p>
@@ -2870,6 +2995,34 @@ function AdminDashboard({
           />
         </TabsContent>
       </Tabs>
+
+      <AlertDialog
+        open={Boolean(memberToReject)}
+        onOpenChange={(open) => !open && !busy && setMemberToReject(null)}
+      >
+        <AlertDialogContent className="rounded-3xl border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t.rejectAccountTitle}{memberToReject ? ` · ${memberToReject.name}` : ""}
+            </AlertDialogTitle>
+            <AlertDialogDescription>{t.rejectAccountHelp}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>{t.keepRequest}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={busy}
+              onClick={(event) => {
+                event.preventDefault();
+                void rejectPendingUser();
+              }}
+            >
+              {busy && <Loader2 className="animate-spin" />}
+              {t.rejectAccount}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

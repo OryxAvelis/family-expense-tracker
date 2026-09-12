@@ -1,6 +1,8 @@
 import {
   authenticateFamilyUser,
+  consumeFamilyAuthAttempt,
   createFamilySession,
+  ensureFamilyAuthUsers,
   familyRolePath,
   familySessionCookie,
 } from "@/lib/family-auth";
@@ -12,22 +14,40 @@ export async function POST(request: Request) {
     const body = (await request.json()) as { username?: unknown; password?: unknown };
     const username = typeof body.username === "string" ? body.username : "";
     const password = typeof body.password === "string" ? body.password : "";
-    const user = await authenticateFamilyUser(username, password);
-
-    if (!user) {
+    await ensureFamilyAuthUsers();
+    const limiter = await consumeFamilyAuthAttempt(request, "login", 20, 15 * 60);
+    if (!limiter.allowed) {
       return Response.json(
-        { error: "Nom d’utilisateur ou mot de passe incorrect." },
+        { error: "Trop de tentatives. Réessayez dans quelques minutes.", code: "RATE_LIMITED" },
+        {
+          status: 429,
+          headers: { "retry-after": String(limiter.retryAfterSeconds) },
+        },
+      );
+    }
+
+    const result = await authenticateFamilyUser(username, password);
+
+    if (result.status === "invalid") {
+      return Response.json(
+        { error: "Nom ou code PIN incorrect.", code: "INVALID_CREDENTIALS" },
         { status: 401 },
       );
     }
 
-    const session = await createFamilySession(user.id);
+    if (result.status === "pending") {
+      return Response.json(
+        { error: "Votre compte attend l’approbation de Youssef.", code: "ACCOUNT_PENDING" },
+        { status: 403 },
+      );
+    }
+
+    const session = await createFamilySession(result.user.id);
     return Response.json(
-      { user, route: familyRolePath(user.role) },
+      { user: result.user, route: familyRolePath(result.user.role) },
       { headers: { "set-cookie": familySessionCookie(session.token, request) } },
     );
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Connexion impossible.";
-    return Response.json({ error: message }, { status: 500 });
+  } catch {
+    return Response.json({ error: "Connexion impossible." }, { status: 500 });
   }
 }

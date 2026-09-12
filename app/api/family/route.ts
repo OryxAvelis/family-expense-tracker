@@ -45,6 +45,10 @@ type UserRow = {
   initials: string;
 };
 
+type PendingUserRow = Pick<UserRow, "id" | "name" | "username" | "initials"> & {
+  created_at: string;
+};
+
 type ProductRow = {
   id: number;
   name_fr: string;
@@ -233,6 +237,19 @@ async function readState(viewer: FamilySessionUser) {
   throwIfSupabaseError(productsResult.error);
   throwIfSupabaseError(cartsResult.error);
 
+  let pendingUsers: PendingUserRow[] = [];
+  if (viewer.role === "admin") {
+    const { data, error } = await db
+      .from("family_users")
+      .select("id, name, username, initials, created_at")
+      .eq("role", "member")
+      .eq("active", false)
+      .order("created_at", { ascending: true })
+      .limit(50);
+    throwIfSupabaseError(error);
+    pendingUsers = (data ?? []) as PendingUserRow[];
+  }
+
   const users = (usersResult.data ?? []) as UserRow[];
   const products = ((productsResult.data ?? []) as unknown as ProductRow[]).map(
     ({ cart_items, ...product }) => ({ ...product, has_orders: Number(Boolean(cart_items?.length)) }),
@@ -333,6 +350,7 @@ async function readState(viewer: FamilySessionUser) {
     carts: visibleCarts,
     items,
     monthlyTotals,
+    pendingUsers,
   };
 }
 
@@ -356,6 +374,40 @@ export async function POST(request: Request) {
     const db = getSupabaseAdmin();
 
     switch (body.action) {
+      case "approve_user": {
+        requireRole(viewer.role, "admin");
+        const userId = asPositiveInt(body.userId, "userId");
+        if (userId <= 2) throw new Error("Ce compte ne peut pas être modifié.");
+        const { data, error } = await db
+          .from("family_users")
+          .update({ active: true })
+          .eq("id", userId)
+          .eq("role", "member")
+          .eq("active", false)
+          .select("id")
+          .maybeSingle();
+        throwIfSupabaseError(error);
+        if (!data) throw new Error("Cette demande a déjà été traitée.");
+        break;
+      }
+
+      case "reject_user": {
+        requireRole(viewer.role, "admin");
+        const userId = asPositiveInt(body.userId, "userId");
+        if (userId <= 2) throw new Error("Ce compte ne peut pas être modifié.");
+        const { data, error } = await db
+          .from("family_users")
+          .delete()
+          .eq("id", userId)
+          .eq("role", "member")
+          .eq("active", false)
+          .select("id")
+          .maybeSingle();
+        throwIfSupabaseError(error);
+        if (!data) throw new Error("Cette demande a déjà été traitée.");
+        break;
+      }
+
       case "submit_cart": {
         requireRole(viewer.role, "member");
         const items = Array.isArray(body.items) ? body.items : [];

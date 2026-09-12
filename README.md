@@ -5,12 +5,16 @@ hosted on Vercel with Supabase for shared data and product images.
 
 ## Pages
 
-- `/connexion` — shared login for every family role
+- `/connexion` — shared login and member sign-up
 - `/membre` — create and follow personal shopping carts
 - `/livreur` — immediately receive new carts and record real prices
-- `/admin` — prioritize requests, manage products, and view the monthly total
+- `/admin` — approve new members, prioritize requests, manage products, and view analytics
 
-Members can scan a packaged product barcode to import its name, pack size, and photo from Open Food Facts. The buyer still records the real local price. Camera scanning works on `localhost` and deployed HTTPS pages; the code can always be entered manually.
+New members choose their own four-digit PIN. Their account stays locked until
+Youssef approves it from the administration page; sign-up can never create an
+admin or delivery account.
+
+Members can scan a packaged product barcode to import its name, pack size, and photo from MyMarket first, with Open Food Facts as a fallback. The buyer still records the real local price. Camera scanning works on `localhost` and deployed HTTPS pages; the code can always be entered manually.
 
 Members can also browse the live MyMarket Morocco catalogue in French, Arabic, or English. Every available department is included except Animals. Selecting a product safely imports its localized name, current price, pack size, and image into the family catalogue and adds it to the member's cart; the buyer can still correct the real market price.
 

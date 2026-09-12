@@ -1,4 +1,4 @@
-import { FAMILY_USERS, getRequestFamilyUser } from "@/lib/family-auth";
+import { getRequestFamilyUser } from "@/lib/family-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
@@ -15,9 +15,7 @@ function requestedUserId(request: Request, fallbackUserId: number) {
   const rawUserId = new URL(request.url).searchParams.get("userId");
   if (!rawUserId) return fallbackUserId;
   const userId = Number(rawUserId);
-  return Number.isSafeInteger(userId) && FAMILY_USERS.some((user) => user.id === userId)
-    ? userId
-    : null;
+  return Number.isSafeInteger(userId) && userId > 0 ? userId : null;
 }
 
 function detectedImageType(bytes: Uint8Array) {
@@ -55,7 +53,17 @@ export async function GET(request: Request) {
   if (!userId) return Response.json({ error: "Profil invalide." }, { status: 400 });
 
   try {
-    const { data, error } = await getSupabaseAdmin().storage
+    const db = getSupabaseAdmin();
+    const { data: profile, error: profileError } = await db
+      .from("family_users")
+      .select("id")
+      .eq("id", userId)
+      .eq("active", true)
+      .maybeSingle();
+    if (profileError) throw new Error(profileError.message);
+    if (!profile) return Response.json({ error: "Profil invalide." }, { status: 404 });
+
+    const { data, error } = await db.storage
       .from(PROFILE_IMAGE_BUCKET)
       .download(profileImageKey(userId));
     if (error || !data) return Response.json({ error: "Photo introuvable." }, { status: 404 });

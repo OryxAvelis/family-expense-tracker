@@ -89,7 +89,7 @@ grant usage, select, update on all sequences in schema public to service_role;
 insert into public.family_users (id, name, username, role, initials, active)
 values
   (1, 'Youssef', 'youssef', 'admin', 'YO', true),
-  (2, 'Salma', 'salma', 'delivery', 'SA', true),
+  (2, 'Josef', 'josef', 'delivery', 'JO', true),
   (3, 'Papa', 'papa', 'member', 'PA', true),
   (4, 'Maman', 'maman', 'member', 'MA', true),
   (5, 'Amina', 'amina', 'member', 'AM', true),
