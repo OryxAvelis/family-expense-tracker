@@ -13,6 +13,7 @@ import {
   ListChecks,
   Loader2,
   LogOut,
+  MessageSquareText,
   Moon,
   PackageCheck,
   PackagePlus,
@@ -78,6 +79,7 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { Toaster } from "@/components/ui/sonner";
 import {
   BarcodeScannerDialog,
@@ -153,6 +155,7 @@ type Cart = {
   submitted_at: string;
   approved_at: string | null;
   completed_at: string | null;
+  missing_products_note: string;
 };
 
 type CartItem = {
@@ -198,6 +201,9 @@ const words = {
     estimated: "Prix actuel — modifiable par le livreur",
     cart: "Panier",
     emptyCart: "Votre panier est vide.",
+    missingProducts: "Produits non trouvés",
+    missingProductsHint: "Écrivez les produits absents du catalogue, avec la quantité.",
+    optional: "Facultatif",
     submit: "Envoyer la commande",
     update: "Mettre à jour le panier",
     estimate: "Total estimé",
@@ -287,6 +293,9 @@ const words = {
     estimated: "السعر الحالي — يمكن للمكلّف بالشراء تعديله",
     cart: "السلة",
     emptyCart: "سلّتك فارغة.",
+    missingProducts: "منتجات غير موجودة",
+    missingProductsHint: "اكتب المنتجات غير الموجودة في القائمة مع الكمية.",
+    optional: "اختياري",
     submit: "إرسال الطلب",
     update: "تحديث السلة",
     estimate: "المجموع التقريبي",
@@ -376,6 +385,9 @@ const words = {
     estimated: "Current price — editable by the buyer",
     cart: "Cart",
     emptyCart: "Your cart is empty.",
+    missingProducts: "Products not found",
+    missingProductsHint: "Write the products missing from the catalog, with the quantity.",
+    optional: "Optional",
     submit: "Send order",
     update: "Update cart",
     estimate: "Estimated total",
@@ -542,6 +554,28 @@ function ProductImage({
   );
 }
 
+function MissingProductsNote({
+  note,
+  label,
+  className = "",
+}: {
+  note: string;
+  label: string;
+  className?: string;
+}) {
+  if (!note.trim()) return null;
+
+  return (
+    <div className={`flex gap-3 rounded-2xl border border-[#ffb454]/35 bg-[#ffb454]/10 p-4 ${className}`}>
+      <MessageSquareText className="mt-0.5 size-5 shrink-0 text-[#b76500] dark:text-[#ffb454]" />
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-[#8a4e00] dark:text-[#ffd09a]">{label}</p>
+        <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">{note}</p>
+      </div>
+    </div>
+  );
+}
+
 export function FamilyTracker({
   role,
   currentUser,
@@ -560,6 +594,7 @@ export function FamilyTracker({
   const [category, setCategory] = useState("all");
   const [cartOpen, setCartOpen] = useState(false);
   const [draft, setDraft] = useState<Record<number, number>>({});
+  const [missingProductsNote, setMissingProductsNote] = useState("");
   const [editingCartId, setEditingCartId] = useState<number | null>(null);
   const [deliveryPrices, setDeliveryPrices] = useState<Record<number, string>>({});
   const [productPrices, setProductPrices] = useState<Record<number, string>>({});
@@ -991,7 +1026,9 @@ export function FamilyTracker({
             productId: Number(productId),
             quantityHundredths,
           }));
-        if (!staged.length) throw new Error("The visible cart is empty.");
+        if (!staged.length && !missingProductsNote.trim()) {
+          throw new Error("The visible cart is empty.");
+        }
         const response = await fetch("/api/family", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -1000,21 +1037,28 @@ export function FamilyTracker({
             actorRole: "member",
             memberId: currentUser.id,
             items: staged,
+            missingProductsNote,
           }),
         });
         const payload = (await response.json()) as AppData & { error?: string };
         if (!response.ok) throw new Error(payload.error || "The cart could not be submitted.");
         applyData(payload);
         setDraft({});
+        setMissingProductsNote("");
         setCartOpen(false);
         setMemberView("carts");
         await afterPaint();
-        return { status: "visible_to_admin_and_delivery", memberId: currentUser.id, itemCount: staged.length };
+        return {
+          status: "visible_to_admin_and_delivery",
+          memberId: currentUser.id,
+          itemCount: staged.length,
+          hasMissingProductsNote: Boolean(missingProductsNote.trim()),
+        };
       },
     });
 
     return () => lifecycle.abort();
-  }, [applyData, currentUser.id, data, draft, productName, role]);
+  }, [applyData, currentUser.id, data, draft, missingProductsNote, productName, role]);
 
   const addToCart = (product: Product) => {
     setDraft((current) => ({
@@ -1035,12 +1079,13 @@ export function FamilyTracker({
   };
 
   const submitCart = async () => {
-    if (!draftProducts.length) return;
+    if (!draftProducts.length && !missingProductsNote.trim()) return;
     const payload = {
       action: editingCartId ? "update_cart" : "submit_cart",
       actorRole: "member",
       memberId: currentUser.id,
       ...(editingCartId ? { cartId: editingCartId } : {}),
+      missingProductsNote,
       items: draftProducts.map(({ product, quantity }) => ({
         productId: product.id,
         quantityHundredths: quantity,
@@ -1049,6 +1094,7 @@ export function FamilyTracker({
     const ok = await act(payload, editingCartId ? "Panier mis à jour." : "Commande visible par l’admin et le livreur.");
     if (ok) {
       setDraft({});
+      setMissingProductsNote("");
       setEditingCartId(null);
       setCartOpen(false);
       setMemberView("carts");
@@ -1059,6 +1105,7 @@ export function FamilyTracker({
     setDraft(
       Object.fromEntries(itemsFor(cart.id).map((item) => [item.product_id, item.quantity_hundredths])),
     );
+    setMissingProductsNote(cart.missing_products_note);
     setEditingCartId(cart.id);
     setCartOpen(true);
   };
@@ -1650,13 +1697,30 @@ export function FamilyTracker({
                 ))}
               </div>
             ) : (
-              <div className="grid h-64 place-items-center text-center">
+              <div className="grid h-40 place-items-center text-center">
                 <div>
                   <ShoppingCart className="mx-auto mb-3 size-9 text-muted-foreground" />
                   <p className="text-muted-foreground">{t.emptyCart}</p>
                 </div>
               </div>
             )}
+            <div className="mt-5 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="missing-products-note" className="text-sm font-semibold">
+                  {t.missingProducts}
+                </Label>
+                <span className="text-xs text-muted-foreground">{t.optional}</span>
+              </div>
+              <Textarea
+                id="missing-products-note"
+                value={missingProductsNote}
+                onChange={(event) => setMissingProductsNote(event.target.value)}
+                maxLength={500}
+                placeholder={t.missingProductsHint}
+                className="min-h-28 resize-none rounded-2xl border-border bg-background text-base leading-6"
+              />
+              <p className="text-end text-xs text-muted-foreground">{missingProductsNote.length}/500</p>
+            </div>
           </div>
           <SheetFooter className="border-t border-border p-5">
             <div className="mb-2 flex items-center justify-between">
@@ -1666,7 +1730,7 @@ export function FamilyTracker({
             <Button
               size="lg"
               className="h-12 rounded-2xl"
-              disabled={!draftProducts.length || busy}
+              disabled={(!draftProducts.length && !missingProductsNote.trim()) || busy}
               onClick={() => void submitCart()}
             >
               {busy && <Loader2 className="animate-spin" />}
@@ -1740,6 +1804,11 @@ function MemberCarts({
                   </div>
                 ))}
               </div>
+              <MissingProductsNote
+                note={cart.missing_products_note}
+                label={t.missingProducts}
+                className="mt-3"
+              />
               {cart.status !== "shopping" && (
                 <div className="mt-4 flex gap-2">
                   <Button variant="outline" className="flex-1 rounded-xl border-border" onClick={() => onEdit(cart)} disabled={busy}>
@@ -1782,6 +1851,11 @@ function MemberCarts({
                 </div>
               ))}
             </div>
+            <MissingProductsNote
+              note={latestResult.missing_products_note}
+              label={t.missingProducts}
+              className="mt-3"
+            />
           </article>
         ) : (
           <div className="rounded-3xl border border-border bg-card/50 p-8 text-center text-sm text-muted-foreground">—</div>
@@ -2073,6 +2147,11 @@ function AdminDashboard({
                     </div>
                   ))}
                 </div>
+                <MissingProductsNote
+                  note={cart.missing_products_note}
+                  label={t.missingProducts}
+                  className="mt-3"
+                />
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   <Button
                     variant="outline"
@@ -2469,7 +2548,11 @@ function DeliveryDashboard({
     ? queue.filter((cart) => cart.id !== selectedCart.id)
     : [];
   const activeItems = selectedCart ? itemsFor(selectedCart.id) : [];
-  const completeReady = activeItems.length > 0 && activeItems.every((item) => item.purchase_status !== "requested");
+  const completeReady = selectedCart
+    ? activeItems.length > 0
+      ? activeItems.every((item) => item.purchase_status !== "requested")
+      : Boolean(selectedCart.missing_products_note.trim())
+    : false;
 
   return (
     <section className="mx-auto max-w-7xl px-5 pb-10 pt-7 sm:px-8 lg:px-12 lg:pt-10">
@@ -2513,6 +2596,12 @@ function DeliveryDashboard({
                   {selectedCart.priority === "urgent" ? t.urgent : selectedCart.priority === "normal" ? t.normal : t.newOrder}
                 </Badge>
               </div>
+
+              <MissingProductsNote
+                note={selectedCart.missing_products_note}
+                label={t.missingProducts}
+                className="mb-5"
+              />
 
               <div className="space-y-3">
                 {activeItems.map((item) => (
@@ -2596,7 +2685,13 @@ function DeliveryDashboard({
                     aria-label={`${t.openCart} ${cart.member_name} #${cart.id}`}
                   >
                     <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-muted text-sm font-bold text-primary">{queue.findIndex((entry) => entry.id === cart.id) + 1}</span>
-                    <div className="min-w-0 flex-1"><p className="truncate font-semibold">{cart.member_name}</p><p className="text-xs text-muted-foreground">{itemsFor(cart.id).length} {t.items}</p></div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold">{cart.member_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {itemsFor(cart.id).length} {t.items}
+                        {cart.missing_products_note.trim() ? ` · ${t.missingProducts}` : ""}
+                      </p>
+                    </div>
                     {cart.priority === "urgent" && <AlertTriangle className="size-4 text-[#ffb454]" />}
                     <ChevronRight className="size-4 text-muted-foreground" />
                   </button>
@@ -2616,11 +2711,18 @@ function DeliveryDashboard({
             const boughtItems = itemsFor(cart.id).filter((item) => item.purchase_status === "bought");
             const total = boughtItems.reduce((sum, item) => sum + Math.round(item.actual_unit_price_cents * item.quantity_hundredths / 100), 0);
             return (
-              <article key={cart.id} className="flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-card p-4">
-                <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary"><Check /></span>
-                <div className="min-w-0 flex-1"><p className="font-semibold">{cart.member_name} · #{cart.id}</p><p className="mt-1 text-xs text-muted-foreground">{cart.completed_at ? new Date(cart.completed_at).toLocaleDateString("fr-MA", { dateStyle: "medium" }) : ""}</p></div>
-                <Badge variant="outline" className="border-border">{boughtItems.length}/{itemsFor(cart.id).length} {t.bought.toLocaleLowerCase()}</Badge>
-                <strong>{money(total)}</strong>
+              <article key={cart.id} className="rounded-2xl border border-border bg-card p-4">
+                <div className="flex flex-wrap items-center gap-4">
+                  <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary"><Check /></span>
+                  <div className="min-w-0 flex-1"><p className="font-semibold">{cart.member_name} · #{cart.id}</p><p className="mt-1 text-xs text-muted-foreground">{cart.completed_at ? new Date(cart.completed_at).toLocaleDateString("fr-MA", { dateStyle: "medium" }) : ""}</p></div>
+                  <Badge variant="outline" className="border-border">{boughtItems.length}/{itemsFor(cart.id).length} {t.bought.toLocaleLowerCase()}</Badge>
+                  <strong>{money(total)}</strong>
+                </div>
+                <MissingProductsNote
+                  note={cart.missing_products_note}
+                  label={t.missingProducts}
+                  className="mt-3"
+                />
               </article>
             );
           })}

@@ -72,6 +72,7 @@ type CartRow = {
   submitted_at: string;
   approved_at: string | null;
   completed_at: string | null;
+  missing_products_note: string;
   family_users: { name: string; initials: string };
 };
 
@@ -105,6 +106,14 @@ function asNonNegativeInt(value: unknown, field: string) {
 
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function asMissingProductsNote(value: unknown) {
+  const note = asText(value);
+  if (note.length > 500) {
+    throw new Error("Le commentaire ne doit pas dépasser 500 caractères.");
+  }
+  return note;
 }
 
 function asProductImageUrl(value: unknown) {
@@ -215,7 +224,7 @@ async function readState(viewer: FamilySessionUser) {
     db
       .from("carts")
       .select(
-        "id, member_id, status, priority, created_at, submitted_at, approved_at, completed_at, family_users!inner(name, initials)",
+        "id, member_id, status, priority, created_at, submitted_at, approved_at, completed_at, missing_products_note, family_users!inner(name, initials)",
       )
       .neq("status", "cancelled")
       .limit(200),
@@ -240,6 +249,7 @@ async function readState(viewer: FamilySessionUser) {
         submitted_at: cart.submitted_at,
         approved_at: cart.approved_at,
         completed_at: cart.completed_at,
+        missing_products_note: cart.missing_products_note,
         member_name: member.name,
         member_initials: member.initials,
       };
@@ -349,7 +359,8 @@ export async function POST(request: Request) {
       case "submit_cart": {
         requireRole(viewer.role, "member");
         const items = Array.isArray(body.items) ? body.items : [];
-        if (!items.length) throw new Error("Le panier est vide.");
+        const missingProductsNote = asMissingProductsNote(body.missingProductsNote);
+        if (!items.length && !missingProductsNote) throw new Error("Le panier est vide.");
 
         const { count, error: countError } = await db
           .from("carts")
@@ -368,38 +379,50 @@ export async function POST(request: Request) {
           );
         }
         const productIds = [...quantityById.keys()];
-        const { data: productRows, error: productsError } = await db
-          .from("products")
-          .select("id, unit_price_cents")
-          .eq("active", true)
-          .in("id", productIds);
-        throwIfSupabaseError(productsError);
-        if ((productRows?.length ?? 0) !== productIds.length) {
-          throw new Error("Un produit du panier est indisponible.");
+        let productRows: Array<{ id: number; unit_price_cents: number }> = [];
+        if (productIds.length) {
+          const { data, error: productsError } = await db
+            .from("products")
+            .select("id, unit_price_cents")
+            .eq("active", true)
+            .in("id", productIds);
+          throwIfSupabaseError(productsError);
+          productRows = data ?? [];
+          if (productRows.length !== productIds.length) {
+            throw new Error("Un produit du panier est indisponible.");
+          }
         }
 
         const timestamp = nowIso();
         const { data: created, error: cartError } = await db
           .from("carts")
-          .insert({ member_id: viewer.id, status: "pending", created_at: timestamp, submitted_at: timestamp })
+          .insert({
+            member_id: viewer.id,
+            status: "pending",
+            missing_products_note: missingProductsNote,
+            created_at: timestamp,
+            submitted_at: timestamp,
+          })
           .select("id")
           .single();
         throwIfSupabaseError(cartError);
         if (!created) throw new Error("Le panier n’a pas pu être créé.");
 
-        const { error: itemError } = await db.from("cart_items").insert(
-          (productRows ?? []).map((product) => ({
-            cart_id: created.id,
-            product_id: product.id,
-            quantity_hundredths: quantityById.get(Number(product.id)),
-            requested_unit_price_cents: product.unit_price_cents,
-            actual_unit_price_cents: product.unit_price_cents,
-            purchase_status: "requested",
-          })),
-        );
-        if (itemError) {
-          await db.from("carts").delete().eq("id", created.id);
-          throwIfSupabaseError(itemError);
+        if (productRows.length) {
+          const { error: itemError } = await db.from("cart_items").insert(
+            productRows.map((product) => ({
+              cart_id: created.id,
+              product_id: product.id,
+              quantity_hundredths: quantityById.get(Number(product.id)),
+              requested_unit_price_cents: product.unit_price_cents,
+              actual_unit_price_cents: product.unit_price_cents,
+              purchase_status: "requested",
+            })),
+          );
+          if (itemError) {
+            await db.from("carts").delete().eq("id", created.id);
+            throwIfSupabaseError(itemError);
+          }
         }
         break;
       }
@@ -408,7 +431,8 @@ export async function POST(request: Request) {
         requireRole(viewer.role, "member");
         const cartId = asPositiveInt(body.cartId, "cartId");
         const items = Array.isArray(body.items) ? body.items : [];
-        if (!items.length) throw new Error("Le panier est vide.");
+        const missingProductsNote = asMissingProductsNote(body.missingProductsNote);
+        if (!items.length && !missingProductsNote) throw new Error("Le panier est vide.");
         const { data: cart, error: cartError } = await db
           .from("carts")
           .select("id")
@@ -428,34 +452,46 @@ export async function POST(request: Request) {
           );
         }
         const productIds = [...quantityById.keys()];
-        const { data: productRows, error: productsError } = await db
-          .from("products")
-          .select("id, unit_price_cents")
-          .eq("active", true)
-          .in("id", productIds);
-        throwIfSupabaseError(productsError);
-        if ((productRows?.length ?? 0) !== productIds.length) {
-          throw new Error("Un produit du panier est indisponible.");
+        let productRows: Array<{ id: number; unit_price_cents: number }> = [];
+        if (productIds.length) {
+          const { data, error: productsError } = await db
+            .from("products")
+            .select("id, unit_price_cents")
+            .eq("active", true)
+            .in("id", productIds);
+          throwIfSupabaseError(productsError);
+          productRows = data ?? [];
+          if (productRows.length !== productIds.length) {
+            throw new Error("Un produit du panier est indisponible.");
+          }
         }
 
         const { error: deleteError } = await db.from("cart_items").delete().eq("cart_id", cartId);
         throwIfSupabaseError(deleteError);
         const { error: updateError } = await db
           .from("carts")
-          .update({ status: "pending", priority: null, approved_at: null, submitted_at: nowIso() })
+          .update({
+            status: "pending",
+            priority: null,
+            approved_at: null,
+            missing_products_note: missingProductsNote,
+            submitted_at: nowIso(),
+          })
           .eq("id", cartId);
         throwIfSupabaseError(updateError);
-        const { error: insertError } = await db.from("cart_items").insert(
-          (productRows ?? []).map((product) => ({
-            cart_id: cartId,
-            product_id: product.id,
-            quantity_hundredths: quantityById.get(Number(product.id)),
-            requested_unit_price_cents: product.unit_price_cents,
-            actual_unit_price_cents: product.unit_price_cents,
-            purchase_status: "requested",
-          })),
-        );
-        throwIfSupabaseError(insertError);
+        if (productRows.length) {
+          const { error: insertError } = await db.from("cart_items").insert(
+            productRows.map((product) => ({
+              cart_id: cartId,
+              product_id: product.id,
+              quantity_hundredths: quantityById.get(Number(product.id)),
+              requested_unit_price_cents: product.unit_price_cents,
+              actual_unit_price_cents: product.unit_price_cents,
+              purchase_status: "requested",
+            })),
+          );
+          throwIfSupabaseError(insertError);
+        }
         break;
       }
 
@@ -532,16 +568,28 @@ export async function POST(request: Request) {
       case "finish_cart": {
         requireRole(viewer.role, "delivery");
         const cartId = asPositiveInt(body.cartId, "cartId");
+        const { data: cart, error: cartError } = await db
+          .from("carts")
+          .select("id, missing_products_note")
+          .eq("id", cartId)
+          .in("status", ACTIVE_CART_STATUSES)
+          .maybeSingle();
+        throwIfSupabaseError(cartError);
+        if (!cart) throw new Error("Ce panier a déjà été traité.");
+
         const { data: rows, error } = await db
           .from("cart_items")
           .select("product_id, actual_unit_price_cents, purchase_status, products!inner(purchase_count)")
           .eq("cart_id", cartId);
         throwIfSupabaseError(error);
-        if (!rows?.length || rows.some((item) => item.purchase_status === "requested")) {
+        if (
+          (!rows?.length && !cart.missing_products_note.trim()) ||
+          rows?.some((item) => item.purchase_status === "requested")
+        ) {
           throw new Error("Marquez chaque article comme acheté ou non acheté.");
         }
 
-        for (const item of rows.filter((entry) => entry.purchase_status === "bought")) {
+        for (const item of (rows ?? []).filter((entry) => entry.purchase_status === "bought")) {
           const product = joined(item.products as unknown as { purchase_count: number });
           const { error: productError } = await db
             .from("products")
