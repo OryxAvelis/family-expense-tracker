@@ -1,7 +1,16 @@
 "use client";
 
 import type { IScannerControls } from "@zxing/browser";
-import { Camera, Keyboard, Loader2, ScanBarcode, Search } from "lucide-react";
+import {
+  Camera,
+  Flashlight,
+  FlashlightOff,
+  Focus,
+  Keyboard,
+  Loader2,
+  ScanBarcode,
+  Search,
+} from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -32,12 +41,55 @@ export type ScannedCatalogProduct = {
   purchase_count: number;
 };
 
+type CameraCapabilities = MediaTrackCapabilities & {
+  focusMode?: string[];
+  torch?: boolean | boolean[];
+  zoom?: { min: number; max: number; step?: number };
+};
+
+type CameraConstraintSet = MediaTrackConstraintSet & {
+  focusMode?: "continuous" | "single-shot";
+  torch?: boolean;
+  zoom?: number;
+};
+
+const preferredCameraConstraints: MediaStreamConstraints = {
+  audio: false,
+  video: {
+    facingMode: { exact: "environment" },
+    width: { ideal: 1920, min: 960 },
+    height: { ideal: 1080, min: 540 },
+    frameRate: { ideal: 30, max: 30 },
+  },
+};
+
+const fallbackCameraConstraints: MediaStreamConstraints = {
+  audio: false,
+  video: {
+    facingMode: { ideal: "environment" },
+    width: { ideal: 1280 },
+    height: { ideal: 720 },
+  },
+};
+
+async function applyAdvancedCameraConstraint(
+  track: MediaStreamTrack,
+  constraint: CameraConstraintSet,
+) {
+  await track.applyConstraints({
+    advanced: [constraint as MediaTrackConstraintSet],
+  });
+}
+
 const scannerCopy = {
   fr: {
     title: "Scanner un produit",
     description: "Visez son code-barres : le produit sera ajouté directement au panier.",
     start: "Activer la caméra",
-    scanning: "Placez le code-barres dans le cadre",
+    scanning: "Gardez le code à 15–25 cm, bien à plat dans le cadre",
+    refocus: "Refaire la mise au point",
+    torchOn: "Allumer la lampe",
+    torchOff: "Éteindre la lampe",
     manual: "ou saisir le code",
     label: "Numéro du code-barres",
     placeholder: "Ex. 3017624010701",
@@ -51,7 +103,10 @@ const scannerCopy = {
     title: "مسح منتج",
     description: "وجّه الكاميرا نحو الرمز وسيُضاف المنتج مباشرة إلى السلة.",
     start: "تشغيل الكاميرا",
-    scanning: "ضع الرمز داخل الإطار",
+    scanning: "أبقِ الرمز على بُعد 15–25 سم وبشكل مستقيم داخل الإطار",
+    refocus: "إعادة التركيز",
+    torchOn: "تشغيل الضوء",
+    torchOff: "إطفاء الضوء",
     manual: "أو أدخل الرمز",
     label: "رقم الرمز الشريطي",
     placeholder: "مثال 3017624010701",
@@ -65,7 +120,10 @@ const scannerCopy = {
     title: "Scan a product",
     description: "Point at its barcode and the product will be added directly to the cart.",
     start: "Turn on camera",
-    scanning: "Place the barcode inside the frame",
+    scanning: "Hold it flat, 15–25 cm away, inside the frame",
+    refocus: "Refocus camera",
+    torchOn: "Turn on light",
+    torchOff: "Turn off light",
     manual: "or enter the code",
     label: "Barcode number",
     placeholder: "Example: 3017624010701",
@@ -97,12 +155,17 @@ export function BarcodeScannerDialog({
   const lookupControllerRef = useRef<AbortController | null>(null);
   const cameraAttemptRef = useRef(0);
   const detectedRef = useRef(false);
+  const cameraTrackRef = useRef<MediaStreamTrack | null>(null);
+  const [focusAvailable, setFocusAvailable] = useState(false);
+  const [torchAvailable, setTorchAvailable] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
   const t = scannerCopy[language];
 
   const stopCamera = useCallback(() => {
     cameraAttemptRef.current += 1;
     controlsRef.current?.stop();
     controlsRef.current = null;
+    cameraTrackRef.current = null;
     const stream = videoRef.current?.srcObject;
     if (stream instanceof MediaStream) stream.getTracks().forEach((track) => track.stop());
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -126,6 +189,9 @@ export function BarcodeScannerDialog({
         setError("");
         setLookupBusy(false);
         setCameraStatus("idle");
+        setFocusAvailable(false);
+        setTorchAvailable(false);
+        setTorchOn(false);
         detectedRef.current = false;
       }
       onOpenChange(nextOpen);
@@ -181,12 +247,99 @@ export function BarcodeScannerDialog({
     [changeOpen, onProduct, t.invalid],
   );
 
+  const optimizeCameraTrack = async (
+    track: MediaStreamTrack,
+    controls: IScannerControls,
+  ) => {
+    const capabilities = track.getCapabilities() as CameraCapabilities;
+    const focusModes = capabilities.focusMode ?? [];
+    const preferredFocusMode = focusModes.includes("continuous")
+      ? "continuous"
+      : focusModes.includes("single-shot")
+        ? "single-shot"
+        : null;
+
+    if (preferredFocusMode) {
+      try {
+        await applyAdvancedCameraConstraint(track, { focusMode: preferredFocusMode });
+        setFocusAvailable(true);
+      } catch {
+        setFocusAvailable(false);
+      }
+    }
+
+    const zoom = capabilities.zoom;
+    if (zoom && Number.isFinite(zoom.min) && Number.isFinite(zoom.max) && zoom.max > zoom.min) {
+      const helpfulZoom = Math.min(zoom.max, Math.max(zoom.min, 1.4));
+      if (helpfulZoom > zoom.min) {
+        try {
+          await applyAdvancedCameraConstraint(track, { zoom: helpfulZoom });
+        } catch {
+          // The camera can still scan without browser-controlled zoom.
+        }
+      }
+    }
+
+    const canControlTorch = Array.isArray(capabilities.torch)
+      ? capabilities.torch.includes(true) && capabilities.torch.includes(false)
+      : capabilities.torch === true;
+    setTorchAvailable(Boolean(controls.switchTorch) || canControlTorch);
+  };
+
+  const refocusCamera = async () => {
+    const track = cameraTrackRef.current;
+    if (!track) return;
+    const capabilities = track.getCapabilities() as CameraCapabilities;
+    const focusModes = capabilities.focusMode ?? [];
+
+    try {
+      if (focusModes.includes("single-shot")) {
+        await applyAdvancedCameraConstraint(track, { focusMode: "single-shot" });
+        if (focusModes.includes("continuous")) {
+          window.setTimeout(() => {
+            if (cameraTrackRef.current === track) {
+              void applyAdvancedCameraConstraint(track, { focusMode: "continuous" }).catch(
+                () => undefined,
+              );
+            }
+          }, 700);
+        }
+      } else if (focusModes.includes("continuous")) {
+        await applyAdvancedCameraConstraint(track, { focusMode: "continuous" });
+      }
+    } catch {
+      setFocusAvailable(false);
+    }
+  };
+
+  const toggleTorch = async () => {
+    const controls = controlsRef.current;
+    const track = cameraTrackRef.current;
+    if (!controls || !track) return;
+    const nextTorchState = !torchOn;
+
+    try {
+      if (controls.switchTorch) {
+        await controls.switchTorch(nextTorchState);
+      } else {
+        await applyAdvancedCameraConstraint(track, { torch: nextTorchState });
+      }
+      setTorchOn(nextTorchState);
+    } catch {
+      setTorchAvailable(false);
+      setTorchOn(false);
+    }
+  };
+
   const startCamera = async () => {
     stopCamera();
     const cameraAttempt = cameraAttemptRef.current;
     setError("");
     detectedRef.current = false;
     setCameraStatus("starting");
+    setFocusAvailable(false);
+    setTorchAvailable(false);
+    setTorchOn(false);
 
     if (!navigator.mediaDevices?.getUserMedia || !videoRef.current) {
       setCameraStatus("idle");
@@ -195,36 +348,74 @@ export function BarcodeScannerDialog({
     }
 
     try {
-      const { BrowserMultiFormatReader } = await import("@zxing/browser");
-      const reader = new BrowserMultiFormatReader();
-      const controls = await reader.decodeFromConstraints(
-        {
-          audio: false,
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-        },
-        videoRef.current,
-        (result, _scanError, activeControls) => {
-          if (cameraAttemptRef.current !== cameraAttempt) {
-            activeControls.stop();
-            return;
-          }
-          if (!result || detectedRef.current) return;
-          detectedRef.current = true;
+      const { BarcodeFormat, BrowserMultiFormatOneDReader } = await import("@zxing/browser");
+      const reader = new BrowserMultiFormatOneDReader(undefined, {
+        delayBetweenScanAttempts: 250,
+        tryPlayVideoTimeout: 7_000,
+      });
+      reader.possibleFormats = [
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E,
+        BarcodeFormat.CODE_128,
+        BarcodeFormat.CODE_39,
+        BarcodeFormat.ITF,
+      ];
+      const handleResult: Parameters<typeof reader.decodeFromConstraints>[2] = (
+        result,
+        _scanError,
+        activeControls,
+      ) => {
+        if (cameraAttemptRef.current !== cameraAttempt) {
           activeControls.stop();
-          controlsRef.current = null;
-          setCameraStatus("idle");
-          void lookup(result.getText());
-        },
-      );
-      if (cameraAttemptRef.current !== cameraAttempt) {
+          return;
+        }
+        if (!result || detectedRef.current) return;
+        detectedRef.current = true;
+        activeControls.stop();
+        controlsRef.current = null;
+        cameraTrackRef.current = null;
+        setCameraStatus("idle");
+        void lookup(result.getText());
+      };
+
+      let controls: IScannerControls;
+      try {
+        controls = await reader.decodeFromConstraints(
+          preferredCameraConstraints,
+          videoRef.current,
+          handleResult,
+        );
+      } catch (preferredCameraError) {
+        if (
+          preferredCameraError instanceof DOMException &&
+          preferredCameraError.name === "NotAllowedError"
+        ) {
+          throw preferredCameraError;
+        }
+        controls = await reader.decodeFromConstraints(
+          fallbackCameraConstraints,
+          videoRef.current,
+          handleResult,
+        );
+      }
+
+      if (cameraAttemptRef.current !== cameraAttempt || detectedRef.current) {
         controls.stop();
         return;
       }
       controlsRef.current = controls;
+      const stream = videoRef.current.srcObject;
+      const track = stream instanceof MediaStream ? stream.getVideoTracks()[0] : undefined;
+      if (track) {
+        cameraTrackRef.current = track;
+        await optimizeCameraTrack(track, controls);
+      }
+      if (cameraAttemptRef.current !== cameraAttempt || detectedRef.current) {
+        controls.stop();
+        return;
+      }
       setCameraStatus("scanning");
     } catch (cameraError) {
       if (cameraAttemptRef.current !== cameraAttempt) return;
@@ -261,6 +452,37 @@ export function BarcodeScannerDialog({
           {cameraStatus === "scanning" ? (
             <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/10">
               <div className="h-28 w-[78%] rounded-xl border-2 border-[#7de1c4] shadow-[0_0_0_999px_rgba(0,0,0,0.30)]" />
+              {(focusAvailable || torchAvailable) && (
+                <div className="pointer-events-auto absolute end-3 top-3 flex gap-2">
+                  {focusAvailable && (
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="secondary"
+                      className="rounded-full bg-black/70 text-white hover:bg-black/85 hover:text-white"
+                      onClick={() => void refocusCamera()}
+                      aria-label={t.refocus}
+                      title={t.refocus}
+                    >
+                      <Focus />
+                    </Button>
+                  )}
+                  {torchAvailable && (
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="secondary"
+                      className="rounded-full bg-black/70 text-white hover:bg-black/85 hover:text-white"
+                      onClick={() => void toggleTorch()}
+                      aria-label={torchOn ? t.torchOff : t.torchOn}
+                      aria-pressed={torchOn}
+                      title={torchOn ? t.torchOff : t.torchOn}
+                    >
+                      {torchOn ? <FlashlightOff /> : <Flashlight />}
+                    </Button>
+                  )}
+                </div>
+              )}
               <p className="absolute bottom-4 rounded-full bg-black/65 px-4 py-2 text-xs font-medium text-white">
                 {t.scanning}
               </p>
