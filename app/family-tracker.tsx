@@ -1592,7 +1592,9 @@ export function FamilyTracker({
   const changeQuantity = (product: Product, direction: 1 | -1) => {
     const isMyMarketMeasuredProduct =
       product.external_source === "mymarket" &&
-      (product.unit === "kg" || product.unit === "L");
+      (product.unit === "kg" ||
+        product.unit === "L" ||
+        /(?:kg|l)\s*$/i.test(product.package_size ?? ""));
     const step = isMyMarketMeasuredProduct
       ? 50
       : product.package_size || product.unit === "pièce"
