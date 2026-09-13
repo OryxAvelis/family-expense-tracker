@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   AlertCircle,
   Apple,
@@ -258,7 +259,9 @@ export function LoginForm() {
           <div aria-hidden="true" className="login-grid absolute inset-0 opacity-30" />
 
           <div className="relative flex items-center gap-3">
-            <span className="grid size-11 place-items-center rounded-2xl bg-sidebar-primary text-lg font-black text-sidebar-primary-foreground shadow-lg shadow-black/10">D</span>
+            <span className="relative size-11 shrink-0 overflow-hidden rounded-2xl shadow-lg shadow-black/10">
+              <Image src="/icons/icon-192.png" alt="" fill sizes="44px" className="object-cover" priority />
+            </span>
             <div>
               <p className="font-semibold">Dépenses famille</p>
               <p className="text-sm text-sidebar-foreground/65">Courses de la maison</p>
@@ -306,7 +309,9 @@ export function LoginForm() {
 
           <div className="relative z-10 flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2.5 lg:hidden">
-              <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary font-black text-primary-foreground shadow-md shadow-primary/15">D</span>
+              <span className="relative size-10 shrink-0 overflow-hidden rounded-2xl shadow-md shadow-primary/15">
+                <Image src="/icons/icon-192.png" alt="" fill sizes="40px" className="object-cover" priority />
+              </span>
               <span className="text-sm font-semibold">Dépenses famille</span>
             </div>
             <div className="ms-auto flex items-center gap-2">

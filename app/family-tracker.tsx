@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   AlertTriangle,
   BarChart3,
@@ -1560,8 +1561,8 @@ export function FamilyTracker({
       <Toaster theme={theme} position="top-center" richColors />
 
       <aside className="fixed inset-y-0 start-0 z-30 hidden w-24 flex-col items-center border-e border-sidebar-border bg-sidebar/95 py-7 text-sidebar-foreground backdrop-blur-xl lg:flex">
-        <div className="grid size-11 place-items-center rounded-2xl bg-primary text-lg font-black text-primary-foreground shadow-[0_10px_30px_rgba(64,224,177,0.2)]">
-          D
+        <div className="relative size-11 overflow-hidden rounded-2xl shadow-[0_10px_30px_rgba(64,224,177,0.2)]">
+          <Image src="/icons/icon-192.png" alt={t.brand} fill sizes="44px" className="object-cover" priority />
         </div>
         <div className="mt-12 flex flex-1 flex-col items-center gap-3">
           {role === "member" && (
@@ -1617,8 +1618,8 @@ export function FamilyTracker({
         <header className="sticky top-0 z-20 border-b border-border/80 bg-background/88 px-3 py-3 backdrop-blur-xl sm:px-8 lg:px-12">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 sm:gap-3">
             <div className="flex min-w-0 items-center gap-3 max-[639px]:hidden">
-              <div className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary font-black text-primary-foreground lg:hidden">
-                D
+              <div className="relative size-10 shrink-0 overflow-hidden rounded-2xl lg:hidden">
+                <Image src="/icons/icon-192.png" alt="" fill sizes="40px" className="object-cover" priority />
               </div>
               <div className="min-w-0">
                 <p className="truncate text-xs font-semibold uppercase tracking-[0.16em] text-primary">{t.brand}</p>
