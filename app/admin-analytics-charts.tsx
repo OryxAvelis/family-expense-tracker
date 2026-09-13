@@ -44,6 +44,7 @@ type AnalyticsItem = {
   cart_id: number;
   product_id: number;
   quantity_hundredths: number;
+  requested_unit_price_cents: number;
   actual_unit_price_cents: number;
   purchase_status: string;
 };
@@ -139,10 +140,15 @@ const categoryColors = [
   "#f59e0b",
 ];
 
+const AMOUNT_REQUEST_SENTINEL_CENTS = 2_147_483_647;
+
 function normalizedAmount(item: AnalyticsItem) {
-  const amount = Math.round(
-    (Number(item.actual_unit_price_cents) * Number(item.quantity_hundredths)) / 100,
-  );
+  const amount =
+    Number(item.requested_unit_price_cents) === AMOUNT_REQUEST_SENTINEL_CENTS
+      ? Number(item.actual_unit_price_cents)
+      : Math.round(
+          (Number(item.actual_unit_price_cents) * Number(item.quantity_hundredths)) / 100,
+        );
   return Number.isFinite(amount) && amount > 0 ? amount : 0;
 }
 
