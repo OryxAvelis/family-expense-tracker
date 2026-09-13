@@ -128,6 +128,18 @@ type PendingUser = {
   created_at: string;
 };
 
+type PlanPayment = {
+  id: string;
+  user_id: number;
+  user_name: string;
+  scope: "family" | "personal";
+  plan: "plus" | "pro";
+  amount_cents: number;
+  status: "pending" | "confirmed" | "rejected";
+  created_at: string;
+  confirmed_at: string | null;
+};
+
 type Product = {
   id: number;
   name_fr: string;
@@ -932,6 +944,7 @@ export function FamilyTracker({
   currentUser: FamilySessionUser;
 }) {
   const [data, setData] = useState<AppData | null>(null);
+  const [pendingPlanPayments, setPendingPlanPayments] = useState<PlanPayment[]>([]);
   const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState(false);
   const [language, setLanguage] = useState<Language>("fr");
@@ -1000,18 +1013,30 @@ export function FamilyTracker({
   const loadData = useCallback(async () => {
     try {
       setLoadError("");
-      const response = await fetch("/api/family", { cache: "no-store" });
+      const [response, servicesResponse] = await Promise.all([
+        fetch("/api/family", { cache: "no-store" }),
+        role === "admin" ? fetch("/api/services", { cache: "no-store" }) : Promise.resolve(null),
+      ]);
       const payload = (await response.json()) as AppData & { error?: string };
       if (response.status === 401) {
         window.location.replace("/connexion");
         return;
       }
       if (!response.ok) throw new Error(payload.error || "Impossible de charger les données.");
+      if (servicesResponse) {
+        const servicesPayload = (await servicesResponse.json()) as { payments?: PlanPayment[]; error?: string };
+        if (servicesResponse.status === 401) {
+          window.location.replace("/connexion");
+          return;
+        }
+        if (!servicesResponse.ok) throw new Error(servicesPayload.error || "Impossible de charger les demandes de forfait.");
+        setPendingPlanPayments((servicesPayload.payments ?? []).filter((payment) => payment.status === "pending"));
+      }
       applyData(payload);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Impossible de charger les données.");
     }
-  }, [applyData]);
+  }, [applyData, role]);
 
   const loadMyMarketCatalogue = useCallback(async () => {
     try {
@@ -1149,6 +1174,31 @@ export function FamilyTracker({
       }
       if (!response.ok) throw new Error(payload.error || "Action impossible.");
       applyData(payload);
+      toast.success(success);
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Action impossible.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const actService = async (body: Record<string, unknown>, success: string) => {
+    try {
+      setBusy(true);
+      const response = await fetch("/api/services", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = (await response.json()) as { payments?: PlanPayment[]; error?: string };
+      if (response.status === 401) {
+        window.location.replace("/connexion");
+        return false;
+      }
+      if (!response.ok) throw new Error(payload.error || "Action impossible.");
+      setPendingPlanPayments((payload.payments ?? []).filter((payment) => payment.status === "pending"));
       toast.success(success);
       return true;
     } catch (error) {
@@ -1759,7 +1809,7 @@ export function FamilyTracker({
     currentMonthlyTotal >= monthlyBudgetCents * 0.8;
   const notificationCount =
     (role === "admin"
-      ? pendingCarts.length + pendingUsers.length
+      ? pendingCarts.length + pendingUsers.length + pendingPlanPayments.length
       : role === "delivery"
         ? deliveryQueue.length
         : memberActive.filter((cart) => cart.status !== "pending").length) +
@@ -1965,7 +2015,7 @@ export function FamilyTracker({
                     {role === "admin" && (
                       <>
                         {pendingCarts.length} {t.awaiting.toLocaleLowerCase()} · {pendingUsers.length}{" "}
-                        {t.accountRequests.toLocaleLowerCase()}.
+                        {t.accountRequests.toLocaleLowerCase()} · {pendingPlanPayments.length} demande{pendingPlanPayments.length > 1 ? "s" : ""} de forfait.
                       </>
                     )}
                     {role === "delivery" && `${deliveryQueue.length} ${t.carts.toLocaleLowerCase()}.`}
@@ -2378,6 +2428,7 @@ export function FamilyTracker({
             data={data}
             pendingCarts={pendingCarts}
             pendingUsers={pendingUsers}
+            pendingPlanPayments={pendingPlanPayments}
             itemsFor={itemsFor}
             productName={productName}
             money={money}
@@ -2393,6 +2444,7 @@ export function FamilyTracker({
             setAddDialogOpen={setAddDialogOpen}
             parsePrice={parsePrice}
             act={act}
+            actService={actService}
             busy={busy}
             t={t}
             language={language}
@@ -3101,6 +3153,7 @@ function AdminDashboard({
   data,
   pendingCarts,
   pendingUsers,
+  pendingPlanPayments,
   itemsFor,
   productName,
   money,
@@ -3116,6 +3169,7 @@ function AdminDashboard({
   setAddDialogOpen,
   parsePrice,
   act,
+  actService,
   busy,
   t,
   language,
@@ -3124,6 +3178,7 @@ function AdminDashboard({
   data: AppData;
   pendingCarts: Cart[];
   pendingUsers: PendingUser[];
+  pendingPlanPayments: PlanPayment[];
   itemsFor: (cartId: number) => CartItem[];
   productName: (product: Pick<Product, "name_fr" | "name_ar" | "name_en">) => string;
   money: (cents: number) => string;
@@ -3139,6 +3194,7 @@ function AdminDashboard({
   setAddDialogOpen: (value: boolean) => void;
   parsePrice: (value: string) => number;
   act: (body: Record<string, unknown>, success: string) => Promise<boolean>;
+  actService: (body: Record<string, unknown>, success: string) => Promise<boolean>;
   busy: boolean;
   t: CopySet;
   language: Language;
@@ -3388,8 +3444,8 @@ function AdminDashboard({
         <TabsList className="mb-7 h-11 w-full justify-start gap-1 overflow-x-auto overflow-y-hidden rounded-2xl bg-muted/60 p-1 sm:w-fit">
           <TabsTrigger value="requests" className="h-9 rounded-xl px-4">
             <ListChecks /> {t.requests}
-            {pendingCarts.length + pendingUsers.length > 0 && (
-              <Badge className="ms-1 h-5 min-w-5 px-1.5">{pendingCarts.length + pendingUsers.length}</Badge>
+            {pendingCarts.length + pendingUsers.length + pendingPlanPayments.length > 0 && (
+              <Badge className="ms-1 h-5 min-w-5 px-1.5">{pendingCarts.length + pendingUsers.length + pendingPlanPayments.length}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="products" className="h-9 rounded-xl px-4"><PackagePlus /> {t.products}</TabsTrigger>
@@ -3454,6 +3510,64 @@ function AdminDashboard({
               <div className="rounded-2xl border border-dashed border-border bg-card/50 px-4 py-5 text-center text-sm text-muted-foreground">
                 <UserCheck className="mx-auto mb-2 size-6 text-primary" />
                 {t.noAccountRequests}
+              </div>
+            )}
+          </div>
+
+          <div className="mb-8 rounded-3xl border border-[#f3a72f]/35 bg-[#f3a72f]/[0.06] p-4 sm:p-5">
+            <div className="mb-4 flex items-start gap-3">
+              <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-[#f3a72f]/15 text-[#c57900] dark:text-[#ffbd57]">
+                <Crown className="size-5" />
+              </span>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-lg font-semibold">Demandes de forfait</h2>
+                  {pendingPlanPayments.length > 0 && <Badge className="bg-[#f3a72f] text-[#2d1e07] hover:bg-[#f3a72f]">{pendingPlanPayments.length}</Badge>}
+                </div>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">Confirmez uniquement après avoir reçu le montant indiqué.</p>
+              </div>
+            </div>
+
+            {pendingPlanPayments.length ? (
+              <div className="grid gap-3 lg:grid-cols-2">
+                {pendingPlanPayments.map((payment) => (
+                  <article key={payment.id} className="rounded-2xl border border-border bg-card p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold">{payment.user_name}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {payment.scope === "family" ? "Participation au forfait familial" : "Forfait personnel"} · <span className="font-bold uppercase">{payment.plan}</span>
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {new Date(payment.created_at).toLocaleString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", { dateStyle: "medium", timeStyle: "short" })}
+                        </p>
+                      </div>
+                      <strong className="shrink-0 text-lg text-primary">{money(payment.amount_cents)}</strong>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <Button
+                        variant="outline"
+                        className="rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        disabled={busy}
+                        onClick={() => void actService({ action: "reject_payment", paymentId: payment.id }, "Demande de forfait refusée.")}
+                      >
+                        <X /> Refuser
+                      </Button>
+                      <Button
+                        className="rounded-xl"
+                        disabled={busy}
+                        onClick={() => void actService({ action: "confirm_payment", paymentId: payment.id }, "Paiement confirmé et forfait activé.")}
+                      >
+                        <Check /> Confirmer
+                      </Button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-border bg-card/50 px-4 py-5 text-center text-sm text-muted-foreground">
+                <CircleCheck className="mx-auto mb-2 size-6 text-primary" />
+                Aucune demande de forfait en attente.
               </div>
             )}
           </div>
