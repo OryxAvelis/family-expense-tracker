@@ -123,6 +123,17 @@ function storedItemTotalCents(item: {
     : Math.round((item.actual_unit_price_cents * item.quantity_hundredths) / 100);
 }
 
+function canPurchaseByAmount(
+  product: Pick<ProductRow, "unit" | "unit_price_cents" | "package_size" | "external_source">,
+) {
+  if (product.unit_price_cents <= 0) return false;
+  if (product.unit !== "pièce" && !product.package_size) return true;
+  return (
+    product.external_source === "mymarket" &&
+    /^(\d+(?:[.,]\d+)?)\s*(?:kg|g|l|cl|ml)$/i.test(product.package_size?.trim() ?? "")
+  );
+}
+
 function asPositiveInt(value: unknown, field: string) {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${field} est invalide.`);
@@ -604,11 +615,11 @@ export async function POST(request: Request) {
           });
         }
         const productIds = [...orderById.keys()];
-        let productRows: Array<{ id: number; unit_price_cents: number; unit: string; package_size: string | null }> = [];
+        let productRows: Array<Pick<ProductRow, "id" | "unit_price_cents" | "unit" | "package_size" | "external_source">> = [];
         if (productIds.length) {
           const { data, error: productsError } = await db
             .from("products")
-            .select("id, unit_price_cents, unit, package_size")
+            .select("id, unit_price_cents, unit, package_size, external_source")
             .eq("active", true)
             .in("id", productIds);
           throwIfSupabaseError(productsError);
@@ -619,7 +630,7 @@ export async function POST(request: Request) {
           for (const product of productRows) {
             const order = orderById.get(Number(product.id));
             if (order?.amountCents !== null && order?.amountCents !== undefined) {
-              if (product.unit === "pièce" || product.package_size || product.unit_price_cents <= 0) {
+              if (!canPurchaseByAmount(product)) {
                 throw new Error("Ce produit ne peut pas être acheté par montant.");
               }
             }
@@ -703,11 +714,11 @@ export async function POST(request: Request) {
           });
         }
         const productIds = [...orderById.keys()];
-        let productRows: Array<{ id: number; unit_price_cents: number; unit: string; package_size: string | null }> = [];
+        let productRows: Array<Pick<ProductRow, "id" | "unit_price_cents" | "unit" | "package_size" | "external_source">> = [];
         if (productIds.length) {
           const { data, error: productsError } = await db
             .from("products")
-            .select("id, unit_price_cents, unit, package_size")
+            .select("id, unit_price_cents, unit, package_size, external_source")
             .eq("active", true)
             .in("id", productIds);
           throwIfSupabaseError(productsError);
@@ -718,7 +729,7 @@ export async function POST(request: Request) {
           for (const product of productRows) {
             const order = orderById.get(Number(product.id));
             if (order?.amountCents !== null && order?.amountCents !== undefined) {
-              if (product.unit === "pièce" || product.package_size || product.unit_price_cents <= 0) {
+              if (!canPurchaseByAmount(product)) {
                 throw new Error("Ce produit ne peut pas être acheté par montant.");
               }
             }
