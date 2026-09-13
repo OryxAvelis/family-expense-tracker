@@ -4,10 +4,12 @@ import {
   AlertTriangle,
   BarChart3,
   Bell,
+  BellRing,
   Check,
   ChevronRight,
   CircleCheck,
   Clock3,
+  Heart,
   ImagePlus,
   Languages,
   ListChecks,
@@ -18,7 +20,9 @@ import {
   PackageCheck,
   PackagePlus,
   Pencil,
+  PiggyBank,
   Plus,
+  Repeat2,
   ScanBarcode,
   Search,
   Settings2,
@@ -30,6 +34,7 @@ import {
   UserCog,
   UserCheck,
   UserPlus,
+  WalletCards,
   X,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -193,6 +198,15 @@ type MonthlyTotal = {
   carts_count: number;
 };
 
+type DeliveryWallet = {
+  completedOrders: number;
+  earnedCents: number;
+  paidCents: number;
+  unpaidCents: number;
+  completedThisMonth: number;
+  earnedThisMonthCents: number;
+};
+
 type AppData = {
   users: FamilyUser[];
   products: Product[];
@@ -201,6 +215,10 @@ type AppData = {
   monthlyTotals: MonthlyTotal[];
   pendingUsers: PendingUser[];
   deliveryServiceFeeCents: number;
+  monthlyBudgetCents: number;
+  favoriteProductIds: number[];
+  deliveryWallet: DeliveryWallet;
+  pushPublicKey: string | null;
 };
 
 const words = {
@@ -273,6 +291,36 @@ const words = {
     totalWithService: "Total avec service",
     serviceEarnings: "Gains de service ce mois",
     completedOrders: "commandes terminées",
+    wallet: "Portefeuille de Josef",
+    earned: "Gagné",
+    paid: "Payé",
+    unpaid: "À payer",
+    allTime: "Depuis le début",
+    settleWallet: "Marquer comme payé",
+    settleWalletHelp: "Confirmez que tout le montant restant a été remis à Josef.",
+    walletSettled: "Le portefeuille de Josef est à jour.",
+    budget: "Budget familial",
+    monthlyBudget: "Budget mensuel",
+    setBudget: "Enregistrer le budget",
+    budgetSaved: "Budget mensuel enregistré.",
+    budgetNotSet: "Aucun budget défini",
+    budgetRemaining: "Reste disponible",
+    budgetWarning: "Le budget approche de sa limite.",
+    budgetExceeded: "Le budget mensuel est dépassé.",
+    favorites: "Favoris",
+    favoritesOnly: "Favoris seulement",
+    favoriteAdded: "Produit ajouté aux favoris.",
+    favoriteRemoved: "Produit retiré des favoris.",
+    repeatOrder: "Recommander ce panier",
+    orderRepeated: "Le panier est prêt à être renvoyé.",
+    notificationsNewOrders: "Notifications des nouvelles commandes",
+    notificationsHelp: "Recevez une alerte même lorsque le site est fermé.",
+    enableNotifications: "Activer",
+    disableNotifications: "Désactiver",
+    notificationsEnabled: "Notifications activées",
+    notificationsDisabled: "Notifications désactivées",
+    notificationsBlocked: "Les notifications sont bloquées dans le navigateur.",
+    notificationsUnavailable: "Notifications indisponibles sur cet appareil.",
     delivery: "Livraison",
     queue: "File d’achats",
     history: "Historique",
@@ -395,6 +443,36 @@ const words = {
     totalWithService: "المجموع مع الخدمة",
     serviceEarnings: "أرباح الخدمة هذا الشهر",
     completedOrders: "طلبات مكتملة",
+    wallet: "محفظة جوزيف",
+    earned: "المكتسب",
+    paid: "المدفوع",
+    unpaid: "غير المدفوع",
+    allTime: "منذ البداية",
+    settleWallet: "تحديد الكل كمدفوع",
+    settleWalletHelp: "أكد أن جوزيف توصل بكامل المبلغ المتبقي.",
+    walletSettled: "محفظة جوزيف محدثة.",
+    budget: "ميزانية العائلة",
+    monthlyBudget: "الميزانية الشهرية",
+    setBudget: "حفظ الميزانية",
+    budgetSaved: "تم حفظ الميزانية الشهرية.",
+    budgetNotSet: "لم يتم تحديد ميزانية",
+    budgetRemaining: "المبلغ المتبقي",
+    budgetWarning: "الميزانية تقترب من حدها.",
+    budgetExceeded: "تم تجاوز الميزانية الشهرية.",
+    favorites: "المفضلة",
+    favoritesOnly: "المفضلة فقط",
+    favoriteAdded: "تمت إضافة المنتج إلى المفضلة.",
+    favoriteRemoved: "تمت إزالة المنتج من المفضلة.",
+    repeatOrder: "إعادة هذا الطلب",
+    orderRepeated: "السلة جاهزة لإعادة الإرسال.",
+    notificationsNewOrders: "إشعارات الطلبات الجديدة",
+    notificationsHelp: "توصل بتنبيه حتى عندما يكون الموقع مغلقاً.",
+    enableNotifications: "تفعيل",
+    disableNotifications: "إيقاف",
+    notificationsEnabled: "الإشعارات مفعلة",
+    notificationsDisabled: "تم إيقاف الإشعارات",
+    notificationsBlocked: "الإشعارات محظورة في المتصفح.",
+    notificationsUnavailable: "الإشعارات غير متاحة على هذا الجهاز.",
     delivery: "المشتريات",
     queue: "قائمة الشراء",
     history: "السجل",
@@ -517,6 +595,36 @@ const words = {
     totalWithService: "Total with service",
     serviceEarnings: "Service earnings this month",
     completedOrders: "completed orders",
+    wallet: "Josef’s wallet",
+    earned: "Earned",
+    paid: "Paid",
+    unpaid: "Unpaid",
+    allTime: "All time",
+    settleWallet: "Mark as paid",
+    settleWalletHelp: "Confirm that Josef received the full unpaid amount.",
+    walletSettled: "Josef’s wallet is up to date.",
+    budget: "Family budget",
+    monthlyBudget: "Monthly budget",
+    setBudget: "Save budget",
+    budgetSaved: "Monthly budget saved.",
+    budgetNotSet: "No budget set",
+    budgetRemaining: "Remaining",
+    budgetWarning: "The budget is approaching its limit.",
+    budgetExceeded: "The monthly budget has been exceeded.",
+    favorites: "Favorites",
+    favoritesOnly: "Favorites only",
+    favoriteAdded: "Product added to favorites.",
+    favoriteRemoved: "Product removed from favorites.",
+    repeatOrder: "Repeat this order",
+    orderRepeated: "The cart is ready to submit again.",
+    notificationsNewOrders: "New-order notifications",
+    notificationsHelp: "Receive an alert even when the site is closed.",
+    enableNotifications: "Enable",
+    disableNotifications: "Disable",
+    notificationsEnabled: "Notifications enabled",
+    notificationsDisabled: "Notifications disabled",
+    notificationsBlocked: "Notifications are blocked in the browser.",
+    notificationsUnavailable: "Notifications are unavailable on this device.",
     delivery: "Purchasing",
     queue: "Shopping queue",
     history: "History",
@@ -685,6 +793,12 @@ function MissingProductsNote({
   );
 }
 
+function decodeVapidPublicKey(value: string) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const decoded = window.atob((value + padding).replaceAll("-", "+").replaceAll("_", "/"));
+  return Uint8Array.from(decoded, (character) => character.charCodeAt(0)).buffer;
+}
+
 export function FamilyTracker({
   role,
   currentUser,
@@ -701,6 +815,7 @@ export function FamilyTracker({
   const [deliveryView, setDeliveryView] = useState<"queue" | "history">("queue");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
+  const [showFavorites, setShowFavorites] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [draft, setDraft] = useState<Record<number, number>>({});
   const [missingProductsNote, setMissingProductsNote] = useState("");
@@ -1017,17 +1132,19 @@ export function FamilyTracker({
   const filteredProducts = useMemo(() => {
     if (!data) return [];
     const needle = search.trim().toLocaleLowerCase();
+    const favoriteIds = new Set(data.favoriteProductIds);
     return data.products.filter((product) => {
       const categoryMatch = category === "all" || product.category === category;
+      const favoriteMatch = !showFavorites || favoriteIds.has(product.id);
       const textMatch =
         !needle ||
         [product.name_fr, product.name_ar, product.name_en]
           .join(" ")
           .toLocaleLowerCase()
           .includes(needle);
-      return categoryMatch && textMatch;
+      return categoryMatch && favoriteMatch && textMatch;
     });
-  }, [category, data, search]);
+  }, [category, data, search, showFavorites]);
 
   const filteredMyMarketProducts = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase();
@@ -1307,6 +1424,31 @@ export function FamilyTracker({
     setCartOpen(true);
   };
 
+  const repeatCart = (cart: Cart) => {
+    const repeatedItems = itemsFor(cart.id).filter((item) =>
+      data?.products.some((product) => product.id === item.product_id),
+    );
+    if (!repeatedItems.length && !cart.missing_products_note.trim()) return;
+    setDraft(
+      Object.fromEntries(
+        repeatedItems.map((item) => [item.product_id, item.quantity_hundredths]),
+      ),
+    );
+    setMissingProductsNote(cart.missing_products_note);
+    setEditingCartId(null);
+    setCartOpen(true);
+    setMemberView("catalog");
+    toast.success(t.orderRepeated);
+  };
+
+  const toggleFavorite = (product: Product) => {
+    const isFavorite = data?.favoriteProductIds.includes(product.id) ?? false;
+    void act(
+      { action: "toggle_favorite", actorRole: "member", productId: product.id },
+      isFavorite ? t.favoriteRemoved : t.favoriteAdded,
+    );
+  };
+
   const parsePrice = (value: string) => Math.round(Number(value.replace(",", ".")) * 100);
   const pendingCarts =
     data?.carts.filter(
@@ -1329,16 +1471,21 @@ export function FamilyTracker({
       .slice()
       .reverse()[0] ?? null;
 
-  const notificationCount =
-    role === "admin"
-      ? pendingCarts.length + pendingUsers.length
-      : role === "delivery"
-        ? deliveryQueue.length
-        : memberActive.filter((cart) => cart.status !== "pending").length;
-
   const currentMonth = new Date().toISOString().slice(0, 7);
   const currentMonthlyTotal =
     data?.monthlyTotals.find((entry) => entry.month === currentMonth)?.total_cents ?? 0;
+  const monthlyBudgetCents = data?.monthlyBudgetCents ?? 0;
+  const budgetAlert =
+    role !== "member" &&
+    monthlyBudgetCents > 0 &&
+    currentMonthlyTotal >= monthlyBudgetCents * 0.8;
+  const notificationCount =
+    (role === "admin"
+      ? pendingCarts.length + pendingUsers.length
+      : role === "delivery"
+        ? deliveryQueue.length
+        : memberActive.filter((cart) => cart.status !== "pending").length) +
+    (budgetAlert ? 1 : 0);
 
   if (!data && !loadError) {
     return (
@@ -1521,6 +1668,13 @@ export function FamilyTracker({
                     )}
                     {role === "delivery" && `${deliveryQueue.length} ${t.carts.toLocaleLowerCase()}.`}
                     {role === "member" && `${notificationCount} ${t.carts.toLocaleLowerCase()} mis à jour.`}
+                    {budgetAlert && (
+                      <span className="mt-2 block font-medium text-[#b76500] dark:text-[#ffb454]">
+                        {currentMonthlyTotal >= monthlyBudgetCents
+                          ? t.budgetExceeded
+                          : t.budgetWarning}
+                      </span>
+                    )}
                   </p>
                 </PopoverContent>
               </Popover>
@@ -1650,6 +1804,17 @@ export function FamilyTracker({
                       {t[key]}
                     </Button>
                   ))}
+                  {catalogSource === "family" && (
+                    <Button
+                      variant={showFavorites ? "default" : "outline"}
+                      className={showFavorites ? "h-10 rounded-full px-5" : "h-10 rounded-full border-border bg-card/65 px-5 text-muted-foreground"}
+                      aria-pressed={showFavorites}
+                      onClick={() => setShowFavorites((current) => !current)}
+                    >
+                      <Heart className={showFavorites ? "fill-current" : ""} />
+                      {t.favorites}
+                    </Button>
+                  )}
                 </div>
 
                 <div className="mb-4 flex items-end justify-between gap-4">
@@ -1685,9 +1850,23 @@ export function FamilyTracker({
                           <div className="p-3.5 sm:p-4">
                             <div className="mb-2 flex items-start justify-between gap-2">
                               <h3 className="min-w-0 truncate font-semibold sm:text-lg">{productName(product)}</h3>
-                              {product.purchase_count >= 10 && (
-                                <Sparkles className="mt-1 size-4 shrink-0 text-[#ffb454]" aria-label="Fréquent" />
-                              )}
+                              <div className="flex shrink-0 items-center gap-1">
+                                {product.purchase_count >= 10 && (
+                                  <Sparkles className="size-4 text-[#ffb454]" aria-label="Fréquent" />
+                                )}
+                                <Button
+                                  type="button"
+                                  size="icon-xs"
+                                  variant="ghost"
+                                  className={data.favoriteProductIds.includes(product.id) ? "text-destructive" : "text-muted-foreground"}
+                                  aria-label={`${t.favorites}: ${productName(product)}`}
+                                  aria-pressed={data.favoriteProductIds.includes(product.id)}
+                                  disabled={busy}
+                                  onClick={() => toggleFavorite(product)}
+                                >
+                                  <Heart className={data.favoriteProductIds.includes(product.id) ? "fill-current" : ""} />
+                                </Button>
+                              </div>
                             </div>
                             <Badge variant="outline" className="mb-3 border-border bg-muted/45 text-muted-foreground">
                               {product.package_size || `1 ${product.unit}`}
@@ -1832,6 +2011,7 @@ export function FamilyTracker({
                 serviceFeeCents={deliveryServiceFeeCents}
                 busy={busy}
                 onEdit={editCart}
+                onRepeat={repeatCart}
                 onCancel={(cart) =>
                   void act(
                     { action: "cancel_cart", actorRole: "member", cartId: cart.id, memberId: currentUser.id },
@@ -1900,6 +2080,10 @@ export function FamilyTracker({
             language={language}
             profileImageVersion={profileImageVersion}
             serviceFeeCents={deliveryServiceFeeCents}
+            wallet={data.deliveryWallet}
+            monthlyBudgetCents={monthlyBudgetCents}
+            currentMonthlyTotal={currentMonthlyTotal}
+            pushPublicKey={data.pushPublicKey}
           />
         )}
       </div>
@@ -2186,6 +2370,7 @@ function MemberCarts({
   serviceFeeCents,
   busy,
   onEdit,
+  onRepeat,
   onCancel,
 }: {
   carts: Cart[];
@@ -2199,6 +2384,7 @@ function MemberCarts({
   serviceFeeCents: number;
   busy: boolean;
   onEdit: (cart: Cart) => void;
+  onRepeat: (cart: Cart) => void;
   onCancel: (cart: Cart) => void;
 }) {
   const statusStyles: Record<string, string> = {
@@ -2310,6 +2496,12 @@ function MemberCarts({
                 <strong>{money(latestBoughtTotal + serviceFeeCents)}</strong>
               </div>
             </div>
+            <Button
+              className="mt-4 w-full rounded-xl"
+              onClick={() => onRepeat(latestResult)}
+            >
+              <Repeat2 /> {t.repeatOrder}
+            </Button>
           </article>
         ) : (
           <div className="rounded-3xl border border-border bg-card/50 p-8 text-center text-sm text-muted-foreground">—</div>
@@ -2381,6 +2573,10 @@ function AdminDashboard({
   const [productToRemove, setProductToRemove] = useState<Product | null>(null);
   const [memberToReject, setMemberToReject] = useState<PendingUser | null>(null);
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
+  const [budgetInput, setBudgetInput] = useState(
+    data.monthlyBudgetCents ? (data.monthlyBudgetCents / 100).toFixed(2) : "",
+  );
+  const [settleWalletOpen, setSettleWalletOpen] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const editImageInputRef = useRef<HTMLInputElement>(null);
   const newProductImagePreview = useMemo(
@@ -2569,6 +2765,31 @@ function AdminDashboard({
     );
     if (ok) setMemberToReject(null);
   };
+
+  const saveMonthlyBudget = async (event: FormEvent) => {
+    event.preventDefault();
+    const budgetCents = budgetInput.trim() ? parsePrice(budgetInput) : 0;
+    if (!Number.isInteger(budgetCents) || budgetCents < 0) {
+      toast.error(t.invalidPrice);
+      return;
+    }
+    await act(
+      { action: "set_monthly_budget", actorRole: "admin", budgetCents },
+      t.budgetSaved,
+    );
+  };
+
+  const settleDeliveryWallet = async () => {
+    const ok = await act(
+      { action: "settle_delivery_wallet", actorRole: "admin" },
+      t.walletSettled,
+    );
+    if (ok) setSettleWalletOpen(false);
+  };
+
+  const budgetRatio =
+    data.monthlyBudgetCents > 0 ? currentMonthlyTotal / data.monthlyBudgetCents : 0;
+  const budgetRemaining = Math.max(data.monthlyBudgetCents - currentMonthlyTotal, 0);
 
   return (
     <section className="mx-auto max-w-7xl px-5 pb-10 pt-7 sm:px-8 lg:px-12 lg:pt-10">
@@ -3020,7 +3241,7 @@ function AdminDashboard({
         </TabsContent>
 
         <TabsContent value="analytics">
-          <div className="grid gap-5 md:grid-cols-[1.2fr_0.8fr]">
+          <div className="grid gap-5 lg:grid-cols-2">
             <article className="relative overflow-hidden rounded-[2rem] border border-primary/15 bg-gradient-to-br from-primary/15 to-card p-6 sm:p-8">
               <div className="absolute -end-12 -top-16 size-52 rounded-full bg-primary/10 blur-3xl" />
               <div className="relative">
@@ -3030,6 +3251,93 @@ function AdminDashboard({
                 <p className="mt-3 text-sm text-primary">{t.boughtOnly}</p>
               </div>
             </article>
+
+            <article className="rounded-[2rem] border border-border bg-card p-6">
+              <div className="flex items-start gap-3">
+                <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+                  <PiggyBank className="size-5" />
+                </span>
+                <div>
+                  <p className="font-semibold">{t.budget}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{t.monthlyBudget}</p>
+                </div>
+              </div>
+              <form className="mt-5 flex gap-2" onSubmit={(event) => void saveMonthlyBudget(event)}>
+                <div className="relative min-w-0 flex-1">
+                  <Input
+                    inputMode="decimal"
+                    value={budgetInput}
+                    onChange={(event) => setBudgetInput(event.target.value)}
+                    placeholder="3000.00"
+                    className="h-11 rounded-xl pe-12"
+                    aria-label={t.monthlyBudget}
+                  />
+                  <span className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DH</span>
+                </div>
+                <Button type="submit" className="h-11 rounded-xl" disabled={busy}>
+                  {busy ? <Loader2 className="animate-spin" /> : <Check />}
+                  <span className="hidden sm:inline">{t.setBudget}</span>
+                </Button>
+              </form>
+              {data.monthlyBudgetCents > 0 ? (
+                <div className="mt-5">
+                  <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                    <strong>{money(currentMonthlyTotal)}</strong>
+                    <span className="text-muted-foreground">/ {money(data.monthlyBudgetCents)}</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={`h-full rounded-full transition-[width] duration-700 ${budgetRatio >= 1 ? "bg-destructive" : budgetRatio >= 0.8 ? "bg-[#d98200]" : "bg-primary"}`}
+                      style={{ width: `${Math.min(budgetRatio * 100, 100)}%` }}
+                    />
+                  </div>
+                  <p className={`mt-3 text-xs font-medium ${budgetRatio >= 0.8 ? "text-[#b76500] dark:text-[#ffb454]" : "text-muted-foreground"}`}>
+                    {budgetRatio >= 1
+                      ? t.budgetExceeded
+                      : budgetRatio >= 0.8
+                        ? t.budgetWarning
+                        : `${t.budgetRemaining}: ${money(budgetRemaining)}`}
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-muted-foreground">{t.budgetNotSet}</p>
+              )}
+            </article>
+
+            <article className="rounded-[2rem] border border-border bg-card p-6">
+              <div className="mb-5 flex flex-wrap items-start gap-3">
+                <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+                  <WalletCards className="size-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">{t.wallet}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {data.deliveryWallet.completedOrders} {t.completedOrders}
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  [t.earned, data.deliveryWallet.earnedCents],
+                  [t.paid, data.deliveryWallet.paidCents],
+                  [t.unpaid, data.deliveryWallet.unpaidCents],
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="min-w-0 rounded-2xl bg-muted/45 p-3">
+                    <p className="truncate text-xs text-muted-foreground">{label}</p>
+                    <p className="mt-1 truncate font-bold tabular-nums">{money(Number(value))}</p>
+                  </div>
+                ))}
+              </div>
+              <Button
+                variant="outline"
+                className="mt-4 w-full rounded-xl border-primary/25 text-primary"
+                disabled={busy || data.deliveryWallet.unpaidCents <= 0}
+                onClick={() => setSettleWalletOpen(true)}
+              >
+                <Check /> {t.settleWallet}
+              </Button>
+            </article>
+
             <article className="rounded-[2rem] border border-border bg-card p-6">
               <p className="font-semibold">Mois précédents</p>
               <div className="mt-5 space-y-4">
@@ -3055,6 +3363,33 @@ function AdminDashboard({
           />
         </TabsContent>
       </Tabs>
+
+      <AlertDialog
+        open={settleWalletOpen}
+        onOpenChange={(open) => !busy && setSettleWalletOpen(open)}
+      >
+        <AlertDialogContent className="rounded-3xl border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t.settleWallet}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t.settleWalletHelp} {money(data.deliveryWallet.unpaidCents)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>{t.cancel}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy || data.deliveryWallet.unpaidCents <= 0}
+              onClick={(event) => {
+                event.preventDefault();
+                void settleDeliveryWallet();
+              }}
+            >
+              {busy ? <Loader2 className="animate-spin" /> : <Check />}
+              {t.settleWallet}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={Boolean(memberToReject)}
@@ -3105,6 +3440,10 @@ function DeliveryDashboard({
   language,
   profileImageVersion,
   serviceFeeCents,
+  wallet,
+  monthlyBudgetCents,
+  currentMonthlyTotal,
+  pushPublicKey,
 }: {
   queue: Cart[];
   history: Cart[];
@@ -3123,8 +3462,15 @@ function DeliveryDashboard({
   language: Language;
   profileImageVersion: number;
   serviceFeeCents: number;
+  wallet: DeliveryWallet;
+  monthlyBudgetCents: number;
+  currentMonthlyTotal: number;
+  pushPublicKey: string | null;
 }) {
   const [selectedCartId, setSelectedCartId] = useState<number | null>(null);
+  const [pushState, setPushState] = useState<
+    "checking" | "disabled" | "enabled" | "blocked" | "unavailable" | "working"
+  >("checking");
   const selectedCart = queue.find((cart) => cart.id === selectedCartId) ?? queue[0];
   const otherCarts = selectedCart
     ? queue.filter((cart) => cart.id !== selectedCart.id)
@@ -3135,11 +3481,8 @@ function DeliveryDashboard({
       ? activeItems.every((item) => item.purchase_status !== "requested")
       : Boolean(selectedCart.missing_products_note.trim())
     : false;
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  const completedThisMonth = history.filter(
-    (cart) => cart.completed_at?.slice(0, 7) === currentMonth,
-  ).length;
-  const serviceEarnings = completedThisMonth * serviceFeeCents;
+  const budgetRatio = monthlyBudgetCents > 0 ? currentMonthlyTotal / monthlyBudgetCents : 0;
+  const budgetRemaining = Math.max(monthlyBudgetCents - currentMonthlyTotal, 0);
   const activeBoughtTotal = activeItems
     .filter((item) => item.purchase_status === "bought")
     .reduce(
@@ -3147,6 +3490,93 @@ function DeliveryDashboard({
         sum + Math.round((item.actual_unit_price_cents * item.quantity_hundredths) / 100),
       0,
     );
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkSubscription = async () => {
+      if (
+        !pushPublicKey ||
+        !("serviceWorker" in navigator) ||
+        !("PushManager" in window) ||
+        !("Notification" in window)
+      ) {
+        if (!cancelled) setPushState("unavailable");
+        return;
+      }
+      if (Notification.permission === "denied") {
+        if (!cancelled) setPushState("blocked");
+        return;
+      }
+      try {
+        const registration = await navigator.serviceWorker.register("/family-sw.js");
+        const subscription = await registration.pushManager.getSubscription();
+        if (!cancelled) setPushState(subscription ? "enabled" : "disabled");
+      } catch {
+        if (!cancelled) setPushState("unavailable");
+      }
+    };
+    void checkSubscription();
+    return () => {
+      cancelled = true;
+    };
+  }, [pushPublicKey]);
+
+  const togglePushNotifications = async () => {
+    if (!pushPublicKey || pushState === "working") return;
+    try {
+      setPushState("working");
+      const registration = await navigator.serviceWorker.register("/family-sw.js");
+      const existing = await registration.pushManager.getSubscription();
+
+      if (existing) {
+        const saved = await act(
+          {
+            action: "unsubscribe_push",
+            actorRole: "delivery",
+            endpoint: existing.endpoint,
+          },
+          t.notificationsDisabled,
+        );
+        if (!saved) {
+          setPushState("enabled");
+          return;
+        }
+        await existing.unsubscribe();
+        setPushState("disabled");
+        return;
+      }
+
+      const permission =
+        Notification.permission === "granted"
+          ? "granted"
+          : await Notification.requestPermission();
+      if (permission !== "granted") {
+        setPushState("blocked");
+        return;
+      }
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: decodeVapidPublicKey(pushPublicKey),
+      });
+      const saved = await act(
+        {
+          action: "subscribe_push",
+          actorRole: "delivery",
+          subscription: subscription.toJSON(),
+        },
+        t.notificationsEnabled,
+      );
+      if (!saved) {
+        await subscription.unsubscribe();
+        setPushState("disabled");
+        return;
+      }
+      setPushState("enabled");
+    } catch (error) {
+      setPushState(Notification.permission === "denied" ? "blocked" : "unavailable");
+      toast.error(error instanceof Error ? error.message : t.notificationsUnavailable);
+    }
+  };
 
   return (
     <section className="mx-auto max-w-7xl px-5 pb-10 pt-7 sm:px-8 lg:px-12 lg:pt-10">
@@ -3165,21 +3595,102 @@ function DeliveryDashboard({
         </div>
       </div>
 
-      <article className="mb-5 flex flex-wrap items-center gap-4 rounded-3xl border border-primary/15 bg-primary/[0.055] p-4 sm:p-5">
-        <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
-          <PackageCheck className="size-5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="font-semibold">{t.serviceEarnings}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{t.serviceFeeHelp}</p>
-        </div>
-        <div className="text-end">
-          <strong className="text-xl tabular-nums">{money(serviceEarnings)}</strong>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {completedThisMonth} {t.completedOrders}
-          </p>
-        </div>
-      </article>
+      <div className="mb-5 grid gap-4 lg:grid-cols-2">
+        <article className="rounded-3xl border border-primary/15 bg-primary/[0.055] p-4 sm:p-5 lg:col-span-2">
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
+              <WalletCards className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">{t.wallet}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t.allTime} · {wallet.completedOrders} {t.completedOrders}
+              </p>
+            </div>
+            <Badge variant="outline" className="border-primary/20 bg-card/70 text-primary">
+              +{money(wallet.earnedThisMonthCents)} {t.serviceEarnings.toLocaleLowerCase()}
+            </Badge>
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            {[
+              [t.earned, wallet.earnedCents, "text-foreground"],
+              [t.paid, wallet.paidCents, "text-primary"],
+              [t.unpaid, wallet.unpaidCents, "text-[#b76500] dark:text-[#ffb454]"],
+            ].map(([label, value, color]) => (
+              <div key={String(label)} className="min-w-0 rounded-2xl border border-border/80 bg-card/75 p-3 sm:p-4">
+                <p className="truncate text-xs text-muted-foreground">{label}</p>
+                <p className={`mt-1 truncate text-base font-bold tabular-nums sm:text-xl ${color}`}>
+                  {money(Number(value))}
+                </p>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="rounded-3xl border border-border bg-card p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+              <PiggyBank className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">{t.budget}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{t.monthlyBudget}</p>
+            </div>
+          </div>
+          {monthlyBudgetCents > 0 ? (
+            <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                <strong>{money(currentMonthlyTotal)}</strong>
+                <span className="text-muted-foreground">/ {money(monthlyBudgetCents)}</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-muted">
+                <div
+                  className={`h-full rounded-full transition-[width] duration-700 ${budgetRatio >= 1 ? "bg-destructive" : budgetRatio >= 0.8 ? "bg-[#d98200]" : "bg-primary"}`}
+                  style={{ width: `${Math.min(budgetRatio * 100, 100)}%` }}
+                />
+              </div>
+              <p className={`mt-3 text-xs font-medium ${budgetRatio >= 0.8 ? "text-[#b76500] dark:text-[#ffb454]" : "text-muted-foreground"}`}>
+                {budgetRatio >= 1
+                  ? t.budgetExceeded
+                  : budgetRatio >= 0.8
+                    ? t.budgetWarning
+                    : `${t.budgetRemaining}: ${money(budgetRemaining)}`}
+              </p>
+            </div>
+          ) : (
+            <p className="mt-5 text-sm text-muted-foreground">{t.budgetNotSet}</p>
+          )}
+        </article>
+
+        <article className="rounded-3xl border border-border bg-card p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+              <BellRing className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">{t.notificationsNewOrders}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {pushState === "enabled"
+                  ? t.notificationsEnabled
+                  : pushState === "blocked"
+                    ? t.notificationsBlocked
+                    : pushState === "unavailable"
+                      ? t.notificationsUnavailable
+                      : t.notificationsHelp}
+              </p>
+            </div>
+          </div>
+          <Button
+            variant={pushState === "enabled" ? "outline" : "default"}
+            className="mt-4 w-full rounded-xl"
+            disabled={pushState === "checking" || pushState === "working" || pushState === "blocked" || pushState === "unavailable"}
+            onClick={() => void togglePushNotifications()}
+          >
+            {pushState === "working" ? <Loader2 className="animate-spin" /> : <BellRing />}
+            {pushState === "enabled" ? t.disableNotifications : t.enableNotifications}
+          </Button>
+        </article>
+      </div>
 
       {view === "queue" ? (
         selectedCart ? (

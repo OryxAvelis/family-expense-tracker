@@ -2,3 +2,6 @@
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_replace-me
 FAMILY_INITIAL_PASSWORD=choose-a-private-starter-password
+VAPID_PUBLIC_KEY=replace-with-a-web-push-public-key
+VAPID_PRIVATE_KEY=replace-with-a-web-push-private-key
+VAPID_SUBJECT=mailto:you@example.com

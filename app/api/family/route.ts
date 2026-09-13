@@ -3,12 +3,18 @@ import {
   type FamilyRole,
   type FamilySessionUser,
 } from "@/lib/family-auth";
+import {
+  getPushPublicKey,
+  notifyDeliveryOfNewOrder,
+  removeDeliveryPushSubscription,
+  saveDeliveryPushSubscription,
+} from "@/lib/push-notifications";
 import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const HOUSE_CATALOG_IMAGE_VERSION = "3";
+const HOUSE_CATALOG_IMAGE_VERSION = "4";
 const HOUSE_CATALOG_IMAGES = [
   [1, "Lait entier", "/products/milk-jouda.png"],
   [3, "Huile d’olive", "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/571202-1-2.jpg"],
@@ -25,12 +31,16 @@ const HOUSE_CATALOG_PRICE_UPDATES = [
   [1, "Lait entier", 400],
   [7, "Thé vert", 2000],
 ] as const;
+const HOUSE_CATALOG_PACKAGE_UPDATES = [[1, "Lait entier", "0.5 L"]] as const;
 const PRODUCT_CATEGORIES = ["food", "cleaning", "hygiene", "school", "household", "health"];
 const PRODUCT_IMAGE_KEY_PATTERN =
   /^product-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/;
 const ACTIVE_CART_STATUSES = ["pending", "ready", "shopping"];
 const PRODUCT_IMAGE_BUCKET = "product-images";
 const DELIVERY_SERVICE_FEE_CENTS = 50;
+const MONTHLY_BUDGET_META_KEY = "family_monthly_budget_cents";
+const DELIVERY_PAID_META_KEY = "delivery_wallet_paid_cents";
+const MAX_MONTHLY_BUDGET_CENTS = 100_000_000;
 
 type ActionBody = {
   action?: string;
@@ -113,6 +123,27 @@ function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function metaInteger(value: string | undefined) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function favoriteMetaKey(userId: number) {
+  return `member_favorites_${userId}`;
+}
+
+function parseFavoriteIds(value: string | undefined) {
+  if (!value) return [] as number[];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return [...new Set(parsed.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))]
+      .slice(0, 100);
+  } catch {
+    return [];
+  }
+}
+
 function asMissingProductsNote(value: unknown) {
   const note = asText(value);
   if (note.length > 500) {
@@ -190,6 +221,13 @@ async function syncHouseCatalogImages() {
         .eq("id", id)
         .eq("name_fr", nameFr),
     ),
+    ...HOUSE_CATALOG_PACKAGE_UPDATES.map(([id, nameFr, packageSize]) =>
+      db
+        .from("products")
+        .update({ package_size: packageSize, updated_at: updatedAt })
+        .eq("id", id)
+        .eq("name_fr", nameFr),
+    ),
   ]);
   for (const result of updates) throwIfSupabaseError(result.error);
 
@@ -216,7 +254,10 @@ function cartOrder(
 
 async function readState(viewer: FamilySessionUser) {
   const db = getSupabaseAdmin();
-  const [usersResult, productsResult, cartsResult] = await Promise.all([
+  const metadataKeys = [MONTHLY_BUDGET_META_KEY, DELIVERY_PAID_META_KEY];
+  if (viewer.role === "member") metadataKeys.push(favoriteMetaKey(viewer.id));
+
+  const [usersResult, productsResult, cartsResult, metadataResult] = await Promise.all([
     db.from("family_users").select("id, name, username, role, initials").eq("active", true).order("id"),
     db
       .from("products")
@@ -233,13 +274,24 @@ async function readState(viewer: FamilySessionUser) {
       )
       .neq("status", "cancelled")
       .limit(200),
+    db.from("app_meta").select("key, value").in("key", metadataKeys),
   ]);
   throwIfSupabaseError(usersResult.error);
   throwIfSupabaseError(productsResult.error);
   throwIfSupabaseError(cartsResult.error);
+  throwIfSupabaseError(metadataResult.error);
+
+  const metadata = new Map(
+    (metadataResult.data ?? []).map((entry) => [String(entry.key), String(entry.value)]),
+  );
+  const monthlyBudgetCents = metaInteger(metadata.get(MONTHLY_BUDGET_META_KEY));
+  const favoriteProductIds =
+    viewer.role === "member"
+      ? parseFavoriteIds(metadata.get(favoriteMetaKey(viewer.id)))
+      : [];
 
   let pendingUsers: PendingUserRow[] = [];
-  if (viewer.role === "admin") {
+  if (viewer.role === "admin" || viewer.role === "delivery") {
     const { data, error } = await db
       .from("family_users")
       .select("id, name, username, initials, created_at")
@@ -350,6 +402,36 @@ async function readState(viewer: FamilySessionUser) {
     );
   }
 
+  let deliveryWallet = {
+    completedOrders: 0,
+    earnedCents: 0,
+    paidCents: 0,
+    unpaidCents: 0,
+    completedThisMonth: 0,
+    earnedThisMonthCents: 0,
+  };
+  if (viewer.role === "admin" || viewer.role === "delivery") {
+    const { count, error } = await db
+      .from("carts")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "completed");
+    throwIfSupabaseError(error);
+    const completedOrders = count ?? 0;
+    const earnedCents = completedOrders * DELIVERY_SERVICE_FEE_CENTS;
+    const paidCents = Math.min(metaInteger(metadata.get(DELIVERY_PAID_META_KEY)), earnedCents);
+    const currentMonth = nowIso().slice(0, 7);
+    const completedThisMonth =
+      monthlyTotals.find((entry) => entry.month === currentMonth)?.carts_count ?? 0;
+    deliveryWallet = {
+      completedOrders,
+      earnedCents,
+      paidCents,
+      unpaidCents: earnedCents - paidCents,
+      completedThisMonth,
+      earnedThisMonthCents: completedThisMonth * DELIVERY_SERVICE_FEE_CENTS,
+    };
+  }
+
   return {
     users: viewer.role === "member" ? users.filter((user) => user.id === viewer.id) : users,
     products,
@@ -358,6 +440,10 @@ async function readState(viewer: FamilySessionUser) {
     monthlyTotals,
     pendingUsers,
     deliveryServiceFeeCents: DELIVERY_SERVICE_FEE_CENTS,
+    monthlyBudgetCents,
+    favoriteProductIds,
+    deliveryWallet,
+    pushPublicKey: viewer.role === "delivery" ? getPushPublicKey() : null,
   };
 }
 
@@ -483,6 +569,12 @@ export async function POST(request: Request) {
             throwIfSupabaseError(itemError);
           }
         }
+        await notifyDeliveryOfNewOrder({
+          cartId: Number(created.id),
+          memberName: viewer.name,
+          itemCount: productRows.length,
+          hasMissingProducts: Boolean(missingProductsNote),
+        });
         break;
       }
 
@@ -669,6 +761,83 @@ export async function POST(request: Request) {
           .maybeSingle();
         throwIfSupabaseError(finishError);
         if (!finished) throw new Error("Ce panier a déjà été traité.");
+        break;
+      }
+
+      case "toggle_favorite": {
+        requireRole(viewer.role, "member");
+        const productId = asPositiveInt(body.productId, "productId");
+        const { data: product, error: productError } = await db
+          .from("products")
+          .select("id")
+          .eq("id", productId)
+          .eq("active", true)
+          .maybeSingle();
+        throwIfSupabaseError(productError);
+        if (!product) throw new Error("Produit introuvable.");
+
+        const key = favoriteMetaKey(viewer.id);
+        const { data: stored, error: readError } = await db
+          .from("app_meta")
+          .select("value")
+          .eq("key", key)
+          .maybeSingle();
+        throwIfSupabaseError(readError);
+        const favoriteIds = parseFavoriteIds(stored?.value);
+        const nextIds = favoriteIds.includes(productId)
+          ? favoriteIds.filter((id) => id !== productId)
+          : [...favoriteIds, productId].slice(-100);
+        const { error: writeError } = await db
+          .from("app_meta")
+          .upsert({ key, value: JSON.stringify(nextIds) }, { onConflict: "key" });
+        throwIfSupabaseError(writeError);
+        break;
+      }
+
+      case "set_monthly_budget": {
+        requireRole(viewer.role, "admin");
+        const budgetCents = asNonNegativeInt(body.budgetCents, "budgetCents");
+        if (budgetCents > MAX_MONTHLY_BUDGET_CENTS) {
+          throw new Error("Le budget mensuel est trop élevé.");
+        }
+        const { error } = await db
+          .from("app_meta")
+          .upsert(
+            { key: MONTHLY_BUDGET_META_KEY, value: String(budgetCents) },
+            { onConflict: "key" },
+          );
+        throwIfSupabaseError(error);
+        break;
+      }
+
+      case "settle_delivery_wallet": {
+        requireRole(viewer.role, "admin");
+        const { count, error: countError } = await db
+          .from("carts")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "completed");
+        throwIfSupabaseError(countError);
+        const paidCents = (count ?? 0) * DELIVERY_SERVICE_FEE_CENTS;
+        const { error } = await db
+          .from("app_meta")
+          .upsert(
+            { key: DELIVERY_PAID_META_KEY, value: String(paidCents) },
+            { onConflict: "key" },
+          );
+        throwIfSupabaseError(error);
+        break;
+      }
+
+      case "subscribe_push": {
+        requireRole(viewer.role, "delivery");
+        if (!getPushPublicKey()) throw new Error("Les notifications ne sont pas encore configurées.");
+        await saveDeliveryPushSubscription(viewer.id, body.subscription);
+        break;
+      }
+
+      case "unsubscribe_push": {
+        requireRole(viewer.role, "delivery");
+        await removeDeliveryPushSubscription(viewer.id, body.endpoint);
         break;
       }
 
