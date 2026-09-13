@@ -1,4 +1,5 @@
 import {
+  ARCHIVED_DEFAULT_MEMBER_USERNAMES,
   getRequestFamilyUser,
   type FamilyRole,
   type FamilySessionUser,
@@ -90,7 +91,7 @@ type CartRow = {
   approved_at: string | null;
   completed_at: string | null;
   missing_products_note: string;
-  family_users: { name: string; initials: string };
+  family_users: { name: string; initials: string; active: boolean };
 };
 
 type ItemRow = {
@@ -338,8 +339,9 @@ async function readState(viewer: FamilySessionUser) {
     db
       .from("carts")
       .select(
-        "id, member_id, status, priority, created_at, submitted_at, approved_at, completed_at, missing_products_note, family_users!inner(name, initials)",
+        "id, member_id, status, priority, created_at, submitted_at, approved_at, completed_at, missing_products_note, family_users!inner(name, initials, active)",
       )
+      .eq("family_users.active", true)
       .neq("status", "cancelled")
       .limit(200),
     db.from("app_meta").select("key, value"),
@@ -368,10 +370,15 @@ async function readState(viewer: FamilySessionUser) {
       .order("created_at", { ascending: true })
       .limit(50);
     throwIfSupabaseError(error);
-    pendingUsers = (data ?? []) as PendingUserRow[];
+    pendingUsers = ((data ?? []) as PendingUserRow[]).filter(
+      (user) => !ARCHIVED_DEFAULT_MEMBER_USERNAMES.includes(
+        user.username as typeof ARCHIVED_DEFAULT_MEMBER_USERNAMES[number],
+      ),
+    );
   }
 
   const users = (usersResult.data ?? []) as UserRow[];
+  const activeMemberIds = users.filter((user) => user.role === "member").map((user) => user.id);
   const memberWallets = users
     .filter((user) => user.role === "member" && (viewer.role !== "member" || user.id === viewer.id))
     .map((user) => {
@@ -451,7 +458,7 @@ async function readState(viewer: FamilySessionUser) {
     const { data, error } = await db
       .from("carts")
       .select(
-        "id, completed_at, cart_items(quantity_hundredths, actual_unit_price_cents, purchase_status)",
+        "id, member_id, completed_at, cart_items(quantity_hundredths, actual_unit_price_cents, purchase_status)",
       )
       .eq("status", "completed")
       .not("completed_at", "is", null)
@@ -461,6 +468,7 @@ async function readState(viewer: FamilySessionUser) {
     const months = new Map<string, { total_cents: number; carts: Set<number> }>();
     for (const cart of (data ?? []) as unknown as Array<{
       id: number;
+      member_id: number;
       completed_at: string;
       cart_items: Array<{
         quantity_hundredths: number;
@@ -468,6 +476,7 @@ async function readState(viewer: FamilySessionUser) {
         purchase_status: string;
       }>;
     }>) {
+      if (!activeMemberIds.includes(Number(cart.member_id))) continue;
       const month = cart.completed_at.slice(0, 7);
       const entry = months.get(month) ?? { total_cents: 0, carts: new Set<number>() };
       entry.carts.add(Number(cart.id));
@@ -501,12 +510,16 @@ async function readState(viewer: FamilySessionUser) {
     earnedThisMonthCents: 0,
   };
   if (viewer.role === "admin" || viewer.role === "delivery") {
-    const { count, error } = await db
-      .from("carts")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "completed");
-    throwIfSupabaseError(error);
-    const completedOrders = count ?? 0;
+    let completedOrders = 0;
+    if (activeMemberIds.length) {
+      const { count, error } = await db
+        .from("carts")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "completed")
+        .in("member_id", activeMemberIds);
+      throwIfSupabaseError(error);
+      completedOrders = count ?? 0;
+    }
     const earnedCents = completedOrders * DELIVERY_SERVICE_FEE_CENTS;
     const paidCents = Math.min(metaInteger(metadata.get(DELIVERY_PAID_META_KEY)), earnedCents);
     const currentMonth = nowIso().slice(0, 7);
@@ -948,12 +961,24 @@ export async function POST(request: Request) {
 
       case "settle_delivery_wallet": {
         requireRole(viewer.role, "admin");
-        const { count, error: countError } = await db
-          .from("carts")
-          .select("id", { count: "exact", head: true })
-          .eq("status", "completed");
-        throwIfSupabaseError(countError);
-        const paidCents = (count ?? 0) * DELIVERY_SERVICE_FEE_CENTS;
+        const { data: activeMembers, error: membersError } = await db
+          .from("family_users")
+          .select("id")
+          .eq("role", "member")
+          .eq("active", true);
+        throwIfSupabaseError(membersError);
+        const memberIds = (activeMembers ?? []).map((member) => Number(member.id));
+        let completedOrders = 0;
+        if (memberIds.length) {
+          const { count, error: countError } = await db
+            .from("carts")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "completed")
+            .in("member_id", memberIds);
+          throwIfSupabaseError(countError);
+          completedOrders = count ?? 0;
+        }
+        const paidCents = completedOrders * DELIVERY_SERVICE_FEE_CENTS;
         const { error } = await db
           .from("app_meta")
           .upsert(

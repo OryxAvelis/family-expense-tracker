@@ -16,17 +16,20 @@ export type FamilySessionUser = {
 export const FAMILY_USERS = [
   { id: 1, name: "Youssef", username: "youssef", role: "admin", initials: "YO" },
   { id: 2, name: "Josef", username: "josef", role: "delivery", initials: "JO" },
-  { id: 3, name: "Papa", username: "papa", role: "member", initials: "PA" },
-  { id: 4, name: "Maman", username: "maman", role: "member", initials: "MA" },
-  { id: 5, name: "Amina", username: "amina", role: "member", initials: "AM" },
-  { id: 6, name: "Yassine", username: "yassine", role: "member", initials: "YA" },
-  { id: 7, name: "Sara", username: "sara", role: "member", initials: "SR" },
-  { id: 8, name: "Adam", username: "adam", role: "member", initials: "AD" },
+] as const;
+
+export const ARCHIVED_DEFAULT_MEMBER_USERNAMES = [
+  "amina",
+  "papa",
+  "maman",
+  "yassine",
+  "sara",
+  "adam",
 ] as const;
 
 export const FAMILY_SESSION_COOKIE = "family_expense_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
-const FAMILY_AUTH_VERSION = "2";
+const FAMILY_AUTH_VERSION = "3";
 const PIN_HASH_ITERATIONS = 210_000;
 let ensureUsersPromise: Promise<void> | null = null;
 
@@ -237,6 +240,23 @@ async function syncFamilyAuthUsers() {
     .eq("role", "delivery");
   throwIfSupabaseError(deliveryError);
 
+  const { data: archivedUsers, error: archiveError } = await db
+    .from("family_users")
+    .update({ active: false })
+    .in("username", [...ARCHIVED_DEFAULT_MEMBER_USERNAMES])
+    .eq("role", "member")
+    .select("id");
+  throwIfSupabaseError(archiveError);
+
+  const archivedUserIds = (archivedUsers ?? []).map((user) => Number(user.id));
+  if (archivedUserIds.length) {
+    const { error: sessionError } = await db
+      .from("family_sessions")
+      .delete()
+      .in("user_id", archivedUserIds);
+    throwIfSupabaseError(sessionError);
+  }
+
   if (initialPassword) {
     const updates = await Promise.all(
       passwordRows.map((user) =>
@@ -289,6 +309,10 @@ export async function authenticateFamilyUser(username: string, password: string)
     .maybeSingle();
   throwIfSupabaseError(error);
   if (!user) return { status: "invalid" as const };
+
+  if (ARCHIVED_DEFAULT_MEMBER_USERNAMES.includes(user.username as typeof ARCHIVED_DEFAULT_MEMBER_USERNAMES[number])) {
+    return { status: "invalid" as const };
+  }
 
   if (!(await verifyStoredPin(user, password))) return { status: "invalid" as const };
   if (!user.active) return { status: "pending" as const };

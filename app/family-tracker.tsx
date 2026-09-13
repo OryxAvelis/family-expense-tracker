@@ -273,6 +273,7 @@ const words = {
     requests: "Demandes",
     products: "Produits",
     analytics: "Analyse",
+    balances: "Soldes",
     awaiting: "Paniers à classer",
     choosePriority: "Déjà visible par le livreur — choisissez simplement sa priorité.",
     urgent: "Urgent",
@@ -439,6 +440,7 @@ const words = {
     requests: "الطلبات",
     products: "المنتجات",
     analytics: "التحليل",
+    balances: "الأرصدة",
     awaiting: "سلال تنتظر التصنيف",
     choosePriority: "السلة ظاهرة بالفعل للمكلّف بالشراء — حدّد فقط أولويتها.",
     urgent: "مستعجل",
@@ -605,6 +607,7 @@ const words = {
     requests: "Requests",
     products: "Products",
     analytics: "Analytics",
+    balances: "Balances",
     awaiting: "Carts to prioritize",
     choosePriority: "Already visible to the buyer — just set its priority.",
     urgent: "Urgent",
@@ -875,7 +878,7 @@ export function FamilyTracker({
   const [language, setLanguage] = useState<Language>("fr");
   const [memberId] = useState(currentUser.id);
   const [memberView, setMemberView] = useState<"catalog" | "carts" | "settings">("catalog");
-  const [deliveryView, setDeliveryView] = useState<"queue" | "history">("queue");
+  const [deliveryView, setDeliveryView] = useState<"queue" | "history" | "balances">("queue");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [showFavorites, setShowFavorites] = useState(false);
@@ -3055,6 +3058,7 @@ function AdminDashboard({
             )}
           </TabsTrigger>
           <TabsTrigger value="products" className="h-9 rounded-xl px-4"><PackagePlus /> {t.products}</TabsTrigger>
+          <TabsTrigger value="balances" className="h-9 rounded-xl px-4"><WalletCards /> {t.balances}</TabsTrigger>
           <TabsTrigger value="analytics" className="h-9 rounded-xl px-4"><BarChart3 /> {t.analytics}</TabsTrigger>
         </TabsList>
 
@@ -3117,18 +3121,6 @@ function AdminDashboard({
                 {t.noAccountRequests}
               </div>
             )}
-          </div>
-
-          <div className="mb-8">
-            <MemberBalancesManager
-              wallets={data.memberWallets}
-              money={money}
-              act={act}
-              busy={busy}
-              t={t}
-              language={language}
-              actorRole="admin"
-            />
           </div>
 
           <div className="mb-4">
@@ -3197,6 +3189,18 @@ function AdminDashboard({
               </div>
             )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="balances">
+          <MemberBalancesManager
+            wallets={data.memberWallets}
+            money={money}
+            act={act}
+            busy={busy}
+            t={t}
+            language={language}
+            actorRole="admin"
+          />
         </TabsContent>
 
         <TabsContent value="products">
@@ -3708,8 +3712,8 @@ function DeliveryDashboard({
 }: {
   queue: Cart[];
   history: Cart[];
-  view: "queue" | "history";
-  setView: (view: "queue" | "history") => void;
+  view: "queue" | "history" | "balances";
+  setView: (view: "queue" | "history" | "balances") => void;
   itemsFor: (cartId: number) => CartItem[];
   productName: (product: Pick<Product, "name_fr" | "name_ar" | "name_en">) => string;
   quantityLabel: (quantity: number, unit: Product["unit"], packageSize?: string | null) => string;
@@ -3845,7 +3849,9 @@ function DeliveryDashboard({
       <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="mb-2 text-sm font-semibold text-[#b76500] dark:text-[#ffb454]">{t.delivery}</p>
-          <h1 className="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">{view === "queue" ? t.queue : t.history}</h1>
+          <h1 className="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">
+            {view === "queue" ? t.queue : view === "history" ? t.history : t.memberBalances}
+          </h1>
         </div>
         <div className="flex max-w-full overflow-x-auto rounded-2xl bg-muted/60 p-1">
           <Button variant="ghost" className={`rounded-xl ${view === "queue" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`} onClick={() => setView("queue")}>
@@ -3854,10 +3860,13 @@ function DeliveryDashboard({
           <Button variant="ghost" className={`rounded-xl ${view === "history" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`} onClick={() => setView("history")}>
             <ListChecks /> {t.history}
           </Button>
+          <Button variant="ghost" className={`rounded-xl ${view === "balances" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`} onClick={() => setView("balances")}>
+            <WalletCards /> {t.balances}
+          </Button>
         </div>
       </div>
 
-      <div className="mb-5 grid gap-4 lg:grid-cols-2">
+      {view !== "balances" && <div className="mb-5 grid gap-4 lg:grid-cols-2">
         <article className="rounded-3xl border border-primary/15 bg-primary/[0.055] p-4 sm:p-5 lg:col-span-2">
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
@@ -3952,9 +3961,9 @@ function DeliveryDashboard({
             {pushState === "enabled" ? t.disableNotifications : t.enableNotifications}
           </Button>
         </article>
-      </div>
+      </div>}
 
-      <div className="mb-5">
+      {view === "balances" ? (
         <MemberBalancesManager
           wallets={memberWallets}
           money={money}
@@ -3964,9 +3973,7 @@ function DeliveryDashboard({
           language={language}
           actorRole="delivery"
         />
-      </div>
-
-      {view === "queue" ? (
+      ) : view === "queue" ? (
         selectedCart ? (
           <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
             <article className="rounded-[2rem] border border-border bg-card p-5 sm:p-7">
