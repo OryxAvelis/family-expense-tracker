@@ -1117,15 +1117,38 @@ export function FamilyTracker({
     return `${new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(cents / 100)} ${language === "ar" ? "د.م." : "DH"}`;
   };
 
-  const quantityLabel = (hundredths: number, unit: Product["unit"]) => {
-    const amount = hundredths / 100;
+  const quantityLabel = (
+    hundredths: number,
+    unit: Product["unit"],
+    packageSize?: string | null,
+  ) => {
+    const numberLocale = language === "ar" ? "ar-MA" : language === "en" ? "en-MA" : "fr-MA";
+    const packageMatch = packageSize
+      ?.trim()
+      .match(/^(\d+(?:[.,]\d+)?)\s*(L|kg|pi(?:è|e)ces?)$/i);
+    const packageUnit = packageMatch?.[2]?.toLocaleLowerCase();
+    const matchingPackageUnit =
+      packageUnit === unit.toLocaleLowerCase() ||
+      (unit === "pièce" && packageUnit?.startsWith("pi"));
+    const packageAmount = matchingPackageUnit
+      ? Number(packageMatch?.[1]?.replace(",", ".") ?? 0)
+      : 0;
+    const amount = packageAmount > 0
+      ? (hundredths / 100) * packageAmount
+      : hundredths / 100;
+
+    if (packageSize && !packageAmount) {
+      const packageCount = new Intl.NumberFormat(numberLocale, { maximumFractionDigits: 2 }).format(amount);
+      return amount === 1 ? packageSize : `${packageCount} × ${packageSize}`;
+    }
+
     const translatedUnit =
       language === "ar"
         ? ({ L: "لتر", kg: "كلغ", "pièce": "قطعة" } as const)[unit]
         : language === "en"
           ? ({ L: "L", kg: "kg", "pièce": "piece" } as const)[unit]
           : unit;
-    return `${new Intl.NumberFormat(language === "ar" ? "ar-MA" : language === "en" ? "en-MA" : "fr-MA", { maximumFractionDigits: 2 }).format(amount)} ${translatedUnit}`;
+    return `${new Intl.NumberFormat(numberLocale, { maximumFractionDigits: 2 }).format(amount)} ${translatedUnit}`;
   };
 
   const itemsFor = (cartId: number) => data?.items.filter((item) => item.cart_id === cartId) ?? [];
@@ -1379,11 +1402,11 @@ export function FamilyTracker({
       ...current,
       [product.id]: (current[product.id] ?? 0) + 100,
     }));
-    toast.success(`${productName(product)} · +1 ${product.unit}`);
+    toast.success(`${productName(product)} · +${quantityLabel(100, product.unit, product.package_size)}`);
   };
 
   const changeQuantity = (product: Product, direction: 1 | -1) => {
-    const step = product.unit === "pièce" ? 100 : 50;
+    const step = product.package_size || product.unit === "pièce" ? 100 : 50;
     setDraft((current) => {
       const next = Math.max(0, (current[product.id] ?? 0) + direction * step);
       const updated = { ...current, [product.id]: next };
@@ -2158,7 +2181,7 @@ export function FamilyTracker({
                       <p className="truncate font-semibold">{productName(product)}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
                         {product.unit_price_cents > 0
-                          ? `${money(product.unit_price_cents)} / ${product.unit}`
+                          ? `${money(product.unit_price_cents)} / ${product.package_size || product.unit}`
                           : t.priceToConfirm}
                       </p>
                     </div>
@@ -2166,7 +2189,7 @@ export function FamilyTracker({
                       <Button size="icon-xs" variant="ghost" onClick={() => changeQuantity(product, -1)} aria-label="Réduire">
                         <X />
                       </Button>
-                      <span className="min-w-12 text-center text-xs font-bold">{quantityLabel(quantity, product.unit)}</span>
+                      <span className="min-w-12 text-center text-xs font-bold">{quantityLabel(quantity, product.unit, product.package_size)}</span>
                       <Button size="icon-xs" variant="ghost" onClick={() => changeQuantity(product, 1)} aria-label="Ajouter">
                         <Plus />
                       </Button>
@@ -2377,7 +2400,7 @@ function MemberCarts({
   latestResult: Cart | null;
   itemsFor: (cartId: number) => CartItem[];
   productName: (product: Pick<Product, "name_fr" | "name_ar" | "name_en">) => string;
-  quantityLabel: (quantity: number, unit: Product["unit"]) => string;
+  quantityLabel: (quantity: number, unit: Product["unit"], packageSize?: string | null) => string;
   money: (cents: number) => string;
   statusText: Record<CartStatus, string>;
   t: CopySet;
@@ -2426,7 +2449,7 @@ function MemberCarts({
                 {itemsFor(cart.id).map((item) => (
                   <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-muted/45 px-3 py-2.5 text-sm">
                     <span className="truncate">{productName(item)}</span>
-                    <span className="shrink-0 text-muted-foreground">{quantityLabel(item.quantity_hundredths, item.unit)}</span>
+                    <span className="shrink-0 text-muted-foreground">{quantityLabel(item.quantity_hundredths, item.unit, item.package_size)}</span>
                   </div>
                 ))}
               </div>
@@ -2541,7 +2564,7 @@ function AdminDashboard({
   itemsFor: (cartId: number) => CartItem[];
   productName: (product: Pick<Product, "name_fr" | "name_ar" | "name_en">) => string;
   money: (cents: number) => string;
-  quantityLabel: (quantity: number, unit: Product["unit"]) => string;
+  quantityLabel: (quantity: number, unit: Product["unit"], packageSize?: string | null) => string;
   currentMonthlyTotal: number;
   currentMonth: string;
   serviceFeeCents: number;
@@ -2900,7 +2923,7 @@ function AdminDashboard({
                   {itemsFor(cart.id).map((item) => (
                     <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-muted/45 px-3 py-2.5 text-sm">
                       <span className="truncate">{productName(item)}</span>
-                      <span className="shrink-0 text-muted-foreground">{quantityLabel(item.quantity_hundredths, item.unit)}</span>
+                      <span className="shrink-0 text-muted-foreground">{quantityLabel(item.quantity_hundredths, item.unit, item.package_size)}</span>
                     </div>
                   ))}
                 </div>
@@ -3451,7 +3474,7 @@ function DeliveryDashboard({
   setView: (view: "queue" | "history") => void;
   itemsFor: (cartId: number) => CartItem[];
   productName: (product: Pick<Product, "name_fr" | "name_ar" | "name_en">) => string;
-  quantityLabel: (quantity: number, unit: Product["unit"]) => string;
+  quantityLabel: (quantity: number, unit: Product["unit"], packageSize?: string | null) => string;
   money: (cents: number) => string;
   prices: Record<number, string>;
   setPrices: React.Dispatch<React.SetStateAction<Record<number, string>>>;
@@ -3735,8 +3758,7 @@ function DeliveryDashboard({
                     <div className="min-w-0">
                       <p className="truncate font-semibold">{productName(item)}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {quantityLabel(item.quantity_hundredths, item.unit)}
-                        {item.package_size ? ` · ${item.package_size}` : ""}
+                        {quantityLabel(item.quantity_hundredths, item.unit, item.package_size)}
                       </p>
                     </div>
                     <div>
