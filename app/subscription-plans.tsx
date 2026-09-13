@@ -27,6 +27,8 @@ type InsightData = {
 };
 type Data = {
   plan: Plan; usage: number; limit: number | null; familyFundCents: number; familyTargetPlan: "plus" | "pro";
+  familyPlan: Plan; personalPlan: Plan; familyUsage: number; personalUsage: number;
+  familyLimit: number | null; personalLimit: number | null;
   familyMembership: Membership; personalMembership: Membership; payments: Payment[];
   votes: Array<{ user_id: number; plan: "plus" | "pro" }>; trialAvailable: boolean; insights: InsightData;
   unlocked?: boolean; error?: string;
@@ -37,9 +39,9 @@ const planPrice = { plus: 1500, pro: 2900 } as const;
 const rolePath = (role: FamilySessionUser["role"]) => role === "admin" ? "/admin" : role === "delivery" ? "/livreur" : "/membre";
 
 const planCards = [
-  { id: "free" as const, name: "Gratuit", price: 0, subtitle: "Pour les besoins essentiels", features: ["Courses et dépenses", "5 missions maison / mois", "Frais livraison 0,50 DH"] },
-  { id: "plus" as const, name: "Plus", price: 1500, subtitle: "Pour une maison organisée", features: ["50 missions / mois", "Missions répétées", "Rappels intelligents", "Frais livraison 0,50 DH"] },
-  { id: "pro" as const, name: "Pro", price: 2900, subtitle: "Le maximum d’économies", features: ["Missions illimitées", "Livraison sans frais", "Alertes hausse de prix", "Prédictions et économies"] },
+  { id: "free" as const, name: "Gratuit", price: 0, subtitle: "Pour essayer simplement", features: ["Courses et dépenses", "2 services / mois", "Frais livraison 0,50 DH"] },
+  { id: "plus" as const, name: "Plus", price: 1500, subtitle: "Pour être mieux organisé", features: ["50 services / mois", "Services répétitifs", "Rappels intelligents", "Frais livraison 0,50 DH"] },
+  { id: "pro" as const, name: "Pro", price: 2900, subtitle: "Pour tout débloquer", features: ["Services illimités", "Livraison sans frais", "Alertes hausse de prix", "Prédictions et économies"] },
 ];
 
 export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionUser }) {
@@ -48,6 +50,7 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
   const [busy, setBusy] = useState("");
   const [amount, setAmount] = useState("5");
   const [targetPlan, setTargetPlan] = useState<"plus" | "pro">("plus");
+  const [subscriptionScope, setSubscriptionScope] = useState<"family" | "personal">("family");
   const [celebrate, setCelebrate] = useState(false);
 
   const load = useCallback(async () => {
@@ -81,35 +84,44 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
   const pending = useMemo(() => data?.payments.filter((item) => item.status === "pending") ?? [], [data]);
   const ownPending = pending.filter((item) => item.user_id === currentUser.id);
   const votes = { plus: data?.votes.filter((vote) => vote.plan === "plus").length ?? 0, pro: data?.votes.filter((vote) => vote.plan === "pro").length ?? 0 };
+  const selectedScopePlan = subscriptionScope === "family" ? data?.familyPlan : data?.personalPlan;
+  const selectedScopeUsage = subscriptionScope === "family" ? data?.familyUsage : data?.personalUsage;
+  const selectedScopeLimit = subscriptionScope === "family" ? data?.familyLimit : data?.personalLimit;
+  const selectedMembership = subscriptionScope === "family" ? data?.familyMembership : data?.personalMembership;
 
   if (!data) return <main className="grid min-h-screen place-items-center bg-background"><Loader2 className="size-8 animate-spin text-primary" /></main>;
 
   return (
     <main className="min-h-screen overflow-hidden bg-background pb-16 text-foreground">
       <Toaster theme={theme} position="top-center" richColors />
-      {celebrate && <div className="pointer-events-none fixed inset-0 z-50 grid place-items-center bg-primary/10 backdrop-blur-sm"><div className="animate-in zoom-in-50 rounded-[2rem] border border-primary/30 bg-card p-10 text-center shadow-2xl"><Gift className="mx-auto size-14 animate-bounce text-primary"/><p className="mt-4 text-2xl font-black">Forfait débloqué !</p><p className="text-muted-foreground">Toute la famille peut en profiter.</p></div></div>}
+      {celebrate && <div className="pointer-events-none fixed inset-0 z-50 grid place-items-center bg-primary/10 backdrop-blur-sm"><div className="animate-in zoom-in-50 rounded-[2rem] border border-primary/30 bg-card p-10 text-center shadow-2xl"><Gift className="mx-auto size-14 animate-bounce text-primary"/><p className="mt-4 text-2xl font-black">Forfait débloqué !</p><p className="text-muted-foreground">Votre nouveau forfait est maintenant actif.</p></div></div>}
       <header className="sticky top-0 z-30 border-b border-border/80 bg-background/90 px-4 py-3 backdrop-blur-xl sm:px-8">
         <div className="mx-auto flex max-w-6xl items-center gap-3"><Link href={rolePath(currentUser.role)}><Button size="icon" variant="outline" className="rounded-xl"><ArrowLeft /></Button></Link><Image src="/icons/icon-192.png" width={40} height={40} className="rounded-xl" alt=""/><div className="min-w-0 flex-1"><p className="truncate font-bold">Forfaits famille</p><p className="hidden text-xs text-muted-foreground sm:block">Choisissez ensemble, ou seulement pour vous.</p></div><Link href="/services"><Button variant="outline" className="rounded-xl"><Sparkles/><span className="hidden sm:inline">Missions</span></Button></Link><Button size="icon" variant="outline" className="rounded-xl" onClick={toggleTheme}>{theme === "dark" ? <Sun/> : <Moon/>}</Button></div>
       </header>
 
       <section className="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-12">
-        <div className="mx-auto max-w-3xl text-center"><Badge className="rounded-full bg-[#ffad42] px-4 py-1 text-[#30200b] hover:bg-[#ffad42]">PLUS DE TEMPS, MOINS DE DÉPENSES</Badge><h1 className="mt-5 text-4xl font-black tracking-[-0.055em] sm:text-6xl">La maison travaille mieux, ensemble.</h1><p className="mx-auto mt-4 max-w-2xl text-muted-foreground">Payez seul pour votre compte, ou participez au pot familial pour débloquer le forfait pour tout le monde.</p></div>
+        <div className="mx-auto max-w-3xl text-center"><Badge className="rounded-full bg-[#ffad42] px-4 py-1 text-[#30200b] hover:bg-[#ffad42]">PLUS DE TEMPS, MOINS DE DÉPENSES</Badge><h1 className="mt-5 text-4xl font-black tracking-[-0.055em] sm:text-6xl">Un forfait pour la maison. Un autre pour vous.</h1><p className="mx-auto mt-4 max-w-2xl text-muted-foreground">Choisissez le côté familial pour les besoins communs, ou le côté personnel pour commander vos propres services.</p></div>
+
+        <div className="mx-auto mt-8 grid max-w-2xl grid-cols-1 gap-2 rounded-[1.4rem] border border-border bg-card p-2 shadow-sm min-[430px]:grid-cols-2">
+          <Button className="h-auto rounded-2xl py-4" variant={subscriptionScope === "family" ? "default" : "ghost"} onClick={() => setSubscriptionScope("family")}><Users/><span className="text-start"><strong className="block">Forfait familial</strong><small className="font-normal opacity-75">Payé ensemble, partagé par tous</small></span></Button>
+          <Button className="h-auto rounded-2xl py-4" variant={subscriptionScope === "personal" ? "default" : "ghost"} onClick={() => setSubscriptionScope("personal")}><Crown/><span className="text-start"><strong className="block">Forfait personnel</strong><small className="font-normal opacity-75">Payé et utilisé par vous</small></span></Button>
+        </div>
 
         <div className="mt-10 grid gap-4 lg:grid-cols-3">
           {planCards.map((card) => <article key={card.id} className={`relative rounded-[2rem] border p-6 ${card.id === "pro" ? "border-[#f3a72f]/70 bg-gradient-to-b from-[#f3a72f]/12 to-card shadow-[0_24px_80px_rgba(243,167,47,.12)]" : "border-border bg-card"}`}>
             {card.id === "pro" && <Badge className="absolute -top-3 start-6 bg-[#f3a72f] text-[#2d1e07] hover:bg-[#f3a72f]"><Crown/>Meilleure valeur</Badge>}
-            <div className="flex items-center justify-between"><h2 className="text-2xl font-black">{card.name}</h2>{data.plan === card.id && <BadgeCheck className="text-primary"/>}</div><p className="mt-1 text-sm text-muted-foreground">{card.subtitle}</p><p className="mt-6 text-4xl font-black">{money(card.price)}<span className="text-sm font-medium text-muted-foreground"> / mois</span></p>
+            <div className="flex items-center justify-between"><h2 className="text-2xl font-black">{card.name}</h2>{selectedScopePlan === card.id && <BadgeCheck className="text-primary"/>}</div><p className="mt-1 text-sm text-muted-foreground">{card.subtitle}</p><p className="mt-6 text-4xl font-black">{money(card.price)}<span className="text-sm font-medium text-muted-foreground"> / mois</span></p>
             <ul className="mt-6 space-y-3">{card.features.map((feature) => <li key={feature} className="flex items-center gap-2 text-sm"><Check className="size-4 text-primary"/>{feature}</li>)}</ul>
-            {card.id === "free" ? <Button className="mt-7 w-full rounded-xl" variant="outline" disabled>Inclus</Button> : <Button className="mt-7 w-full rounded-xl" variant={card.id === "pro" ? "default" : "outline"} disabled={Boolean(busy)} onClick={() => void act({ action: "request_personal_plan", plan: card.id }, `Demande ${card.name} envoyée à l’admin.`)}>Payer pour moi uniquement</Button>}
+            {card.id === "free" ? <Button className="mt-7 w-full rounded-xl" variant="outline" disabled>Inclus</Button> : subscriptionScope === "family" ? <Button className="mt-7 w-full rounded-xl" variant={card.id === "pro" ? "default" : "outline"} disabled={Boolean(busy)} onClick={() => { setTargetPlan(card.id); document.getElementById("family-fund")?.scrollIntoView({ behavior: "smooth" }); }}>Financer en famille</Button> : <Button className="mt-7 w-full rounded-xl" variant={card.id === "pro" ? "default" : "outline"} disabled={Boolean(busy)} onClick={() => void act({ action: "request_personal_plan", plan: card.id }, `Demande ${card.name} envoyée à l’admin.`)}>Payer pour moi uniquement</Button>}
           </article>)}
         </div>
 
         {ownPending.length > 0 && <div className="mt-5 flex items-center gap-3 rounded-2xl border border-[#f3a72f]/35 bg-[#f3a72f]/10 p-4"><Clock3 className="size-5 shrink-0 text-[#c37a00]"/><p className="text-sm"><strong>{ownPending.length} paiement{ownPending.length > 1 ? "s" : ""} en attente.</strong> Youssef activera le forfait après réception de l’argent.</p></div>}
 
-        {data.trialAvailable && data.plan !== "pro" && <article className="mt-5 flex flex-col items-start justify-between gap-4 rounded-[1.6rem] border border-primary/25 bg-primary/8 p-5 sm:flex-row sm:items-center"><div className="flex items-start gap-3"><Gift className="mt-1 size-7 text-primary"/><div><h3 className="font-bold">Essayez Pro pendant 7 jours</h3><p className="text-sm text-muted-foreground">Aucun paiement ni carte bancaire. Une seule fois par compte.</p></div></div><Button className="w-full rounded-xl sm:w-auto" disabled={Boolean(busy)} onClick={() => void act({ action: "start_trial" }, "Votre essai Pro est actif !")}>Démarrer mon essai</Button></article>}
+        {data.trialAvailable && data.personalPlan !== "pro" && <article className="mt-5 flex flex-col items-start justify-between gap-4 rounded-[1.6rem] border border-primary/25 bg-primary/8 p-5 sm:flex-row sm:items-center"><div className="flex items-start gap-3"><Gift className="mt-1 size-7 text-primary"/><div><h3 className="font-bold">Essayez le forfait personnel Pro pendant 7 jours</h3><p className="text-sm text-muted-foreground">Aucun paiement ni carte bancaire. Une seule fois par compte.</p></div></div><Button className="w-full rounded-xl sm:w-auto" disabled={Boolean(busy)} onClick={() => void act({ action: "start_trial" }, "Votre essai Pro est actif !")}>Démarrer mon essai</Button></article>}
 
         <div className="mt-10 grid gap-5 lg:grid-cols-[1.15fr_.85fr]">
-          <article className="rounded-[2rem] border border-border bg-card p-5 sm:p-7">
+          <article id="family-fund" className="scroll-mt-24 rounded-[2rem] border border-border bg-card p-5 sm:p-7">
             <div className="flex items-start gap-4"><span className="grid size-12 place-items-center rounded-2xl bg-primary/12 text-primary"><Users/></span><div><h2 className="text-2xl font-black">Pot d’abonnement familial</h2><p className="mt-1 text-sm text-muted-foreground">Chacun donne ce qu’il peut. Youssef confirme l’argent reçu.</p></div></div>
             <div className="mt-7 rounded-2xl bg-muted/45 p-5"><div className="flex items-end justify-between"><div><p className="text-xs text-muted-foreground">Collecté pour {targetPlan === "pro" ? "Pro" : "Plus"}</p><p className="mt-1 text-3xl font-black">{money(data.familyFundCents)}</p></div><strong>{progress}%</strong></div><Progress value={progress} className="mt-4 h-3"/><p className="mt-2 text-xs text-muted-foreground">Reste {money(Math.max(0, goal - data.familyFundCents))}. Le surplus reste pour le mois prochain.</p></div>
             <div className="mt-5 grid grid-cols-2 gap-3"><Button variant={targetPlan === "plus" ? "default" : "outline"} className="h-auto rounded-xl py-3" onClick={() => { setTargetPlan("plus"); void act({ action: "vote_plan", plan: "plus" }, "Vote Plus enregistré."); }}><span><strong className="block">Plus · 15 DH</strong><small>{votes.plus} vote(s)</small></span></Button><Button variant={targetPlan === "pro" ? "default" : "outline"} className="h-auto rounded-xl py-3" onClick={() => { setTargetPlan("pro"); void act({ action: "vote_plan", plan: "pro" }, "Vote Pro enregistré."); }}><span><strong className="block">Pro · 29 DH</strong><small>{votes.pro} vote(s)</small></span></Button></div>
@@ -118,7 +130,7 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
           </article>
 
           <div className="space-y-5">
-            <article className="rounded-[2rem] border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><p className="text-sm text-muted-foreground">Votre forfait</p><h2 className="mt-1 text-3xl font-black uppercase">{data.plan}</h2></div><Crown className="size-10 text-[#f3a72f]"/></div>{(data.personalMembership || data.familyMembership) && <p className="mt-4 rounded-xl bg-muted/45 p-3 text-sm"><Clock3 className="me-2 inline size-4"/>Actif jusqu’au {new Date((data.familyMembership ?? data.personalMembership)!.ends_at).toLocaleDateString("fr-MA")}</p>}<div className="mt-5 flex items-center justify-between text-sm"><span>Missions ce mois</span><strong>{data.usage} / {data.limit ?? "∞"}</strong></div><Progress value={data.limit ? Math.min(100, data.usage / data.limit * 100) : 12} className="mt-2"/></article>
+            <article className="rounded-[2rem] border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><p className="text-sm text-muted-foreground">{subscriptionScope === "family" ? "Forfait de la famille" : "Votre forfait personnel"}</p><h2 className="mt-1 text-3xl font-black uppercase">{selectedScopePlan}</h2></div><Crown className="size-10 text-[#f3a72f]"/></div>{selectedMembership && <p className="mt-4 rounded-xl bg-muted/45 p-3 text-sm"><Clock3 className="me-2 inline size-4"/>Actif jusqu’au {new Date(selectedMembership.ends_at).toLocaleDateString("fr-MA")}</p>}<div className="mt-5 flex items-center justify-between text-sm"><span>Services ce mois</span><strong>{selectedScopeUsage} / {selectedScopeLimit ?? "∞"}</strong></div><Progress value={selectedScopeLimit ? Math.min(100, (selectedScopeUsage ?? 0) / selectedScopeLimit * 100) : 12} className="mt-2"/></article>
             {currentUser.role === "admin" && <article className="rounded-[2rem] border border-[#f3a72f]/30 bg-card p-5 sm:p-6"><h2 className="font-bold">Paiements à confirmer</h2><p className="mt-1 text-xs text-muted-foreground">Confirmez uniquement après avoir reçu l’argent.</p><div className="mt-4 space-y-3">{pending.map((payment) => <div key={payment.id} className="rounded-xl bg-muted/45 p-3"><div className="flex items-center justify-between gap-2"><div><strong className="text-sm">{payment.user_name}</strong><p className="text-xs text-muted-foreground">{payment.scope === "family" ? "Pot familial" : "Compte personnel"} · {payment.plan}</p></div><strong>{money(payment.amount_cents)}</strong></div><div className="mt-3 grid grid-cols-2 gap-2"><Button size="sm" className="rounded-lg" disabled={Boolean(busy)} onClick={() => void act({ action: "confirm_payment", paymentId: payment.id }, "Paiement confirmé.")}>Confirmer</Button><Button size="sm" variant="outline" className="rounded-lg" disabled={Boolean(busy)} onClick={() => void act({ action: "reject_payment", paymentId: payment.id }, "Paiement refusé.")}>Refuser</Button></div></div>)}{!pending.length && <p className="rounded-xl border border-dashed border-border p-4 text-center text-sm text-muted-foreground">Rien à confirmer.</p>}</div></article>}
           </div>
         </div>

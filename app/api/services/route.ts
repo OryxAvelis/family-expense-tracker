@@ -1,9 +1,11 @@
 import { getRequestFamilyUser } from "@/lib/family-auth";
 import {
+  activePlanForScope,
   addDaysIso,
   effectivePlan,
-  monthlyTaskUsage,
+  monthlyTaskUsageForScope,
   parseServicesState,
+  planForTaskScope,
   PLAN_RULES,
   SERVICES_META_KEY,
   type PaidPlanId,
@@ -17,9 +19,23 @@ export const runtime = "nodejs";
 
 type Body = { action?: string; [key: string]: unknown };
 type FamilyUser = { id: number; name: string; initials: string; role: "admin" | "delivery" | "member" };
-const SERVICE_PRICES: Record<string, number> = {
-  laundry: 500, garbage: 200, gas: 500, tidy: 1500,
-  dishes: 1000, shopping: 500, clean: 1000,
+const SERVICE_CATALOG: Record<string, { price_cents: number | null; scope: "family" | "personal" }> = {
+  laundry: { price_cents: 500, scope: "family" },
+  garbage: { price_cents: 200, scope: "family" },
+  gas: { price_cents: 500, scope: "family" },
+  tidy: { price_cents: 2000, scope: "family" },
+  dishes: { price_cents: 1000, scope: "family" },
+  shopping: { price_cents: 500, scope: "family" },
+  bathroom: { price_cents: 1500, scope: "family" },
+  kitchen: { price_cents: 1500, scope: "family" },
+  family_custom: { price_cents: null, scope: "family" },
+  clean: { price_cents: 1000, scope: "personal" },
+  website: { price_cents: 4900, scope: "personal" },
+  computer: { price_cents: 1500, scope: "personal" },
+  documents: { price_cents: 1000, scope: "personal" },
+  errand: { price_cents: 800, scope: "personal" },
+  homework: { price_cents: 1000, scope: "personal" },
+  personal_custom: { price_cents: null, scope: "personal" },
 };
 
 const text = (value: unknown, max = 160) => typeof value === "string" ? value.trim().slice(0, max) : "";
@@ -130,13 +146,30 @@ async function buildInsights(plan: string) {
 async function responseFor(viewer: { id: number; role: string }, state: ServicesState, unlocked = false) {
   const users = await loadUsers();
   const plan = effectivePlan(state, viewer.id);
-  const usage = monthlyTaskUsage(state, viewer.id, plan);
   const viewNow = new Date();
+  const familyPlan = activePlanForScope(state, viewer.id, "family", viewNow);
+  const personalPlan = activePlanForScope(state, viewer.id, "personal", viewNow);
+  const familyUsage = monthlyTaskUsageForScope(state, viewer.id, "family", viewNow);
+  const personalUsage = monthlyTaskUsageForScope(state, viewer.id, "personal", viewNow);
   const familyMembership = state.memberships.filter((item) => item.scope === "family" && new Date(item.starts_at) <= viewNow && new Date(item.ends_at) > viewNow).at(-1) ?? null;
   const personalMembership = state.memberships.filter((item) => item.scope === "personal" && item.member_id === viewer.id && new Date(item.starts_at) <= viewNow && new Date(item.ends_at) > viewNow).at(-1) ?? null;
+  const visibleTasks = state.tasks.filter((task) =>
+    task.scope === "family" ||
+    viewer.role === "admin" ||
+    task.creator_id === viewer.id ||
+    task.assignee_id === viewer.id,
+  );
   return {
-    users, tasks: state.tasks.slice().reverse(), plan, plans: PLAN_RULES, usage,
-    limit: PLAN_RULES[plan].monthly_tasks, familyFundCents: state.family_fund_cents,
+    users, tasks: visibleTasks.slice().reverse(), plan, plans: PLAN_RULES,
+    usage: familyUsage + personalUsage,
+    limit: PLAN_RULES[plan].monthly_tasks,
+    familyPlan,
+    personalPlan,
+    familyUsage,
+    personalUsage,
+    familyLimit: PLAN_RULES[familyPlan].monthly_tasks,
+    personalLimit: PLAN_RULES[personalPlan].monthly_tasks,
+    familyFundCents: state.family_fund_cents,
     familyTargetPlan: state.family_target_plan, familyMembership, personalMembership,
     payments: viewer.role === "admin" ? state.payments.slice().reverse() : state.payments.filter((payment) => payment.status === "confirmed" || payment.user_id === viewer.id).slice().reverse(),
     votes: state.votes, trialAvailable: !state.trial_used_by.includes(viewer.id),
@@ -166,15 +199,16 @@ export async function POST(request: Request) {
 
     switch (body.action) {
       case "create_task": {
-        const plan = effectivePlan(state, viewer.id, now);
-        const usage = monthlyTaskUsage(state, viewer.id, plan, now);
-        const limit = PLAN_RULES[plan].monthly_tasks;
-        if (limit !== null && usage >= limit) throw new Error(`Limite mensuelle atteinte (${limit} missions).`);
         const templateId = text(body.templateId, 40);
-        const assigneeId = positiveInt(body.assigneeId, "Membre");
-        const assignee = SERVICE_PRICES[templateId]
-          ? users.find((user) => user.role === "delivery")
-          : users.find((user) => user.id === assigneeId);
+        const template = SERVICE_CATALOG[templateId];
+        if (!template) throw new Error("Service introuvable.");
+        const scope = body.scope === "personal" ? "personal" : "family";
+        if (scope !== template.scope) throw new Error("Type de service invalide.");
+        const plan = planForTaskScope(state, viewer.id, scope, now);
+        const usage = monthlyTaskUsageForScope(state, viewer.id, scope, now);
+        const limit = PLAN_RULES[plan].monthly_tasks;
+        if (limit !== null && usage >= limit) throw new Error(`Limite mensuelle atteinte (${limit} services).`);
+        const assignee = users.find((user) => user.role === "delivery");
         if (!assignee) throw new Error("Membre introuvable.");
         const title = text(body.title, 80);
         if (!title) throw new Error("Le nom de la mission est requis.");
@@ -182,9 +216,12 @@ export async function POST(request: Request) {
         if (recurrence !== "none" && !PLAN_RULES[plan].recurring) throw new Error("Les missions répétées nécessitent Plus ou Pro.");
         const deadlineText = text(body.deadline, 40);
         const deadline = deadlineText && !Number.isNaN(new Date(deadlineText).getTime()) ? new Date(deadlineText).toISOString() : null;
-        const rewardCents = SERVICE_PRICES[templateId] ?? positiveInt(body.rewardCents, "Récompense", 1_000_000);
+        const rewardCents = template.price_cents ?? positiveInt(body.rewardCents, "Prix", 4_900);
+        if (rewardCents < 200 || rewardCents > 4_900) {
+          throw new Error("Le prix doit être compris entre 2 et 49 DH.");
+        }
         state.tasks.push({
-          id: crypto.randomUUID(), title, description: text(body.description, 400), template_id: templateId,
+          id: crypto.randomUUID(), title, description: text(body.description, 400), template_id: templateId, scope,
           creator_id: viewer.id, creator_name: viewer.name, assignee_id: assignee.id, assignee_name: assignee.name,
           reward_cents: rewardCents, priority: body.priority === "urgent" ? "urgent" : "normal",
           deadline, recurrence, status: "pending", created_at: now.toISOString(), started_at: null, completed_at: null,
@@ -209,9 +246,9 @@ export async function POST(request: Request) {
             id: `task-${task.id}`, type: "task", amount_cents: task.reward_cents, cart_id: null, task_id: task.id,
             created_at: now.toISOString(), actor_name: viewer.name,
           });
-          const assigneePlan = effectivePlan(state, task.creator_id, now);
+          const assigneePlan = planForTaskScope(state, task.creator_id, task.scope, now);
           const recurrenceLimit = PLAN_RULES[assigneePlan].monthly_tasks;
-          const recurrenceAllowed = recurrenceLimit === null || monthlyTaskUsage(state, task.creator_id, assigneePlan, now) < recurrenceLimit;
+          const recurrenceAllowed = recurrenceLimit === null || monthlyTaskUsageForScope(state, task.creator_id, task.scope, now) < recurrenceLimit;
           if (task.recurrence !== "none" && recurrenceAllowed) {
             const deadline = task.deadline ? new Date(task.deadline) : now;
             if (task.recurrence === "weekly") deadline.setUTCDate(deadline.getUTCDate() + 7);

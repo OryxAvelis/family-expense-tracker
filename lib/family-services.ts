@@ -5,7 +5,7 @@ export type PaidPlanId = Exclude<PlanId, "free">;
 export type TaskStatus = "pending" | "in_progress" | "completed" | "cancelled";
 
 export const PLAN_RULES = {
-  free: { price_cents: 0, monthly_tasks: 5, recurring: false },
+  free: { price_cents: 0, monthly_tasks: 2, recurring: false },
   plus: { price_cents: 1500, monthly_tasks: 50, recurring: true },
   pro: { price_cents: 2900, monthly_tasks: null, recurring: true },
 } as const;
@@ -15,6 +15,7 @@ export type ServiceTask = {
   title: string;
   description: string;
   template_id: string;
+  scope: "family" | "personal";
   creator_id: number;
   creator_name: string;
   assignee_id: number;
@@ -73,7 +74,12 @@ export function parseServicesState(value?: string): ServicesState {
     const state = emptyServicesState();
     return {
       ...state,
-      tasks: Array.isArray(raw.tasks) ? raw.tasks.slice(-500) : [],
+      tasks: Array.isArray(raw.tasks)
+        ? raw.tasks.slice(-500).map((task) => ({
+            ...task,
+            scope: task.scope === "personal" ? "personal" as const : "family" as const,
+          }))
+        : [],
       payments: Array.isArray(raw.payments) ? raw.payments.slice(-500) : [],
       memberships: Array.isArray(raw.memberships) ? raw.memberships.slice(-100) : [],
       votes: Array.isArray(raw.votes) ? raw.votes.slice(-100) : [],
@@ -87,19 +93,58 @@ export function parseServicesState(value?: string): ServicesState {
 }
 
 export function effectivePlan(state: ServicesState, userId: number, at = new Date()): PlanId {
-  const active = state.memberships.filter((item) => new Date(item.starts_at) <= at && new Date(item.ends_at) > at);
-  const family = active.filter((item) => item.scope === "family").at(-1);
-  const personal = active.filter((item) => item.scope === "personal" && item.member_id === userId).at(-1);
-  if (family?.plan === "pro" || personal?.plan === "pro") return "pro";
-  if (family?.plan === "plus" || personal?.plan === "plus") return "plus";
+  const family = activePlanForScope(state, userId, "family", at);
+  const personal = activePlanForScope(state, userId, "personal", at);
+  if (family === "pro" || personal === "pro") return "pro";
+  if (family === "plus" || personal === "plus") return "plus";
   return "free";
 }
 
-export function monthlyTaskUsage(state: ServicesState, userId: number, plan: PlanId, now = new Date()) {
+export function activePlanForScope(
+  state: ServicesState,
+  userId: number,
+  scope: "family" | "personal",
+  at = new Date(),
+): PlanId {
+  const membership = state.memberships
+    .filter((item) =>
+      item.scope === scope &&
+      (scope === "family" || item.member_id === userId) &&
+      new Date(item.starts_at) <= at &&
+      new Date(item.ends_at) > at,
+    )
+    .at(-1);
+  return membership?.plan ?? "free";
+}
+
+export function planForTaskScope(
+  state: ServicesState,
+  userId: number,
+  scope: "family" | "personal",
+  at = new Date(),
+): PlanId {
+  const personal = activePlanForScope(state, userId, "personal", at);
+  if (scope === "personal") return personal;
+  const family = activePlanForScope(state, userId, "family", at);
+  if (family === "pro" || personal === "pro") return "pro";
+  if (family === "plus" || personal === "plus") return "plus";
+  return "free";
+}
+
+export function monthlyTaskUsageForScope(
+  state: ServicesState,
+  userId: number,
+  scope: "family" | "personal",
+  now = new Date(),
+) {
   const month = now.toISOString().slice(0, 7);
-  const hasFamilyPlan = state.memberships.some((item) => item.scope === "family" && new Date(item.starts_at) <= now && new Date(item.ends_at) > now && item.plan === plan);
+  const hasActiveFamilyPlan =
+    scope === "family" && activePlanForScope(state, userId, "family", now) !== "free";
   return state.tasks.filter((task) =>
-    task.created_at.startsWith(month) && task.status !== "cancelled" && (hasFamilyPlan ? true : task.creator_id === userId),
+    task.scope === scope &&
+    task.created_at.startsWith(month) &&
+    task.status !== "cancelled" &&
+    (hasActiveFamilyPlan || task.creator_id === userId),
   ).length;
 }
 
