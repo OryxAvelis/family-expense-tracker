@@ -31,6 +31,13 @@ export default function manifest(): MetadataRoute.Manifest {
         url: "/livreur",
         icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
       },
+      {
+        name: "Missions maison",
+        short_name: "Missions",
+        description: "Voir et créer les tâches familiales",
+        url: "/services",
+        icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
+      },
     ],
     icons: [
       {

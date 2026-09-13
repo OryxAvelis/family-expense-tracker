@@ -1,0 +1,56 @@
+import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
+
+const MEMBER_WALLET_PREFIX = "member_wallet_";
+
+export type MemberWalletTransaction = {
+  id: string;
+  type: "deposit" | "order" | "task";
+  amount_cents: number;
+  cart_id: number | null;
+  task_id?: string | null;
+  created_at: string;
+  actor_name: string;
+};
+
+const cleanText = (value: unknown) => typeof value === "string" ? value.trim() : "";
+
+export function memberWalletMetaKey(userId: number) {
+  return `${MEMBER_WALLET_PREFIX}${userId}`;
+}
+
+export function parseMemberWallet(value: string | undefined) {
+  if (!value) return [] as MemberWalletTransaction[];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+      .map((entry) => ({
+        id: cleanText(entry.id),
+        type: entry.type === "order" ? "order" as const : entry.type === "task" ? "task" as const : "deposit" as const,
+        amount_cents: Number(entry.amount_cents),
+        cart_id: Number.isInteger(Number(entry.cart_id)) && Number(entry.cart_id) > 0 ? Number(entry.cart_id) : null,
+        task_id: cleanText(entry.task_id) || null,
+        created_at: cleanText(entry.created_at),
+        actor_name: cleanText(entry.actor_name),
+      }))
+      .filter((entry) => entry.id && Number.isSafeInteger(entry.amount_cents) && entry.amount_cents !== 0 && entry.created_at)
+      .slice(-300);
+  } catch {
+    return [];
+  }
+}
+
+export async function addMemberWalletTransaction(memberId: number, transaction: MemberWalletTransaction) {
+  const db = getSupabaseAdmin();
+  const key = memberWalletMetaKey(memberId);
+  const { data, error: readError } = await db.from("app_meta").select("value").eq("key", key).maybeSingle();
+  throwIfSupabaseError(readError);
+  const transactions = parseMemberWallet(data?.value);
+  if (transactions.some((entry) => entry.id === transaction.id)) return;
+  const { error } = await db.from("app_meta").upsert(
+    { key, value: JSON.stringify([...transactions, transaction].slice(-300)) },
+    { onConflict: "key" },
+  );
+  throwIfSupabaseError(error);
+}

@@ -1,0 +1,114 @@
+export const SERVICES_META_KEY = "family_services_state_v1";
+
+export type PlanId = "free" | "plus" | "pro";
+export type PaidPlanId = Exclude<PlanId, "free">;
+export type TaskStatus = "pending" | "in_progress" | "completed" | "cancelled";
+
+export const PLAN_RULES = {
+  free: { price_cents: 0, monthly_tasks: 5, recurring: false },
+  plus: { price_cents: 1500, monthly_tasks: 50, recurring: true },
+  pro: { price_cents: 2900, monthly_tasks: null, recurring: true },
+} as const;
+
+export type ServiceTask = {
+  id: string;
+  title: string;
+  description: string;
+  template_id: string;
+  creator_id: number;
+  creator_name: string;
+  assignee_id: number;
+  assignee_name: string;
+  reward_cents: number;
+  priority: "normal" | "urgent";
+  deadline: string | null;
+  recurrence: "none" | "weekly" | "monthly";
+  status: TaskStatus;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+};
+
+export type SubscriptionPayment = {
+  id: string;
+  user_id: number;
+  user_name: string;
+  scope: "family" | "personal";
+  plan: PaidPlanId;
+  amount_cents: number;
+  status: "pending" | "confirmed" | "rejected";
+  created_at: string;
+  confirmed_at: string | null;
+};
+
+export type Membership = {
+  id: string;
+  scope: "family" | "personal";
+  member_id: number | null;
+  plan: PaidPlanId;
+  starts_at: string;
+  ends_at: string;
+  source: "fund" | "personal" | "trial";
+};
+
+export type ServicesState = {
+  tasks: ServiceTask[];
+  payments: SubscriptionPayment[];
+  memberships: Membership[];
+  votes: Array<{ user_id: number; plan: PaidPlanId; updated_at: string }>;
+  family_target_plan: PaidPlanId;
+  family_fund_cents: number;
+  trial_used_by: number[];
+};
+
+export const emptyServicesState = (): ServicesState => ({
+  tasks: [], payments: [], memberships: [], votes: [], family_target_plan: "plus",
+  family_fund_cents: 0, trial_used_by: [],
+});
+
+export function parseServicesState(value?: string): ServicesState {
+  if (!value) return emptyServicesState();
+  try {
+    const raw = JSON.parse(value) as Partial<ServicesState>;
+    const state = emptyServicesState();
+    return {
+      ...state,
+      tasks: Array.isArray(raw.tasks) ? raw.tasks.slice(-500) : [],
+      payments: Array.isArray(raw.payments) ? raw.payments.slice(-500) : [],
+      memberships: Array.isArray(raw.memberships) ? raw.memberships.slice(-100) : [],
+      votes: Array.isArray(raw.votes) ? raw.votes.slice(-100) : [],
+      family_target_plan: raw.family_target_plan === "pro" ? "pro" : "plus",
+      family_fund_cents: Number.isSafeInteger(raw.family_fund_cents) && Number(raw.family_fund_cents) >= 0 ? Number(raw.family_fund_cents) : 0,
+      trial_used_by: Array.isArray(raw.trial_used_by) ? raw.trial_used_by.map(Number).filter(Number.isSafeInteger) : [],
+    };
+  } catch {
+    return emptyServicesState();
+  }
+}
+
+export function effectivePlan(state: ServicesState, userId: number, at = new Date()): PlanId {
+  const active = state.memberships.filter((item) => new Date(item.starts_at) <= at && new Date(item.ends_at) > at);
+  const family = active.filter((item) => item.scope === "family").at(-1);
+  const personal = active.filter((item) => item.scope === "personal" && item.member_id === userId).at(-1);
+  if (family?.plan === "pro" || personal?.plan === "pro") return "pro";
+  if (family?.plan === "plus" || personal?.plan === "plus") return "plus";
+  return "free";
+}
+
+export function monthlyTaskUsage(state: ServicesState, userId: number, plan: PlanId, now = new Date()) {
+  const month = now.toISOString().slice(0, 7);
+  const hasFamilyPlan = state.memberships.some((item) => item.scope === "family" && new Date(item.starts_at) <= now && new Date(item.ends_at) > now && item.plan === plan);
+  return state.tasks.filter((task) =>
+    task.created_at.startsWith(month) && task.status !== "cancelled" && (hasFamilyPlan ? true : task.creator_id === userId),
+  ).length;
+}
+
+export function serviceFeeForPlan(plan: PlanId) {
+  return plan === "pro" ? 0 : 50;
+}
+
+export function addDaysIso(days: number, from = new Date()) {
+  const date = new Date(from);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString();
+}

@@ -11,6 +11,8 @@ import {
   saveDeliveryPushSubscription,
 } from "@/lib/push-notifications";
 import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
+import { effectivePlan, parseServicesState, serviceFeeForPlan, SERVICES_META_KEY } from "@/lib/family-services";
+import { addMemberWalletTransaction, memberWalletMetaKey, parseMemberWallet } from "@/lib/member-wallet";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -43,7 +45,7 @@ const MONTHLY_BUDGET_META_KEY = "family_monthly_budget_cents";
 const DELIVERY_PAID_META_KEY = "delivery_wallet_paid_cents";
 const MAX_MONTHLY_BUDGET_CENTS = 100_000_000;
 const MAX_MEMBER_DEPOSIT_CENTS = 100_000_000;
-const MEMBER_WALLET_PREFIX = "member_wallet_";
+const CART_SERVICE_FEE_PREFIX = "cart_service_fee_";
 
 type ActionBody = {
   action?: string;
@@ -108,15 +110,6 @@ type ItemRow = {
   >;
 };
 
-type MemberWalletTransaction = {
-  id: string;
-  type: "deposit" | "order";
-  amount_cents: number;
-  cart_id: number | null;
-  created_at: string;
-  actor_name: string;
-};
-
 const nowIso = () => new Date().toISOString();
 
 function asPositiveInt(value: unknown, field: string) {
@@ -142,65 +135,6 @@ function metaInteger(value: string | undefined) {
 
 function favoriteMetaKey(userId: number) {
   return `member_favorites_${userId}`;
-}
-
-function memberWalletMetaKey(userId: number) {
-  return `${MEMBER_WALLET_PREFIX}${userId}`;
-}
-
-function parseMemberWallet(value: string | undefined) {
-  if (!value) return [] as MemberWalletTransaction[];
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
-      .map((entry) => ({
-        id: asText(entry.id),
-        type: entry.type === "order" ? "order" as const : "deposit" as const,
-        amount_cents: Number(entry.amount_cents),
-        cart_id: Number.isInteger(Number(entry.cart_id)) && Number(entry.cart_id) > 0
-          ? Number(entry.cart_id)
-          : null,
-        created_at: asText(entry.created_at),
-        actor_name: asText(entry.actor_name),
-      }))
-      .filter(
-        (entry) =>
-          entry.id &&
-          Number.isSafeInteger(entry.amount_cents) &&
-          entry.amount_cents !== 0 &&
-          entry.created_at,
-      )
-      .slice(-200);
-  } catch {
-    return [];
-  }
-}
-
-async function addMemberWalletTransaction(
-  memberId: number,
-  transaction: MemberWalletTransaction,
-) {
-  const db = getSupabaseAdmin();
-  const key = memberWalletMetaKey(memberId);
-  const { data, error: readError } = await db
-    .from("app_meta")
-    .select("value")
-    .eq("key", key)
-    .maybeSingle();
-  throwIfSupabaseError(readError);
-
-  const transactions = parseMemberWallet(data?.value);
-  if (transactions.some((entry) => entry.id === transaction.id)) return;
-
-  const { error: writeError } = await db
-    .from("app_meta")
-    .upsert(
-      { key, value: JSON.stringify([...transactions, transaction].slice(-200)) },
-      { onConflict: "key" },
-    );
-  throwIfSupabaseError(writeError);
 }
 
 function parseFavoriteIds(value: string | undefined) {
@@ -355,6 +289,9 @@ async function readState(viewer: FamilySessionUser) {
     (metadataResult.data ?? []).map((entry) => [String(entry.key), String(entry.value)]),
   );
   const monthlyBudgetCents = metaInteger(metadata.get(MONTHLY_BUDGET_META_KEY));
+  const servicesState = parseServicesState(metadata.get(SERVICES_META_KEY));
+  const viewerPlan = viewer.role === "member" ? effectivePlan(servicesState, viewer.id) : "free";
+  const viewerServiceFeeCents = serviceFeeForPlan(viewerPlan);
   const favoriteProductIds =
     viewer.role === "member"
       ? parseFavoriteIds(metadata.get(favoriteMetaKey(viewer.id)))
@@ -419,6 +356,11 @@ async function readState(viewer: FamilySessionUser) {
         missing_products_note: cart.missing_products_note,
         member_name: member.name,
         member_initials: member.initials,
+        service_fee_cents: cart.status === "completed"
+          ? metadata.has(`${CART_SERVICE_FEE_PREFIX}${cart.id}`)
+            ? metaInteger(metadata.get(`${CART_SERVICE_FEE_PREFIX}${cart.id}`))
+            : DELIVERY_SERVICE_FEE_CENTS
+          : serviceFeeForPlan(effectivePlan(servicesState, Number(cart.member_id))),
       };
     })
     .sort(cartOrder)
@@ -480,7 +422,8 @@ async function readState(viewer: FamilySessionUser) {
       const month = cart.completed_at.slice(0, 7);
       const entry = months.get(month) ?? { total_cents: 0, carts: new Set<number>() };
       entry.carts.add(Number(cart.id));
-      entry.total_cents += DELIVERY_SERVICE_FEE_CENTS;
+      const storedFee = metadata.get(`${CART_SERVICE_FEE_PREFIX}${cart.id}`);
+      entry.total_cents += storedFee === undefined ? DELIVERY_SERVICE_FEE_CENTS : metaInteger(storedFee);
       for (const item of cart.cart_items) {
         if (item.purchase_status !== "bought") continue;
         entry.total_cents += Math.round(
@@ -542,7 +485,9 @@ async function readState(viewer: FamilySessionUser) {
     items,
     monthlyTotals,
     pendingUsers,
-    deliveryServiceFeeCents: DELIVERY_SERVICE_FEE_CENTS,
+    deliveryServiceFeeCents: viewerServiceFeeCents,
+    deliveryRewardCents: DELIVERY_SERVICE_FEE_CENTS,
+    currentPlan: viewerPlan,
     monthlyBudgetCents,
     favoriteProductIds,
     deliveryWallet,
@@ -872,10 +817,23 @@ export async function POST(request: Request) {
               total + Math.round((entry.actual_unit_price_cents * entry.quantity_hundredths) / 100),
             0,
           );
+        const { data: serviceMeta, error: serviceMetaError } = await db
+          .from("app_meta")
+          .select("value")
+          .eq("key", SERVICES_META_KEY)
+          .maybeSingle();
+        throwIfSupabaseError(serviceMetaError);
+        const memberPlan = effectivePlan(parseServicesState(serviceMeta?.value), Number(cart.member_id));
+        const chargedServiceFeeCents = serviceFeeForPlan(memberPlan);
+        const { error: feeError } = await db.from("app_meta").upsert(
+          { key: `${CART_SERVICE_FEE_PREFIX}${cartId}`, value: String(chargedServiceFeeCents) },
+          { onConflict: "key" },
+        );
+        throwIfSupabaseError(feeError);
         await addMemberWalletTransaction(Number(cart.member_id), {
           id: `order-${cartId}`,
           type: "order",
-          amount_cents: -(purchasedTotalCents + DELIVERY_SERVICE_FEE_CENTS),
+          amount_cents: -(purchasedTotalCents + chargedServiceFeeCents),
           cart_id: cartId,
           created_at: nowIso(),
           actor_name: viewer.name,

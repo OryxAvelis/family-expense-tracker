@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import {
   AlertTriangle,
   BarChart3,
@@ -9,6 +10,7 @@ import {
   Check,
   ChevronRight,
   CircleCheck,
+  ClipboardCheck,
   Clock3,
   Heart,
   ImagePlus,
@@ -174,6 +176,7 @@ type Cart = {
   approved_at: string | null;
   completed_at: string | null;
   missing_products_note: string;
+  service_fee_cents: number;
 };
 
 type CartItem = {
@@ -210,9 +213,10 @@ type DeliveryWallet = {
 
 type MemberWalletTransaction = {
   id: string;
-  type: "deposit" | "order";
+  type: "deposit" | "order" | "task";
   amount_cents: number;
   cart_id: number | null;
+  task_id?: string | null;
   created_at: string;
   actor_name: string;
 };
@@ -1663,6 +1667,11 @@ export function FamilyTracker({
           )}
           {role === "admin" && <UserCog className="mt-3 size-6 text-primary" />}
           {role === "delivery" && <PackageCheck className="mt-3 size-6 text-primary" />}
+          <Link href="/services" title="Missions maison">
+            <Button size="icon-lg" variant="ghost" className="rounded-2xl" aria-label="Missions maison">
+              <ClipboardCheck />
+            </Button>
+          </Link>
         </div>
         <button
           type="button"
@@ -1693,6 +1702,13 @@ export function FamilyTracker({
             </div>
 
             <div className="ms-auto flex items-center gap-1 sm:gap-2">
+              {role !== "member" && (
+                <Link href="/services">
+                  <Button size="icon" variant="ghost" className="size-11 rounded-xl border border-border bg-card/70" aria-label="Missions maison" title="Missions maison">
+                    <ClipboardCheck />
+                  </Button>
+                </Link>
+              )}
               <Button
                 size="icon"
                 variant="ghost"
@@ -2097,7 +2113,6 @@ export function FamilyTracker({
                 money={money}
                 statusText={statusText}
                 t={t}
-                serviceFeeCents={deliveryServiceFeeCents}
                 busy={busy}
                 onEdit={editCart}
                 onRepeat={repeatCart}
@@ -2170,7 +2185,6 @@ export function FamilyTracker({
             t={t}
             language={language}
             profileImageVersion={profileImageVersion}
-            serviceFeeCents={deliveryServiceFeeCents}
             wallet={data.deliveryWallet}
             memberWallets={data.memberWallets}
             monthlyBudgetCents={monthlyBudgetCents}
@@ -2181,7 +2195,7 @@ export function FamilyTracker({
       </div>
 
       {role === "member" && (
-        <nav aria-label="Navigation mobile" className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 grid grid-cols-3 rounded-[1.4rem] border border-border bg-card/95 p-2 shadow-[0_20px_60px_rgba(0,0,0,0.20)] backdrop-blur-xl lg:hidden">
+        <nav aria-label="Navigation mobile" className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-30 grid grid-cols-4 rounded-[1.4rem] border border-border bg-card/95 p-2 shadow-[0_20px_60px_rgba(0,0,0,0.20)] backdrop-blur-xl lg:hidden">
           <Button
             variant="ghost"
             className={`h-14 flex-col gap-1 rounded-2xl ${memberView === "catalog" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`}
@@ -2189,6 +2203,11 @@ export function FamilyTracker({
           >
             <ShoppingBasket className="size-5" /><span className="text-[11px]">{t.catalog}</span>
           </Button>
+          <Link href="/services" className="flex">
+            <Button variant="ghost" className="h-14 w-full flex-col gap-1 rounded-2xl text-muted-foreground">
+              <ClipboardCheck className="size-5" /><span className="text-[11px]">Missions</span>
+            </Button>
+          </Link>
           <Button
             variant="ghost"
             className={`h-14 flex-col gap-1 rounded-2xl ${memberView === "carts" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`}
@@ -2385,11 +2404,11 @@ function MemberSettings({
               {wallet?.transactions.length ? wallet.transactions.slice(0, 8).map((entry) => (
                 <div key={entry.id} className="flex items-center gap-3 rounded-xl bg-muted/45 px-3 py-2.5">
                   <span className={`grid size-9 shrink-0 place-items-center rounded-xl ${entry.amount_cents > 0 ? "bg-primary/12 text-primary" : "bg-destructive/10 text-destructive"}`}>
-                    {entry.amount_cents > 0 ? <Plus className="size-4" /> : <ShoppingCart className="size-4" />}
+                    {entry.type === "task" ? <Sparkles className="size-4" /> : entry.amount_cents > 0 ? <Plus className="size-4" /> : <ShoppingCart className="size-4" />}
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">
-                      {entry.type === "deposit" ? t.deposit : `${t.orderDebit} #${entry.cart_id}`}
+                      {entry.type === "deposit" ? t.deposit : entry.type === "task" ? "Récompense de mission" : `${t.orderDebit} #${entry.cart_id}`}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {new Date(entry.created_at).toLocaleDateString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", { dateStyle: "medium" })}
@@ -2595,7 +2614,9 @@ function MemberBalancesManager({
                 <span className="truncate text-muted-foreground">
                   {wallet.transactions[0].type === "deposit"
                     ? t.deposit
-                    : `${t.orderDebit} #${wallet.transactions[0].cart_id}`} · {new Date(wallet.transactions[0].created_at).toLocaleDateString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", { dateStyle: "medium" })}
+                    : wallet.transactions[0].type === "task"
+                      ? "Récompense de mission"
+                      : `${t.orderDebit} #${wallet.transactions[0].cart_id}`} · {new Date(wallet.transactions[0].created_at).toLocaleDateString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", { dateStyle: "medium" })}
                 </span>
                 <strong className={wallet.transactions[0].amount_cents > 0 ? "text-primary" : "text-destructive"}>
                   {wallet.transactions[0].amount_cents > 0 ? "+" : "−"}{money(Math.abs(wallet.transactions[0].amount_cents))}
@@ -2618,7 +2639,6 @@ function MemberCarts({
   money,
   statusText,
   t,
-  serviceFeeCents,
   busy,
   onEdit,
   onRepeat,
@@ -2632,7 +2652,6 @@ function MemberCarts({
   money: (cents: number) => string;
   statusText: Record<CartStatus, string>;
   t: CopySet;
-  serviceFeeCents: number;
   busy: boolean;
   onEdit: (cart: Cart) => void;
   onRepeat: (cart: Cart) => void;
@@ -2688,7 +2707,7 @@ function MemberCarts({
               />
               <div className="mt-3 flex items-center justify-between rounded-xl bg-primary/[0.055] px-3 py-2 text-sm">
                 <span className="text-muted-foreground">{t.serviceFee}</span>
-                <strong>{money(serviceFeeCents)}</strong>
+                <strong>{money(cart.service_fee_cents)}</strong>
               </div>
               {cart.status !== "shopping" && (
                 <div className="mt-4 flex gap-2">
@@ -2740,11 +2759,11 @@ function MemberCarts({
             <div className="mt-4 space-y-2 border-t border-primary/15 pt-4 text-sm">
               <div className="flex items-center justify-between gap-3 text-muted-foreground">
                 <span>{t.serviceFee}</span>
-                <span>{money(serviceFeeCents)}</span>
+                <span>{money(latestResult.service_fee_cents)}</span>
               </div>
               <div className="flex items-center justify-between gap-3 font-semibold">
                 <span>{t.totalWithService}</span>
-                <strong>{money(latestBoughtTotal + serviceFeeCents)}</strong>
+                <strong>{money(latestBoughtTotal + latestResult.service_fee_cents)}</strong>
               </div>
             </div>
             <Button
@@ -3703,7 +3722,6 @@ function DeliveryDashboard({
   t,
   language,
   profileImageVersion,
-  serviceFeeCents,
   wallet,
   memberWallets,
   monthlyBudgetCents,
@@ -3726,7 +3744,6 @@ function DeliveryDashboard({
   t: CopySet;
   language: Language;
   profileImageVersion: number;
-  serviceFeeCents: number;
   wallet: DeliveryWallet;
   memberWallets: MemberWallet[];
   monthlyBudgetCents: number;
@@ -4063,10 +4080,10 @@ function DeliveryDashboard({
                 <div>
                   <p className="text-sm text-muted-foreground">{activeItems.filter((item) => item.purchase_status !== "requested").length}/{activeItems.length} {t.items}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {t.serviceFee}: {money(serviceFeeCents)}
+                    {t.serviceFee}: {money(selectedCart.service_fee_cents)}
                   </p>
                   <p className="mt-1 font-semibold">
-                    {t.totalWithService}: {money(activeBoughtTotal + serviceFeeCents)}
+                    {t.totalWithService}: {money(activeBoughtTotal + selectedCart.service_fee_cents)}
                   </p>
                 </div>
                 <Button
@@ -4118,12 +4135,12 @@ function DeliveryDashboard({
           {history.map((cart) => {
             const boughtItems = itemsFor(cart.id).filter((item) => item.purchase_status === "bought");
             const purchasedTotal = boughtItems.reduce((sum, item) => sum + Math.round(item.actual_unit_price_cents * item.quantity_hundredths / 100), 0);
-            const total = purchasedTotal + serviceFeeCents;
+            const total = purchasedTotal + cart.service_fee_cents;
             return (
               <article key={cart.id} className="rounded-2xl border border-border bg-card p-4">
                 <div className="flex flex-wrap items-center gap-4">
                   <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary"><Check /></span>
-                  <div className="min-w-0 flex-1"><p className="font-semibold">{cart.member_name} · #{cart.id}</p><p className="mt-1 text-xs text-muted-foreground">{cart.completed_at ? new Date(cart.completed_at).toLocaleDateString("fr-MA", { dateStyle: "medium" }) : ""}</p><p className="mt-1 text-xs text-primary">{t.serviceFee}: {money(serviceFeeCents)}</p></div>
+                  <div className="min-w-0 flex-1"><p className="font-semibold">{cart.member_name} · #{cart.id}</p><p className="mt-1 text-xs text-muted-foreground">{cart.completed_at ? new Date(cart.completed_at).toLocaleDateString("fr-MA", { dateStyle: "medium" }) : ""}</p><p className="mt-1 text-xs text-primary">{t.serviceFee}: {money(cart.service_fee_cents)}</p></div>
                   <Badge variant="outline" className="border-border">{boughtItems.length}/{itemsFor(cart.id).length} {t.bought.toLocaleLowerCase()}</Badge>
                   <strong>{money(total)}</strong>
                 </div>

@@ -36,6 +36,7 @@ type AnalyticsCart = {
   member_initials: string;
   status: string;
   completed_at: string | null;
+  service_fee_cents: number;
 };
 
 type AnalyticsItem = {
@@ -217,13 +218,17 @@ export function AdminAnalyticsCharts({
         });
       }
       const memberEntry = memberTotals.get(cart.member_id);
-      if (memberEntry) memberEntry.value += serviceFeeCents;
+      if (memberEntry) memberEntry.value += cart.service_fee_cents ?? serviceFeeCents;
     }
 
-    if (completedCarts.length && serviceFeeCents > 0) {
+    const totalServiceFees = completedCarts.reduce(
+      (sum, cart) => sum + (cart.service_fee_cents ?? serviceFeeCents),
+      0,
+    );
+    if (totalServiceFees > 0) {
       categoryTotals.set("service", {
-        value: completedCarts.length * serviceFeeCents,
-        count: completedCarts.length,
+        value: totalServiceFees,
+        count: completedCarts.filter((cart) => (cart.service_fee_cents ?? serviceFeeCents) > 0).length,
       });
     }
 
