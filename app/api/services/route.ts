@@ -17,6 +17,10 @@ export const runtime = "nodejs";
 
 type Body = { action?: string; [key: string]: unknown };
 type FamilyUser = { id: number; name: string; initials: string; role: "admin" | "delivery" | "member" };
+const SERVICE_PRICES: Record<string, number> = {
+  laundry: 500, garbage: 200, gas: 500, tidy: 1500,
+  dishes: 1000, shopping: 500, clean: 1000,
+};
 
 const text = (value: unknown, max = 160) => typeof value === "string" ? value.trim().slice(0, max) : "";
 const positiveInt = (value: unknown, label: string, max = 10_000_000) => {
@@ -166,8 +170,11 @@ export async function POST(request: Request) {
         const usage = monthlyTaskUsage(state, viewer.id, plan, now);
         const limit = PLAN_RULES[plan].monthly_tasks;
         if (limit !== null && usage >= limit) throw new Error(`Limite mensuelle atteinte (${limit} missions).`);
+        const templateId = text(body.templateId, 40);
         const assigneeId = positiveInt(body.assigneeId, "Membre");
-        const assignee = users.find((user) => user.id === assigneeId);
+        const assignee = SERVICE_PRICES[templateId]
+          ? users.find((user) => user.role === "delivery")
+          : users.find((user) => user.id === assigneeId);
         if (!assignee) throw new Error("Membre introuvable.");
         const title = text(body.title, 80);
         if (!title) throw new Error("Le nom de la mission est requis.");
@@ -175,10 +182,11 @@ export async function POST(request: Request) {
         if (recurrence !== "none" && !PLAN_RULES[plan].recurring) throw new Error("Les missions répétées nécessitent Plus ou Pro.");
         const deadlineText = text(body.deadline, 40);
         const deadline = deadlineText && !Number.isNaN(new Date(deadlineText).getTime()) ? new Date(deadlineText).toISOString() : null;
+        const rewardCents = SERVICE_PRICES[templateId] ?? positiveInt(body.rewardCents, "Récompense", 1_000_000);
         state.tasks.push({
-          id: crypto.randomUUID(), title, description: text(body.description, 400), template_id: text(body.templateId, 40),
+          id: crypto.randomUUID(), title, description: text(body.description, 400), template_id: templateId,
           creator_id: viewer.id, creator_name: viewer.name, assignee_id: assignee.id, assignee_name: assignee.name,
-          reward_cents: positiveInt(body.rewardCents, "Récompense", 1_000_000), priority: body.priority === "urgent" ? "urgent" : "normal",
+          reward_cents: rewardCents, priority: body.priority === "urgent" ? "urgent" : "normal",
           deadline, recurrence, status: "pending", created_at: now.toISOString(), started_at: null, completed_at: null,
         });
         break;

@@ -4,8 +4,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft, CalendarClock, CheckCircle2, CircleDollarSign, Crown, Flame, Loader2,
-  Moon, Play, Plus, Repeat2, Sparkles, Sun, Trash2, WashingMachine,
+  ArrowLeft, CalendarClock, CheckCircle2, ChevronRight, CircleDollarSign, Clock3, Crown, Flame, Loader2,
+  Moon, Play, Plus, Repeat2, ShieldCheck, Sparkles, Sun, Trash2, WashingMachine,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -33,11 +33,26 @@ type Data = {
   unlocked?: boolean; error?: string;
 };
 
-const templates = [
-  ["laundry", "Étendre le linge", "🧺"], ["garbage", "Sortir les poubelles", "🗑️"],
-  ["gas", "Changer la bouteille de gaz", "🔥"], ["tidy", "Ranger la maison", "🏠"],
-  ["dishes", "Faire la vaisselle", "🍽️"], ["shopping", "Petite course urgente", "🛍️"],
-  ["clean", "Nettoyer une pièce", "🧹"], ["custom", "Autre mission", "✨"],
+type ServiceTemplate = {
+  id: string;
+  title: string;
+  emoji: string;
+  price: number;
+  duration: string;
+  description: string;
+  steps: readonly string[];
+  gradient: string;
+};
+
+const templates: readonly ServiceTemplate[] = [
+  { id: "laundry", title: "Étendre le linge", emoji: "🧺", price: 500, duration: "15–25 min", description: "Josef prend le linge propre et l’étend soigneusement pour faciliter le séchage.", steps: ["Prendre le linge lavé", "Secouer et espacer chaque pièce", "Fixer correctement avec les pinces"], gradient: "from-sky-100 via-cyan-50 to-white dark:from-sky-950 dark:via-cyan-950/60 dark:to-card" },
+  { id: "garbage", title: "Sortir les poubelles", emoji: "🗑️", price: 200, duration: "5–10 min", description: "Josef ferme les sacs, les descend et les dépose dans le conteneur adapté.", steps: ["Rassembler et fermer les sacs", "Vérifier qu’aucun sac ne fuit", "Déposer dans le conteneur extérieur"], gradient: "from-slate-100 via-zinc-50 to-white dark:from-slate-900 dark:via-zinc-900/70 dark:to-card" },
+  { id: "gas", title: "Changer la bouteille de gaz", emoji: "🔥", price: 500, duration: "10–15 min", description: "Josef remplace la bouteille vide et contrôle le raccord avant utilisation.", steps: ["Fermer l’arrivée de gaz", "Installer et serrer la nouvelle bouteille", "Vérifier l’absence de fuite"], gradient: "from-orange-100 via-amber-50 to-white dark:from-orange-950 dark:via-amber-950/60 dark:to-card" },
+  { id: "tidy", title: "Ranger la maison", emoji: "🏠", price: 1500, duration: "45–60 min", description: "Josef remet les espaces communs en ordre selon vos indications.", steps: ["Rassembler les objets déplacés", "Ranger les surfaces et espaces communs", "Laisser un passage propre et dégagé"], gradient: "from-emerald-100 via-green-50 to-white dark:from-emerald-950 dark:via-green-950/60 dark:to-card" },
+  { id: "dishes", title: "Faire la vaisselle", emoji: "🍽️", price: 1000, duration: "25–40 min", description: "Josef lave, rince et range la vaisselle utilisée par la famille.", steps: ["Trier et vider la vaisselle", "Laver puis rincer soigneusement", "Sécher ou ranger à sa place"], gradient: "from-blue-100 via-indigo-50 to-white dark:from-blue-950 dark:via-indigo-950/60 dark:to-card" },
+  { id: "shopping", title: "Petite course urgente", emoji: "🛍️", price: 500, duration: "Selon la distance", description: "Josef récupère rapidement un petit produit oublié à proximité. Le prix du produit reste séparé.", steps: ["Confirmer le produit exact", "Acheter au commerce disponible", "Remettre le produit et le ticket"], gradient: "from-violet-100 via-purple-50 to-white dark:from-violet-950 dark:via-purple-950/60 dark:to-card" },
+  { id: "clean", title: "Nettoyer une pièce", emoji: "🧹", price: 1000, duration: "30–45 min", description: "Josef effectue un nettoyage simple d’une pièce choisie.", steps: ["Ranger rapidement les surfaces", "Balayer ou passer la serpillière", "Laisser la pièce propre et ordonnée"], gradient: "from-teal-100 via-emerald-50 to-white dark:from-teal-950 dark:via-emerald-950/60 dark:to-card" },
+  { id: "custom", title: "Autre service", emoji: "✨", price: 200, duration: "À préciser", description: "Décrivez une autre petite tâche. Josef verra les détails avant de commencer.", steps: ["Décrire clairement le besoin", "Choisir une récompense juste", "Josef confirme puis réalise la tâche"], gradient: "from-amber-100 via-yellow-50 to-white dark:from-amber-950 dark:via-yellow-950/60 dark:to-card" },
 ] as const;
 
 const money = (cents: number) => `${(cents / 100).toLocaleString("fr-MA", { minimumFractionDigits: 2 })} DH`;
@@ -51,7 +66,7 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("active");
-  const [form, setForm] = useState({ templateId: "laundry", title: "Étendre le linge", description: "", assigneeId: "", reward: "2", priority: "normal", deadline: "", recurrence: "none" });
+  const [form, setForm] = useState({ templateId: "laundry", title: "Étendre le linge", description: "", assigneeId: "", reward: "5", priority: "normal", deadline: "", recurrence: "none" });
 
   const load = useCallback(async () => {
     try {
@@ -59,7 +74,10 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
       const payload = await response.json() as Data;
       if (!response.ok) throw new Error(payload.error || "Chargement impossible.");
       setData(payload); setError("");
-      if (payload.users.length) setForm((value) => value.assigneeId ? value : ({ ...value, assigneeId: String(payload.users[0].id) }));
+      if (payload.users.length) {
+        const delivery = payload.users.find((user) => user.role === "delivery") ?? payload.users[0];
+        setForm((value) => value.assigneeId ? value : ({ ...value, assigneeId: String(delivery.id) }));
+      }
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Erreur."); }
   }, []);
   useEffect(() => {
@@ -83,6 +101,19 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
     return task.status === filter;
   }), [data?.tasks, filter]);
   const percentage = data?.limit ? Math.min(100, Math.round((data.usage / data.limit) * 100)) : 15;
+  const selectedTemplate = templates.find((item) => item.id === form.templateId) ?? templates[0];
+  const openService = (service: ServiceTemplate) => {
+    const delivery = data?.users.find((user) => user.role === "delivery") ?? data?.users[0];
+    setForm((value) => ({
+      ...value,
+      templateId: service.id,
+      title: service.id === "custom" ? "" : service.title,
+      description: "",
+      assigneeId: delivery ? String(delivery.id) : value.assigneeId,
+      reward: (service.price / 100).toFixed(service.price % 100 ? 2 : 0),
+    }));
+    setOpen(true);
+  };
 
   if (!data) return <main className="grid min-h-screen place-items-center bg-background text-foreground"><div className="text-center">{error ? <><p>{error}</p><Button className="mt-4" onClick={() => void load()}>Réessayer</Button></> : <Loader2 className="mx-auto size-8 animate-spin text-primary" />}</div></main>;
 
@@ -103,8 +134,8 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
         <div className="grid gap-5 lg:grid-cols-[1fr_20rem]">
           <div className="rounded-[2rem] border border-primary/20 bg-gradient-to-br from-primary/15 via-card to-card p-6 sm:p-8">
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <div><Badge className="mb-3 rounded-full bg-primary/15 text-primary hover:bg-primary/15">NOUVEAU SERVICE</Badge><h1 className="max-w-2xl text-3xl font-black tracking-[-0.045em] sm:text-5xl">Les petites tâches deviennent simples.</h1><p className="mt-3 max-w-xl text-muted-foreground">Créez une mission, choisissez une personne et une récompense. Chacun sait exactement quoi faire.</p></div>
-              <Button size="lg" className="h-13 rounded-2xl px-6 shadow-lg" onClick={() => setOpen(true)}><Plus /> Nouvelle mission</Button>
+              <div><Badge className="mb-3 rounded-full bg-primary/15 text-primary hover:bg-primary/15">SERVICES MAISON</Badge><h1 className="max-w-2xl text-3xl font-black tracking-[-0.045em] sm:text-5xl">Choisissez un service, Josef s’occupe du reste.</h1><p className="mt-3 max-w-xl text-muted-foreground">Consultez le prix et les détails avant d’envoyer votre demande. Rien n’est caché.</p></div>
+              <Button size="lg" className="h-13 rounded-2xl px-6 shadow-lg" onClick={() => document.getElementById("services-catalog")?.scrollIntoView({ behavior: "smooth" })}><Sparkles /> Voir les services</Button>
             </div>
           </div>
           <article className="rounded-[2rem] border border-border bg-card p-5">
@@ -115,7 +146,38 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
           </article>
         </div>
 
-        <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
+        <section id="services-catalog" className="scroll-mt-24 pt-10">
+          <div className="mb-5 flex items-end justify-between gap-4">
+            <div><p className="text-sm font-semibold text-primary">CATALOGUE</p><h2 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">Services disponibles</h2><p className="mt-1 text-sm text-muted-foreground">Touchez une carte pour voir exactement ce qui sera fait.</p></div>
+            <Badge variant="outline" className="hidden rounded-full px-3 py-1.5 sm:inline-flex">{templates.length} services</Badge>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-4">
+            {templates.map((service) => (
+              <button
+                key={service.id}
+                type="button"
+                onClick={() => openService(service)}
+                className="group overflow-hidden rounded-[1.55rem] border border-border bg-card text-start shadow-[0_16px_45px_rgba(0,0,0,.07)] transition duration-300 hover:-translate-y-1 hover:border-primary/35 hover:shadow-[0_22px_60px_rgba(0,0,0,.13)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                aria-label={`${service.title}, ${money(service.price)}, voir les détails`}
+              >
+                <div className={`relative grid aspect-[1.25] place-items-center overflow-hidden bg-gradient-to-br ${service.gradient}`}>
+                  <span className="absolute -end-8 -top-8 size-24 rounded-full bg-white/35 blur-xl dark:bg-white/5" />
+                  <span className="relative text-6xl drop-shadow-lg transition duration-300 group-hover:scale-110 sm:text-7xl" aria-hidden="true">{service.emoji}</span>
+                  <Badge className="absolute end-3 top-3 rounded-full bg-card/90 text-foreground shadow-sm hover:bg-card/90">{service.duration}</Badge>
+                </div>
+                <div className="p-3.5 sm:p-4">
+                  <h3 className="line-clamp-2 min-h-10 text-sm font-bold leading-5 sm:text-base">{service.title}</h3>
+                  <div className="mt-3 flex items-end justify-between gap-2">
+                    <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">Service</p><p className="text-lg font-black text-primary sm:text-xl">{service.id === "custom" ? "Dès " : ""}{money(service.price)}</p></div>
+                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground transition group-hover:translate-x-0.5"><ChevronRight className="size-4" /></span>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <div className="mt-12 flex flex-wrap items-center justify-between gap-4">
           <div><h2 className="text-2xl font-bold">Tableau des missions</h2><p className="text-sm text-muted-foreground">{visible.length} mission{visible.length !== 1 ? "s" : ""}</p></div>
           <Tabs value={filter} onValueChange={setFilter}><TabsList className="rounded-xl"><TabsTrigger value="active">Actives</TabsTrigger><TabsTrigger value="completed">Terminées</TabsTrigger><TabsTrigger value="cancelled">Annulées</TabsTrigger></TabsList></Tabs>
         </div>
@@ -125,7 +187,7 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
             const canWork = currentUser.role === "admin" || task.assignee_id === currentUser.id;
             return <article key={task.id} className={`relative overflow-hidden rounded-[1.6rem] border bg-card p-5 transition hover:-translate-y-0.5 hover:shadow-xl ${task.priority === "urgent" && task.status !== "completed" ? "border-[#ff9f43]/60" : "border-border"}`}>
               {task.priority === "urgent" && <span className="absolute inset-x-0 top-0 h-1 bg-[#ff9f43]" />}
-              <div className="flex items-start justify-between gap-3"><div className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-xl">{templates.find((item) => item[0] === task.template_id)?.[2] ?? "✨"}</div><Badge variant={task.status === "completed" ? "default" : "outline"}>{statusLabels[task.status]}</Badge></div>
+              <div className="flex items-start justify-between gap-3"><div className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-xl">{templates.find((item) => item.id === task.template_id)?.emoji ?? "✨"}</div><Badge variant={task.status === "completed" ? "default" : "outline"}>{statusLabels[task.status]}</Badge></div>
               <h3 className="mt-4 text-lg font-bold">{task.title}</h3>{task.description && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{task.description}</p>}
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm"><div className="rounded-xl bg-muted/55 p-3"><span className="block text-xs text-muted-foreground">Pour</span><strong>{task.assignee_name}</strong></div><div className="rounded-xl bg-muted/55 p-3"><span className="block text-xs text-muted-foreground">Récompense</span><strong className="text-primary">{money(task.reward_cents)}</strong></div></div>
               <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">{task.deadline && <span className="inline-flex items-center gap-1"><CalendarClock className="size-3.5" />{new Date(task.deadline).toLocaleDateString("fr-MA")}</span>}{task.recurrence !== "none" && <span className="inline-flex items-center gap-1"><Repeat2 className="size-3.5" />{task.recurrence === "weekly" ? "Chaque semaine" : "Chaque mois"}</span>}</div>
@@ -140,19 +202,40 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
         </div>
       </section>
 
-      <Button className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] end-4 z-20 h-14 rounded-full px-6 shadow-2xl sm:hidden" onClick={() => setOpen(true)}><Plus /> Nouvelle mission</Button>
+      <Button className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] end-4 z-20 h-14 rounded-full px-6 shadow-2xl sm:hidden" onClick={() => openService(templates.at(-1)!)}><Plus /> Autre service</Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[92svh] overflow-y-auto rounded-[1.75rem] sm:max-w-xl">
-          <DialogHeader><DialogTitle className="text-2xl">Créer une mission</DialogTitle><DialogDescription>Une demande claire, une récompense motivante.</DialogDescription></DialogHeader>
-          <div className="grid grid-cols-4 gap-2">{templates.map(([id, title, emoji]) => <button key={id} type="button" onClick={() => setForm((value) => ({ ...value, templateId: id, title: id === "custom" ? "" : title }))} className={`rounded-xl border p-2 text-center text-xs transition ${form.templateId === id ? "border-primary bg-primary/10 text-primary" : "border-border bg-muted/30"}`}><span className="block text-xl">{emoji}</span><span className="mt-1 block truncate">{title}</span></button>)}</div>
-          <div className="space-y-4">
-            <div><Label htmlFor="task-title">Mission</Label><Input id="task-title" className="mt-1.5 h-12 rounded-xl" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></div>
-            <div><Label htmlFor="task-description">Détails (facultatif)</Label><Textarea id="task-description" className="mt-1.5 rounded-xl" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></div>
-            <div className="grid gap-4 sm:grid-cols-2"><div><Label>Personne assignée</Label><Select value={form.assigneeId} onValueChange={(value) => setForm({ ...form, assigneeId: value })}><SelectTrigger className="mt-1.5 h-12 rounded-xl"><SelectValue /></SelectTrigger><SelectContent>{data.users.map((user) => <SelectItem key={user.id} value={String(user.id)}>{user.name}</SelectItem>)}</SelectContent></Select></div><div><Label htmlFor="reward">Récompense (DH)</Label><div className="relative mt-1.5"><CircleDollarSign className="absolute start-3 top-3.5 size-5 text-muted-foreground"/><Input id="reward" type="number" min="0.5" step="0.5" className="h-12 rounded-xl ps-10" value={form.reward} onChange={(event) => setForm({ ...form, reward: event.target.value })}/></div></div></div>
-            <div className="grid gap-4 sm:grid-cols-2"><div><Label htmlFor="deadline">Date limite</Label><Input id="deadline" type="datetime-local" className="mt-1.5 h-12 rounded-xl" value={form.deadline} onChange={(event) => setForm({ ...form, deadline: event.target.value })}/></div><div><Label>Priorité</Label><Select value={form.priority} onValueChange={(value) => setForm({ ...form, priority: value })}><SelectTrigger className="mt-1.5 h-12 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="normal">Normale</SelectItem><SelectItem value="urgent"><span className="inline-flex items-center gap-2"><Flame className="size-4"/>Urgente</span></SelectItem></SelectContent></Select></div></div>
-            <div><Label>Répétition</Label><Select value={form.recurrence} onValueChange={(value) => setForm({ ...form, recurrence: value })}><SelectTrigger className="mt-1.5 h-12 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Une seule fois</SelectItem><SelectItem value="weekly" disabled={data.plan === "free"}>Chaque semaine {data.plan === "free" && "— Plus"}</SelectItem><SelectItem value="monthly" disabled={data.plan === "free"}>Chaque mois {data.plan === "free" && "— Plus"}</SelectItem></SelectContent></Select></div>
+        <DialogContent className="max-h-[94svh] overflow-y-auto rounded-[1.75rem] p-0 sm:max-w-2xl">
+          <DialogHeader className="sr-only"><DialogTitle>{selectedTemplate.title}</DialogTitle><DialogDescription>Détails et commande du service</DialogDescription></DialogHeader>
+          <div className={`relative grid min-h-44 place-items-center overflow-hidden rounded-t-[1.7rem] bg-gradient-to-br ${selectedTemplate.gradient}`}>
+            <span className="absolute -end-12 -top-12 size-44 rounded-full bg-white/40 blur-2xl dark:bg-white/5" />
+            <span className="relative text-8xl drop-shadow-xl" aria-hidden="true">{selectedTemplate.emoji}</span>
+            <Badge className="absolute start-4 top-4 rounded-full bg-card/90 text-foreground shadow-sm hover:bg-card/90"><Clock3 className="size-3.5" /> {selectedTemplate.duration}</Badge>
           </div>
-          <DialogFooter><Button className="h-12 w-full rounded-xl" disabled={busy || !form.title.trim() || !form.assigneeId} onClick={async () => { const ok = await act({ action: "create_task", templateId: form.templateId, title: form.title, description: form.description, assigneeId: Number(form.assigneeId), rewardCents: Math.round(Number(form.reward) * 100), priority: form.priority, deadline: form.deadline, recurrence: form.recurrence }, "Mission créée."); if (ok) setOpen(false); }}><Sparkles /> Créer la mission</Button></DialogFooter>
+          <div className="space-y-6 p-5 pt-1 sm:p-7 sm:pt-2">
+            <div className="flex items-start justify-between gap-4">
+              <div><p className="text-xs font-bold uppercase tracking-[0.14em] text-primary">Service maison</p><h2 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">{selectedTemplate.title}</h2></div>
+              <div className="shrink-0 text-end"><p className="text-xs text-muted-foreground">Prix du service</p><p className="text-2xl font-black text-primary">{selectedTemplate.id === "custom" ? "Dès " : ""}{money(selectedTemplate.price)}</p></div>
+            </div>
+
+            <p className="leading-7 text-muted-foreground">{selectedTemplate.description}</p>
+            <div className="rounded-2xl border border-border bg-muted/35 p-4">
+              <div className="mb-3 flex items-center gap-2 font-bold"><ShieldCheck className="size-5 text-primary" /> Ce que Josef va faire</div>
+              <ol className="space-y-2.5">{selectedTemplate.steps.map((step, index) => <li key={step} className="flex items-start gap-3 text-sm"><span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary/12 text-xs font-black text-primary">{index + 1}</span><span className="pt-0.5">{step}</span></li>)}</ol>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {selectedTemplate.id === "custom" && <div className="sm:col-span-2"><Label htmlFor="task-title">Nom du service</Label><Input id="task-title" className="mt-1.5 h-12 rounded-xl" placeholder="Ex. Arroser les plantes" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></div>}
+              <div className="sm:col-span-2"><Label htmlFor="task-description">Instructions pour Josef (facultatif)</Label><Textarea id="task-description" className="mt-1.5 min-h-24 rounded-xl" placeholder="Lieu, quantité ou détail important…" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></div>
+              <div><Label>Réalisé par</Label><div className="mt-1.5 flex h-12 items-center gap-3 rounded-xl border border-border bg-muted/45 px-3"><span className="grid size-7 place-items-center rounded-lg bg-primary/12 text-xs font-black text-primary">{data.users.find((user) => String(user.id) === form.assigneeId)?.initials ?? "JO"}</span><strong>{data.users.find((user) => String(user.id) === form.assigneeId)?.name ?? "Josef"}</strong></div></div>
+              {selectedTemplate.id === "custom" ? <div><Label htmlFor="reward">Prix proposé (DH)</Label><div className="relative mt-1.5"><CircleDollarSign className="absolute start-3 top-3.5 size-5 text-muted-foreground"/><Input id="reward" type="number" min="0.5" step="0.5" className="h-12 rounded-xl ps-10" value={form.reward} onChange={(event) => setForm({ ...form, reward: event.target.value })}/></div></div> : <div><Label>Prix fixé</Label><div className="mt-1.5 flex h-12 items-center rounded-xl border border-border bg-muted/45 px-4 font-black text-primary">{money(selectedTemplate.price)}</div></div>}
+              <div><Label htmlFor="deadline">Date souhaitée</Label><Input id="deadline" type="datetime-local" className="mt-1.5 h-12 rounded-xl" value={form.deadline} onChange={(event) => setForm({ ...form, deadline: event.target.value })}/></div>
+              <div><Label>Priorité</Label><Select value={form.priority} onValueChange={(value) => setForm({ ...form, priority: value })}><SelectTrigger className="mt-1.5 h-12 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="normal">Normale</SelectItem><SelectItem value="urgent"><span className="inline-flex items-center gap-2"><Flame className="size-4"/>Urgente</span></SelectItem></SelectContent></Select></div>
+              <div className="sm:col-span-2"><Label>Répétition</Label><Select value={form.recurrence} onValueChange={(value) => setForm({ ...form, recurrence: value })}><SelectTrigger className="mt-1.5 h-12 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Une seule fois</SelectItem><SelectItem value="weekly" disabled={data.plan === "free"}>Chaque semaine {data.plan === "free" && "— Plus"}</SelectItem><SelectItem value="monthly" disabled={data.plan === "free"}>Chaque mois {data.plan === "free" && "— Plus"}</SelectItem></SelectContent></Select></div>
+            </div>
+          </div>
+          <DialogFooter className="sticky bottom-0 border-t border-border bg-card/95 p-4 backdrop-blur sm:p-5">
+            <Button className="h-12 w-full rounded-xl" disabled={busy || !form.title.trim() || !form.assigneeId} onClick={async () => { const ok = await act({ action: "create_task", templateId: form.templateId, title: form.title, description: form.description, assigneeId: Number(form.assigneeId), rewardCents: Math.round(Number(form.reward) * 100), priority: form.priority, deadline: form.deadline, recurrence: form.recurrence }, "Service demandé à Josef."); if (ok) setOpen(false); }}><Sparkles /> Demander ce service · {money(Math.round(Number(form.reward) * 100))}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </main>

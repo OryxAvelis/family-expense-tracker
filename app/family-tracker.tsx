@@ -204,10 +204,13 @@ type MonthlyTotal = {
 
 type DeliveryWallet = {
   completedOrders: number;
+  completedMissions: number;
   earnedCents: number;
+  missionEarnedCents: number;
   paidCents: number;
   unpaidCents: number;
   completedThisMonth: number;
+  missionsThisMonth: number;
   earnedThisMonthCents: number;
 };
 
@@ -3892,7 +3895,7 @@ function DeliveryDashboard({
             <div className="min-w-0 flex-1">
               <p className="font-semibold">{t.wallet}</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {t.allTime} · {wallet.completedOrders} {t.completedOrders}
+                {t.allTime} · {wallet.completedOrders} {t.completedOrders} · {wallet.completedMissions} missions
               </p>
             </div>
             <Badge variant="outline" className="border-primary/20 bg-card/70 text-primary">
@@ -3913,6 +3916,12 @@ function DeliveryDashboard({
               </div>
             ))}
           </div>
+          {wallet.completedMissions > 0 && (
+            <div className="mt-3 flex items-center justify-between rounded-xl border border-primary/15 bg-primary/[0.055] px-3 py-2 text-xs">
+              <span className="text-muted-foreground">Missions maison terminées</span>
+              <strong className="text-primary">{wallet.completedMissions} · +{money(wallet.missionEarnedCents)}</strong>
+            </div>
+          )}
         </article>
 
         <article className="rounded-3xl border border-border bg-card p-4 sm:p-5">

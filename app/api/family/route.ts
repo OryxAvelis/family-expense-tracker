@@ -446,10 +446,13 @@ async function readState(viewer: FamilySessionUser) {
 
   let deliveryWallet = {
     completedOrders: 0,
+    completedMissions: 0,
     earnedCents: 0,
+    missionEarnedCents: 0,
     paidCents: 0,
     unpaidCents: 0,
     completedThisMonth: 0,
+    missionsThisMonth: 0,
     earnedThisMonthCents: 0,
   };
   if (viewer.role === "admin" || viewer.role === "delivery") {
@@ -463,18 +466,29 @@ async function readState(viewer: FamilySessionUser) {
       throwIfSupabaseError(error);
       completedOrders = count ?? 0;
     }
-    const earnedCents = completedOrders * DELIVERY_SERVICE_FEE_CENTS;
+    const deliveryIds = new Set(users.filter((user) => user.role === "delivery").map((user) => user.id));
+    const completedMissions = servicesState.tasks.filter(
+      (task) => task.status === "completed" && deliveryIds.has(task.assignee_id),
+    );
+    const missionEarnedCents = completedMissions.reduce((sum, task) => sum + task.reward_cents, 0);
+    const earnedCents = completedOrders * DELIVERY_SERVICE_FEE_CENTS + missionEarnedCents;
     const paidCents = Math.min(metaInteger(metadata.get(DELIVERY_PAID_META_KEY)), earnedCents);
     const currentMonth = nowIso().slice(0, 7);
     const completedThisMonth =
       monthlyTotals.find((entry) => entry.month === currentMonth)?.carts_count ?? 0;
+    const missionsThisMonth = completedMissions.filter(
+      (task) => task.completed_at?.startsWith(currentMonth),
+    );
     deliveryWallet = {
       completedOrders,
+      completedMissions: completedMissions.length,
       earnedCents,
+      missionEarnedCents,
       paidCents,
       unpaidCents: earnedCents - paidCents,
       completedThisMonth,
-      earnedThisMonthCents: completedThisMonth * DELIVERY_SERVICE_FEE_CENTS,
+      missionsThisMonth: missionsThisMonth.length,
+      earnedThisMonthCents: completedThisMonth * DELIVERY_SERVICE_FEE_CENTS + missionsThisMonth.reduce((sum, task) => sum + task.reward_cents, 0),
     };
   }
 
