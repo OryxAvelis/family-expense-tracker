@@ -110,6 +110,7 @@ type PurchaseStatus = "requested" | "bought" | "unbought";
 
 const MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024;
 const PRODUCT_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const AMOUNT_REQUEST_SENTINEL_CENTS = 2_147_483_647;
 
 type FamilyUser = {
   id: number;
@@ -187,6 +188,7 @@ type CartItem = {
   quantity_hundredths: number;
   requested_unit_price_cents: number;
   actual_unit_price_cents: number;
+  catalog_unit_price_cents: number;
   purchase_status: PurchaseStatus;
   name_fr: string;
   name_ar: string;
@@ -196,6 +198,16 @@ type CartItem = {
   image_url: string | null;
   package_size: string | null;
 };
+
+const isAmountItem = (item: Pick<CartItem, "requested_unit_price_cents">) =>
+  item.requested_unit_price_cents === AMOUNT_REQUEST_SENTINEL_CENTS;
+
+const cartItemTotalCents = (
+  item: Pick<CartItem, "requested_unit_price_cents" | "actual_unit_price_cents" | "quantity_hundredths">,
+) =>
+  isAmountItem(item)
+    ? item.actual_unit_price_cents
+    : Math.round((item.actual_unit_price_cents * item.quantity_hundredths) / 100);
 
 type MonthlyTotal = {
   month: string;
@@ -371,6 +383,13 @@ const words = {
     household: "Maison",
     health: "Santé",
     quantity: "Quantité",
+    buyByAmount: "Acheter par montant",
+    amountToSpend: "Montant à dépenser",
+    amountHelp: "La quantité sera calculée automatiquement selon le prix au kilo ou au litre.",
+    estimatedQuantity: "Quantité estimée",
+    addForAmount: "Ajouter pour ce montant",
+    invalidAmount: "Saisissez un montant valide.",
+    forAmount: "Pour",
     activeLimit: "3 paniers actifs maximum",
     loading: "Chargement de la maison…",
     retry: "Réessayer",
@@ -538,6 +557,13 @@ const words = {
     household: "المنزل",
     health: "الصحة",
     quantity: "الكمية",
+    buyByAmount: "الشراء حسب المبلغ",
+    amountToSpend: "المبلغ المراد صرفه",
+    amountHelp: "سيتم حساب الكمية تلقائياً حسب ثمن الكيلو أو اللتر.",
+    estimatedQuantity: "الكمية التقريبية",
+    addForAmount: "أضف بهذا المبلغ",
+    invalidAmount: "أدخل مبلغاً صالحاً.",
+    forAmount: "بمبلغ",
     activeLimit: "3 سلال نشطة كحد أقصى",
     loading: "جارٍ تحميل بيانات البيت…",
     retry: "إعادة المحاولة",
@@ -705,6 +731,13 @@ const words = {
     household: "Household",
     health: "Health",
     quantity: "Quantity",
+    buyByAmount: "Buy by amount",
+    amountToSpend: "Amount to spend",
+    amountHelp: "The quantity is calculated automatically from the price per kilogram or litre.",
+    estimatedQuantity: "Estimated quantity",
+    addForAmount: "Add for this amount",
+    invalidAmount: "Enter a valid amount.",
+    forAmount: "For",
     activeLimit: "Maximum 3 active carts",
     loading: "Loading the household…",
     retry: "Retry",
@@ -893,6 +926,9 @@ export function FamilyTracker({
   const [showFavorites, setShowFavorites] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [draft, setDraft] = useState<Record<number, number>>({});
+  const [draftAmounts, setDraftAmounts] = useState<Record<number, number>>({});
+  const [amountProduct, setAmountProduct] = useState<Product | null>(null);
+  const [amountDh, setAmountDh] = useState("");
   const [missingProductsNote, setMissingProductsNote] = useState("");
   const [editingCartId, setEditingCartId] = useState<number | null>(null);
   const [deliveryPrices, setDeliveryPrices] = useState<Record<number, string>>({});
@@ -1137,6 +1173,11 @@ export function FamilyTracker({
         ...current,
         [product.id]: (current[product.id] ?? 0) + 100,
       }));
+      setDraftAmounts((current) => {
+        const updated = { ...current };
+        delete updated[product.id];
+        return updated;
+      });
       toast.success(t.scannedAdded);
     },
     [t.scannedAdded],
@@ -1177,6 +1218,11 @@ export function FamilyTracker({
           ...current,
           [product.id]: (current[product.id] ?? 0) + 100,
         }));
+        setDraftAmounts((current) => {
+          const updated = { ...current };
+          delete updated[product.id];
+          return updated;
+        });
         toast.success(t.myMarketAdded);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Import MyMarket impossible.");
@@ -1226,6 +1272,28 @@ export function FamilyTracker({
     return `${new Intl.NumberFormat(numberLocale, { maximumFractionDigits: 2 }).format(amount)} ${translatedUnit}`;
   };
 
+  const amountQuantityLabel = (
+    amountCents: number,
+    unitPriceCents: number,
+    unit: Product["unit"],
+  ) => {
+    if (unitPriceCents <= 0) return "—";
+    const units = amountCents / unitPriceCents;
+    const numberLocale = language === "ar" ? "ar-MA" : language === "en" ? "en-MA" : "fr-MA";
+    if (unit === "kg" && units < 1) {
+      return `${new Intl.NumberFormat(numberLocale, { maximumFractionDigits: 0 }).format(units * 1000)} g`;
+    }
+    if (unit === "L" && units < 1) {
+      return `${new Intl.NumberFormat(numberLocale, { maximumFractionDigits: 0 }).format(units * 1000)} ml`;
+    }
+    return quantityLabel(Math.round(units * 100), unit);
+  };
+
+  const itemRequestLabel = (item: CartItem) =>
+    isAmountItem(item)
+      ? `${t.forAmount} ${money(item.quantity_hundredths)} · ≈ ${amountQuantityLabel(item.quantity_hundredths, item.catalog_unit_price_cents, item.unit)}`
+      : quantityLabel(item.quantity_hundredths, item.unit, item.package_size);
+
   const itemsFor = (cartId: number) => data?.items.filter((item) => item.cart_id === cartId) ?? [];
   const filteredProducts = useMemo(() => {
     if (!data) return [];
@@ -1274,9 +1342,21 @@ export function FamilyTracker({
 
   const deliveryServiceFeeCents = data?.deliveryServiceFeeCents ?? 50;
   const draftTotal = draftProducts.reduce(
-    (sum, entry) => sum + Math.round((entry.product.unit_price_cents * entry.quantity) / 100),
+    (sum, entry) =>
+      sum +
+      (draftAmounts[entry.product.id] ??
+        Math.round((entry.product.unit_price_cents * entry.quantity) / 100)),
     0,
   );
+  const amountCentsPreview = Math.round(Number(amountDh.replace(",", ".")) * 100);
+  const amountQuantityPreview =
+    amountProduct && amountCentsPreview > 0
+      ? amountQuantityLabel(
+          amountCentsPreview,
+          amountProduct.unit_price_cents,
+          amountProduct.unit,
+        )
+      : "—";
 
   useEffect(() => {
     type ToolDefinition = {
@@ -1473,6 +1553,11 @@ export function FamilyTracker({
   }, [applyData, currentUser.id, data, draft, missingProductsNote, productName, role]);
 
   const addToCart = (product: Product) => {
+    setDraftAmounts((current) => {
+      const updated = { ...current };
+      delete updated[product.id];
+      return updated;
+    });
     setDraft((current) => ({
       ...current,
       [product.id]: (current[product.id] ?? 0) + 100,
@@ -1480,12 +1565,54 @@ export function FamilyTracker({
     toast.success(`${productName(product)} · +${quantityLabel(100, product.unit, product.package_size)}`);
   };
 
+  const openAmountPicker = (product: Product) => {
+    setAmountProduct(product);
+    setAmountDh(draftAmounts[product.id] ? (draftAmounts[product.id] / 100).toFixed(2) : "");
+  };
+
+  const applyAmountToCart = () => {
+    if (!amountProduct) return;
+    const amountCents = Math.round(Number(amountDh.replace(",", ".")) * 100);
+    if (!Number.isInteger(amountCents) || amountCents < 50 || amountCents > 10_000_000) {
+      toast.error(t.invalidAmount);
+      return;
+    }
+    const estimatedHundredths = Math.max(
+      1,
+      Math.round((amountCents * 100) / amountProduct.unit_price_cents),
+    );
+    setDraft((current) => ({ ...current, [amountProduct.id]: estimatedHundredths }));
+    setDraftAmounts((current) => ({ ...current, [amountProduct.id]: amountCents }));
+    toast.success(`${productName(amountProduct)} · ${t.forAmount} ${money(amountCents)}`);
+    setAmountProduct(null);
+    setAmountDh("");
+    setCartOpen(true);
+  };
+
   const changeQuantity = (product: Product, direction: 1 | -1) => {
     const step = product.package_size || product.unit === "pièce" ? 100 : 50;
+    setDraftAmounts((current) => {
+      const updated = { ...current };
+      delete updated[product.id];
+      return updated;
+    });
     setDraft((current) => {
       const next = Math.max(0, (current[product.id] ?? 0) + direction * step);
       const updated = { ...current, [product.id]: next };
       if (!next) delete updated[product.id];
+      return updated;
+    });
+  };
+
+  const removeFromCart = (productId: number) => {
+    setDraft((current) => {
+      const updated = { ...current };
+      delete updated[productId];
+      return updated;
+    });
+    setDraftAmounts((current) => {
+      const updated = { ...current };
+      delete updated[productId];
       return updated;
     });
   };
@@ -1501,11 +1628,13 @@ export function FamilyTracker({
       items: draftProducts.map(({ product, quantity }) => ({
         productId: product.id,
         quantityHundredths: quantity,
+        ...(draftAmounts[product.id] ? { amountCents: draftAmounts[product.id] } : {}),
       })),
     };
     const ok = await act(payload, editingCartId ? "Panier mis à jour." : "Commande visible par l’admin et le livreur.");
     if (ok) {
       setDraft({});
+      setDraftAmounts({});
       setMissingProductsNote("");
       setEditingCartId(null);
       setCartOpen(false);
@@ -1514,9 +1643,14 @@ export function FamilyTracker({
   };
 
   const editCart = (cart: Cart) => {
-    setDraft(
-      Object.fromEntries(itemsFor(cart.id).map((item) => [item.product_id, item.quantity_hundredths])),
-    );
+    const cartItems = itemsFor(cart.id);
+    setDraft(Object.fromEntries(cartItems.map((item) => [
+      item.product_id,
+      isAmountItem(item)
+        ? Math.max(1, Math.round((item.quantity_hundredths * 100) / item.catalog_unit_price_cents))
+        : item.quantity_hundredths,
+    ])));
+    setDraftAmounts(Object.fromEntries(cartItems.filter(isAmountItem).map((item) => [item.product_id, item.quantity_hundredths])));
     setMissingProductsNote(cart.missing_products_note);
     setEditingCartId(cart.id);
     setCartOpen(true);
@@ -1529,9 +1663,15 @@ export function FamilyTracker({
     if (!repeatedItems.length && !cart.missing_products_note.trim()) return;
     setDraft(
       Object.fromEntries(
-        repeatedItems.map((item) => [item.product_id, item.quantity_hundredths]),
+        repeatedItems.map((item) => [
+          item.product_id,
+          isAmountItem(item)
+            ? Math.max(1, Math.round((item.quantity_hundredths * 100) / item.catalog_unit_price_cents))
+            : item.quantity_hundredths,
+        ]),
       ),
     );
+    setDraftAmounts(Object.fromEntries(repeatedItems.filter(isAmountItem).map((item) => [item.product_id, item.quantity_hundredths])));
     setMissingProductsNote(cart.missing_products_note);
     setEditingCartId(null);
     setCartOpen(true);
@@ -1997,14 +2137,28 @@ export function FamilyTracker({
                               <p className="text-lg font-bold tracking-tight sm:text-xl">
                                 {product.unit_price_cents > 0 ? money(product.unit_price_cents) : t.priceToConfirm}
                               </p>
-                              <Button
-                                size="icon-sm"
-                                className="rounded-xl"
-                                onClick={() => addToCart(product)}
-                                aria-label={`Ajouter ${productName(product)}`}
-                              >
-                                <Plus />
-                              </Button>
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                {product.unit !== "pièce" && !product.package_size && product.unit_price_cents > 0 && (
+                                  <Button
+                                    size="icon-sm"
+                                    variant="outline"
+                                    className="rounded-xl border-primary/25 text-primary"
+                                    onClick={() => openAmountPicker(product)}
+                                    aria-label={`${t.buyByAmount}: ${productName(product)}`}
+                                    title={t.buyByAmount}
+                                  >
+                                    <WalletCards />
+                                  </Button>
+                                )}
+                                <Button
+                                  size="icon-sm"
+                                  className="rounded-xl"
+                                  onClick={() => addToCart(product)}
+                                  aria-label={`Ajouter ${productName(product)}`}
+                                >
+                                  <Plus />
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         </article>
@@ -2126,7 +2280,7 @@ export function FamilyTracker({
                 latestResult={latestMemberResult}
                 itemsFor={itemsFor}
                 productName={productName}
-                quantityLabel={quantityLabel}
+                itemRequestLabel={itemRequestLabel}
                 money={money}
                 statusText={statusText}
                 t={t}
@@ -2165,7 +2319,7 @@ export function FamilyTracker({
             itemsFor={itemsFor}
             productName={productName}
             money={money}
-            quantityLabel={quantityLabel}
+            itemRequestLabel={itemRequestLabel}
             currentMonthlyTotal={currentMonthlyTotal}
             currentMonth={currentMonth}
             serviceFeeCents={deliveryServiceFeeCents}
@@ -2192,7 +2346,7 @@ export function FamilyTracker({
             setView={setDeliveryView}
             itemsFor={itemsFor}
             productName={productName}
-            quantityLabel={quantityLabel}
+            itemRequestLabel={itemRequestLabel}
             money={money}
             prices={deliveryPrices}
             setPrices={setDeliveryPrices}
@@ -2251,6 +2405,73 @@ export function FamilyTracker({
         />
       )}
 
+      <Dialog
+        open={Boolean(amountProduct)}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setAmountProduct(null);
+            setAmountDh("");
+          }
+        }}
+      >
+        <DialogContent
+          className="rounded-[1.75rem] border-border bg-card p-5 sm:max-w-md sm:p-6"
+          dir={language === "ar" ? "rtl" : "ltr"}
+          lang={language}
+        >
+          <DialogHeader className="pe-10">
+            <DialogTitle>{t.buyByAmount}</DialogTitle>
+            <DialogDescription>{t.amountHelp}</DialogDescription>
+          </DialogHeader>
+          {amountProduct && (
+            <div className="space-y-5">
+              <div className="flex items-center gap-3 rounded-2xl border border-border bg-muted/40 p-3">
+                <ProductImage
+                  position={amountProduct.image_position}
+                  imageUrl={amountProduct.image_url}
+                  name={productName(amountProduct)}
+                  className="size-14 shrink-0 rounded-xl"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold">{productName(amountProduct)}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {money(amountProduct.unit_price_cents)} / {amountProduct.unit}
+                  </p>
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="product-amount">{t.amountToSpend}</Label>
+                <div className="relative mt-2">
+                  <WalletCards className="pointer-events-none absolute start-3 top-1/2 size-5 -translate-y-1/2 text-primary" />
+                  <Input
+                    id="product-amount"
+                    type="text"
+                    inputMode="decimal"
+                    autoFocus
+                    value={amountDh}
+                    onChange={(event) => setAmountDh(event.target.value)}
+                    placeholder="5,00"
+                    className="h-14 rounded-2xl ps-11 pe-14 text-lg font-bold"
+                  />
+                  <span className="pointer-events-none absolute end-4 top-1/2 -translate-y-1/2 text-sm font-bold text-muted-foreground">DH</span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-4 rounded-2xl bg-primary/[0.07] px-4 py-3">
+                <span className="text-sm text-muted-foreground">{t.estimatedQuantity}</span>
+                <strong className="text-primary">≈ {amountQuantityPreview}</strong>
+              </div>
+              <Button
+                className="h-12 w-full rounded-2xl"
+                disabled={!Number.isInteger(amountCentsPreview) || amountCentsPreview < 50}
+                onClick={applyAmountToCart}
+              >
+                <WalletCards /> {t.addForAmount}
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
         <DialogContent
           className="max-h-[94svh] overflow-y-auto rounded-[1.75rem] border-border bg-card p-5 sm:max-w-lg sm:p-6"
@@ -2291,13 +2512,29 @@ export function FamilyTracker({
                       </p>
                     </div>
                     <div className="col-span-2 ms-auto flex w-full items-center justify-between gap-1 rounded-xl bg-background p-1 min-[390px]:w-auto">
-                      <Button size="icon-xs" variant="ghost" onClick={() => changeQuantity(product, -1)} aria-label="Réduire">
-                        <X />
-                      </Button>
-                      <span className="min-w-12 text-center text-xs font-bold">{quantityLabel(quantity, product.unit, product.package_size)}</span>
-                      <Button size="icon-xs" variant="ghost" onClick={() => changeQuantity(product, 1)} aria-label="Ajouter">
-                        <Plus />
-                      </Button>
+                      {draftAmounts[product.id] ? (
+                        <>
+                          <Button size="icon-xs" variant="ghost" onClick={() => removeFromCart(product.id)} aria-label={t.removeImage}>
+                            <X />
+                          </Button>
+                          <span className="min-w-24 text-center text-xs font-bold text-primary">
+                            {t.forAmount} {money(draftAmounts[product.id])}
+                          </span>
+                          <Button size="icon-xs" variant="ghost" onClick={() => openAmountPicker(product)} aria-label={t.edit}>
+                            <Pencil />
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button size="icon-xs" variant="ghost" onClick={() => changeQuantity(product, -1)} aria-label="Réduire">
+                            <X />
+                          </Button>
+                          <span className="min-w-12 text-center text-xs font-bold">{quantityLabel(quantity, product.unit, product.package_size)}</span>
+                          <Button size="icon-xs" variant="ghost" onClick={() => changeQuantity(product, 1)} aria-label="Ajouter">
+                            <Plus />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -2652,7 +2889,7 @@ function MemberCarts({
   latestResult,
   itemsFor,
   productName,
-  quantityLabel,
+  itemRequestLabel,
   money,
   statusText,
   t,
@@ -2665,7 +2902,7 @@ function MemberCarts({
   latestResult: Cart | null;
   itemsFor: (cartId: number) => CartItem[];
   productName: (product: Pick<Product, "name_fr" | "name_ar" | "name_en">) => string;
-  quantityLabel: (quantity: number, unit: Product["unit"], packageSize?: string | null) => string;
+  itemRequestLabel: (item: CartItem) => string;
   money: (cents: number) => string;
   statusText: Record<CartStatus, string>;
   t: CopySet;
@@ -2685,7 +2922,7 @@ function MemberCarts({
         .filter((item) => item.purchase_status === "bought")
         .reduce(
           (sum, item) =>
-            sum + Math.round((item.actual_unit_price_cents * item.quantity_hundredths) / 100),
+            sum + cartItemTotalCents(item),
           0,
         )
     : 0;
@@ -2713,7 +2950,7 @@ function MemberCarts({
                 {itemsFor(cart.id).map((item) => (
                   <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-muted/45 px-3 py-2.5 text-sm">
                     <span className="truncate">{productName(item)}</span>
-                    <span className="shrink-0 text-muted-foreground">{quantityLabel(item.quantity_hundredths, item.unit, item.package_size)}</span>
+                    <span className="shrink-0 text-muted-foreground">{itemRequestLabel(item)}</span>
                   </div>
                 ))}
               </div>
@@ -2763,7 +3000,7 @@ function MemberCarts({
                   {item.purchase_status === "bought" ? <Check className="size-4 text-primary" /> : <X className="size-4 text-destructive" />}
                   <span className="min-w-0 flex-1 truncate">{productName(item)}</span>
                   <span className="text-xs text-muted-foreground">
-                    {item.purchase_status === "bought" ? money(Math.round(item.actual_unit_price_cents * item.quantity_hundredths / 100)) : t.unbought}
+                    {item.purchase_status === "bought" ? money(cartItemTotalCents(item)) : t.unbought}
                   </span>
                 </div>
               ))}
@@ -2805,7 +3042,7 @@ function AdminDashboard({
   itemsFor,
   productName,
   money,
-  quantityLabel,
+  itemRequestLabel,
   currentMonthlyTotal,
   currentMonth,
   serviceFeeCents,
@@ -2828,7 +3065,7 @@ function AdminDashboard({
   itemsFor: (cartId: number) => CartItem[];
   productName: (product: Pick<Product, "name_fr" | "name_ar" | "name_en">) => string;
   money: (cents: number) => string;
-  quantityLabel: (quantity: number, unit: Product["unit"], packageSize?: string | null) => string;
+  itemRequestLabel: (item: CartItem) => string;
   currentMonthlyTotal: number;
   currentMonth: string;
   serviceFeeCents: number;
@@ -3188,7 +3425,7 @@ function AdminDashboard({
                   {itemsFor(cart.id).map((item) => (
                     <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-muted/45 px-3 py-2.5 text-sm">
                       <span className="truncate">{productName(item)}</span>
-                      <span className="shrink-0 text-muted-foreground">{quantityLabel(item.quantity_hundredths, item.unit, item.package_size)}</span>
+                      <span className="shrink-0 text-muted-foreground">{itemRequestLabel(item)}</span>
                     </div>
                   ))}
                 </div>
@@ -3729,7 +3966,7 @@ function DeliveryDashboard({
   setView,
   itemsFor,
   productName,
-  quantityLabel,
+  itemRequestLabel,
   money,
   prices,
   setPrices,
@@ -3751,7 +3988,7 @@ function DeliveryDashboard({
   setView: (view: "queue" | "history" | "balances") => void;
   itemsFor: (cartId: number) => CartItem[];
   productName: (product: Pick<Product, "name_fr" | "name_ar" | "name_en">) => string;
-  quantityLabel: (quantity: number, unit: Product["unit"], packageSize?: string | null) => string;
+  itemRequestLabel: (item: CartItem) => string;
   money: (cents: number) => string;
   prices: Record<number, string>;
   setPrices: React.Dispatch<React.SetStateAction<Record<number, string>>>;
@@ -3787,7 +4024,7 @@ function DeliveryDashboard({
     .filter((item) => item.purchase_status === "bought")
     .reduce(
       (sum, item) =>
-        sum + Math.round((item.actual_unit_price_cents * item.quantity_hundredths) / 100),
+        sum + cartItemTotalCents(item),
       0,
     );
 
@@ -4056,11 +4293,13 @@ function DeliveryDashboard({
                     <div className="min-w-0">
                       <p className="truncate font-semibold">{productName(item)}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {quantityLabel(item.quantity_hundredths, item.unit, item.package_size)}
+                        {itemRequestLabel(item)}
                       </p>
                     </div>
                     <div>
-                      <Label htmlFor={`delivery-price-${item.id}`} className="mb-1.5 text-xs text-muted-foreground">{t.price}</Label>
+                      <Label htmlFor={`delivery-price-${item.id}`} className="mb-1.5 text-xs text-muted-foreground">
+                        {isAmountItem(item) ? t.amountToSpend : t.price}
+                      </Label>
                       <div className="relative">
                         <Input
                           id={`delivery-price-${item.id}`}
@@ -4157,7 +4396,7 @@ function DeliveryDashboard({
         <div className="space-y-3">
           {history.map((cart) => {
             const boughtItems = itemsFor(cart.id).filter((item) => item.purchase_status === "bought");
-            const purchasedTotal = boughtItems.reduce((sum, item) => sum + Math.round(item.actual_unit_price_cents * item.quantity_hundredths / 100), 0);
+            const purchasedTotal = boughtItems.reduce((sum, item) => sum + cartItemTotalCents(item), 0);
             const total = purchasedTotal + cart.service_fee_cents;
             return (
               <article key={cart.id} className="rounded-2xl border border-border bg-card p-4">

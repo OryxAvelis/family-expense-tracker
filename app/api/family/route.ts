@@ -46,6 +46,7 @@ const DELIVERY_PAID_META_KEY = "delivery_wallet_paid_cents";
 const MAX_MONTHLY_BUDGET_CENTS = 100_000_000;
 const MAX_MEMBER_DEPOSIT_CENTS = 100_000_000;
 const CART_SERVICE_FEE_PREFIX = "cart_service_fee_";
+const AMOUNT_REQUEST_SENTINEL_CENTS = 2_147_483_647;
 
 type ActionBody = {
   action?: string;
@@ -106,11 +107,21 @@ type ItemRow = {
   purchase_status: string;
   products: Pick<
     ProductRow,
-    "name_fr" | "name_ar" | "name_en" | "unit" | "image_position" | "image_url" | "package_size"
+    "name_fr" | "name_ar" | "name_en" | "unit" | "unit_price_cents" | "image_position" | "image_url" | "package_size"
   >;
 };
 
 const nowIso = () => new Date().toISOString();
+
+function storedItemTotalCents(item: {
+  requested_unit_price_cents: number;
+  actual_unit_price_cents: number;
+  quantity_hundredths: number;
+}) {
+  return item.requested_unit_price_cents === AMOUNT_REQUEST_SENTINEL_CENTS
+    ? item.actual_unit_price_cents
+    : Math.round((item.actual_unit_price_cents * item.quantity_hundredths) / 100);
+}
 
 function asPositiveInt(value: unknown, field: string) {
   const parsed = Number(value);
@@ -375,7 +386,7 @@ async function readState(viewer: FamilySessionUser) {
     const { data, error } = await db
       .from("cart_items")
       .select(
-        "id, cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status, products!inner(name_fr, name_ar, name_en, unit, image_position, image_url, package_size)",
+        "id, cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status, products!inner(name_fr, name_ar, name_en, unit, unit_price_cents, image_position, image_url, package_size)",
       )
       .in("cart_id", visibleCartIds)
       .order("id");
@@ -389,6 +400,7 @@ async function readState(viewer: FamilySessionUser) {
         quantity_hundredths: item.quantity_hundredths,
         requested_unit_price_cents: item.requested_unit_price_cents,
         actual_unit_price_cents: item.actual_unit_price_cents,
+        catalog_unit_price_cents: product.unit_price_cents,
         purchase_status: item.purchase_status,
         ...product,
       };
@@ -400,7 +412,7 @@ async function readState(viewer: FamilySessionUser) {
     const { data, error } = await db
       .from("carts")
       .select(
-        "id, member_id, completed_at, cart_items(quantity_hundredths, actual_unit_price_cents, purchase_status)",
+        "id, member_id, completed_at, cart_items(quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status)",
       )
       .eq("status", "completed")
       .not("completed_at", "is", null)
@@ -414,6 +426,7 @@ async function readState(viewer: FamilySessionUser) {
       completed_at: string;
       cart_items: Array<{
         quantity_hundredths: number;
+        requested_unit_price_cents: number;
         actual_unit_price_cents: number;
         purchase_status: string;
       }>;
@@ -426,9 +439,7 @@ async function readState(viewer: FamilySessionUser) {
       entry.total_cents += storedFee === undefined ? DELIVERY_SERVICE_FEE_CENTS : metaInteger(storedFee);
       for (const item of cart.cart_items) {
         if (item.purchase_status !== "bought") continue;
-        entry.total_cents += Math.round(
-          (item.actual_unit_price_cents * item.quantity_hundredths) / 100,
-        );
+        entry.total_cents += storedItemTotalCents(item);
       }
       months.set(month, entry);
     }
@@ -578,26 +589,40 @@ export async function POST(request: Request) {
         throwIfSupabaseError(countError);
         if ((count ?? 0) >= 3) throw new Error("Vous avez déjà trois paniers actifs.");
 
-        const quantityById = new Map<number, number>();
+        const orderById = new Map<number, { quantityHundredths: number; amountCents: number | null }>();
         for (const raw of items) {
           const entry = raw as Record<string, unknown>;
-          quantityById.set(
-            asPositiveInt(entry.productId, "productId"),
-            asPositiveInt(entry.quantityHundredths, "quantity"),
-          );
+          const amountCents = entry.amountCents === undefined
+            ? null
+            : asPositiveInt(entry.amountCents, "amountCents");
+          if (amountCents !== null && (amountCents < 50 || amountCents > 10_000_000)) {
+            throw new Error("Le montant demandé est invalide.");
+          }
+          orderById.set(asPositiveInt(entry.productId, "productId"), {
+            quantityHundredths: asPositiveInt(entry.quantityHundredths, "quantity"),
+            amountCents,
+          });
         }
-        const productIds = [...quantityById.keys()];
-        let productRows: Array<{ id: number; unit_price_cents: number }> = [];
+        const productIds = [...orderById.keys()];
+        let productRows: Array<{ id: number; unit_price_cents: number; unit: string; package_size: string | null }> = [];
         if (productIds.length) {
           const { data, error: productsError } = await db
             .from("products")
-            .select("id, unit_price_cents")
+            .select("id, unit_price_cents, unit, package_size")
             .eq("active", true)
             .in("id", productIds);
           throwIfSupabaseError(productsError);
           productRows = data ?? [];
           if (productRows.length !== productIds.length) {
             throw new Error("Un produit du panier est indisponible.");
+          }
+          for (const product of productRows) {
+            const order = orderById.get(Number(product.id));
+            if (order?.amountCents !== null && order?.amountCents !== undefined) {
+              if (product.unit === "pièce" || product.package_size || product.unit_price_cents <= 0) {
+                throw new Error("Ce produit ne peut pas être acheté par montant.");
+              }
+            }
           }
         }
 
@@ -621,9 +646,15 @@ export async function POST(request: Request) {
             productRows.map((product) => ({
               cart_id: created.id,
               product_id: product.id,
-              quantity_hundredths: quantityById.get(Number(product.id)),
-              requested_unit_price_cents: product.unit_price_cents,
-              actual_unit_price_cents: product.unit_price_cents,
+              quantity_hundredths:
+                orderById.get(Number(product.id))?.amountCents ??
+                orderById.get(Number(product.id))?.quantityHundredths,
+              requested_unit_price_cents:
+                orderById.get(Number(product.id))?.amountCents === null
+                  ? product.unit_price_cents
+                  : AMOUNT_REQUEST_SENTINEL_CENTS,
+              actual_unit_price_cents:
+                orderById.get(Number(product.id))?.amountCents ?? product.unit_price_cents,
               purchase_status: "requested",
             })),
           );
@@ -657,26 +688,40 @@ export async function POST(request: Request) {
         throwIfSupabaseError(cartError);
         if (!cart) throw new Error("Ce panier ne peut plus être modifié.");
 
-        const quantityById = new Map<number, number>();
+        const orderById = new Map<number, { quantityHundredths: number; amountCents: number | null }>();
         for (const raw of items) {
           const entry = raw as Record<string, unknown>;
-          quantityById.set(
-            asPositiveInt(entry.productId, "productId"),
-            asPositiveInt(entry.quantityHundredths, "quantity"),
-          );
+          const amountCents = entry.amountCents === undefined
+            ? null
+            : asPositiveInt(entry.amountCents, "amountCents");
+          if (amountCents !== null && (amountCents < 50 || amountCents > 10_000_000)) {
+            throw new Error("Le montant demandé est invalide.");
+          }
+          orderById.set(asPositiveInt(entry.productId, "productId"), {
+            quantityHundredths: asPositiveInt(entry.quantityHundredths, "quantity"),
+            amountCents,
+          });
         }
-        const productIds = [...quantityById.keys()];
-        let productRows: Array<{ id: number; unit_price_cents: number }> = [];
+        const productIds = [...orderById.keys()];
+        let productRows: Array<{ id: number; unit_price_cents: number; unit: string; package_size: string | null }> = [];
         if (productIds.length) {
           const { data, error: productsError } = await db
             .from("products")
-            .select("id, unit_price_cents")
+            .select("id, unit_price_cents, unit, package_size")
             .eq("active", true)
             .in("id", productIds);
           throwIfSupabaseError(productsError);
           productRows = data ?? [];
           if (productRows.length !== productIds.length) {
             throw new Error("Un produit du panier est indisponible.");
+          }
+          for (const product of productRows) {
+            const order = orderById.get(Number(product.id));
+            if (order?.amountCents !== null && order?.amountCents !== undefined) {
+              if (product.unit === "pièce" || product.package_size || product.unit_price_cents <= 0) {
+                throw new Error("Ce produit ne peut pas être acheté par montant.");
+              }
+            }
           }
         }
 
@@ -698,9 +743,15 @@ export async function POST(request: Request) {
             productRows.map((product) => ({
               cart_id: cartId,
               product_id: product.id,
-              quantity_hundredths: quantityById.get(Number(product.id)),
-              requested_unit_price_cents: product.unit_price_cents,
-              actual_unit_price_cents: product.unit_price_cents,
+              quantity_hundredths:
+                orderById.get(Number(product.id))?.amountCents ??
+                orderById.get(Number(product.id))?.quantityHundredths,
+              requested_unit_price_cents:
+                orderById.get(Number(product.id))?.amountCents === null
+                  ? product.unit_price_cents
+                  : AMOUNT_REQUEST_SENTINEL_CENTS,
+              actual_unit_price_cents:
+                orderById.get(Number(product.id))?.amountCents ?? product.unit_price_cents,
               purchase_status: "requested",
             })),
           );
@@ -793,7 +844,7 @@ export async function POST(request: Request) {
 
         const { data: rows, error } = await db
           .from("cart_items")
-          .select("product_id, quantity_hundredths, actual_unit_price_cents, purchase_status, products!inner(purchase_count)")
+          .select("product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status, products!inner(purchase_count)")
           .eq("cart_id", cartId);
         throwIfSupabaseError(error);
         if (
@@ -805,13 +856,16 @@ export async function POST(request: Request) {
 
         for (const item of (rows ?? []).filter((entry) => entry.purchase_status === "bought")) {
           const product = joined(item.products as unknown as { purchase_count: number });
+          const productUpdate = item.requested_unit_price_cents === AMOUNT_REQUEST_SENTINEL_CENTS
+            ? { purchase_count: product.purchase_count + 1, updated_at: nowIso() }
+            : {
+                unit_price_cents: item.actual_unit_price_cents,
+                purchase_count: product.purchase_count + 1,
+                updated_at: nowIso(),
+              };
           const { error: productError } = await db
             .from("products")
-            .update({
-              unit_price_cents: item.actual_unit_price_cents,
-              purchase_count: product.purchase_count + 1,
-              updated_at: nowIso(),
-            })
+            .update(productUpdate)
             .eq("id", item.product_id);
           throwIfSupabaseError(productError);
         }
@@ -827,8 +881,7 @@ export async function POST(request: Request) {
         const purchasedTotalCents = (rows ?? [])
           .filter((entry) => entry.purchase_status === "bought")
           .reduce(
-            (total, entry) =>
-              total + Math.round((entry.actual_unit_price_cents * entry.quantity_hundredths) / 100),
+            (total, entry) => total + storedItemTotalCents(entry),
             0,
           );
         const { data: serviceMeta, error: serviceMetaError } = await db
