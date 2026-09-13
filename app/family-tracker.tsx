@@ -202,6 +202,23 @@ type CartItem = {
 const isAmountItem = (item: Pick<CartItem, "requested_unit_price_cents">) =>
   item.requested_unit_price_cents === AMOUNT_REQUEST_SENTINEL_CENTS;
 
+function measuredPackageSize(packageSize?: string | null) {
+  const match = packageSize
+    ?.trim()
+    .match(/^(\d+(?:[.,]\d+)?)\s*(kg|g|l|cl|ml)$/i);
+  if (!match) return null;
+
+  const value = Number(match[1].replace(",", "."));
+  if (!Number.isFinite(value) || value <= 0) return null;
+
+  const rawUnit = match[2].toLocaleLowerCase();
+  if (rawUnit === "kg") return { amount: value, unit: "kg" as const };
+  if (rawUnit === "g") return { amount: value / 1000, unit: "kg" as const };
+  if (rawUnit === "l") return { amount: value, unit: "L" as const };
+  if (rawUnit === "cl") return { amount: value / 100, unit: "L" as const };
+  return { amount: value / 1000, unit: "L" as const };
+}
+
 const cartItemTotalCents = (
   item: Pick<CartItem, "requested_unit_price_cents" | "actual_unit_price_cents" | "quantity_hundredths">,
 ) =>
@@ -1184,7 +1201,7 @@ export function FamilyTracker({
   );
 
   const addMyMarketProduct = useCallback(
-    async (source: MyMarketProduct) => {
+    async (source: MyMarketProduct, mode: "quantity" | "amount" = "quantity") => {
       try {
         setMyMarketBusyId(source.external_id);
         const response = await fetch("/api/products/mymarket", {
@@ -1214,6 +1231,15 @@ export function FamilyTracker({
           ...current,
           [product.id]: (product.unit_price_cents / 100).toFixed(2),
         }));
+        if (mode === "amount") {
+          setAmountProduct(product);
+          setAmountDh(
+            draftAmounts[product.id]
+              ? (draftAmounts[product.id] / 100).toFixed(2)
+              : "",
+          );
+          return;
+        }
         setDraft((current) => ({
           ...current,
           [product.id]: (current[product.id] ?? 0) + 100,
@@ -1230,7 +1256,7 @@ export function FamilyTracker({
         setMyMarketBusyId(null);
       }
     },
-    [t.myMarketAdded],
+    [draftAmounts, t.myMarketAdded],
   );
 
   const money = (cents: number) => {
@@ -1276,22 +1302,26 @@ export function FamilyTracker({
     amountCents: number,
     unitPriceCents: number,
     unit: Product["unit"],
+    packageSize?: string | null,
   ) => {
     if (unitPriceCents <= 0) return "—";
-    const units = amountCents / unitPriceCents;
+    const measuredPackage = measuredPackageSize(packageSize);
+    const displayUnit = measuredPackage?.unit ?? unit;
+    const units =
+      (amountCents / unitPriceCents) * (measuredPackage?.amount ?? 1);
     const numberLocale = language === "ar" ? "ar-MA" : language === "en" ? "en-MA" : "fr-MA";
-    if (unit === "kg" && units < 1) {
+    if (displayUnit === "kg" && units < 1) {
       return `${new Intl.NumberFormat(numberLocale, { maximumFractionDigits: 0 }).format(units * 1000)} g`;
     }
-    if (unit === "L" && units < 1) {
+    if (displayUnit === "L" && units < 1) {
       return `${new Intl.NumberFormat(numberLocale, { maximumFractionDigits: 0 }).format(units * 1000)} ml`;
     }
-    return quantityLabel(Math.round(units * 100), unit);
+    return quantityLabel(Math.round(units * 100), displayUnit);
   };
 
   const itemRequestLabel = (item: CartItem) =>
     isAmountItem(item)
-      ? `${t.forAmount} ${money(item.quantity_hundredths)} · ≈ ${amountQuantityLabel(item.quantity_hundredths, item.catalog_unit_price_cents, item.unit)}`
+      ? `${t.forAmount} ${money(item.quantity_hundredths)} · ≈ ${amountQuantityLabel(item.quantity_hundredths, item.catalog_unit_price_cents, item.unit, item.package_size)}`
       : quantityLabel(item.quantity_hundredths, item.unit, item.package_size);
 
   const itemsFor = (cartId: number) => data?.items.filter((item) => item.cart_id === cartId) ?? [];
@@ -1355,6 +1385,7 @@ export function FamilyTracker({
           amountCentsPreview,
           amountProduct.unit_price_cents,
           amountProduct.unit,
+          amountProduct.package_size,
         )
       : "—";
 
@@ -2147,7 +2178,10 @@ export function FamilyTracker({
                                 {product.unit_price_cents > 0 ? money(product.unit_price_cents) : t.priceToConfirm}
                               </p>
                               <div className="flex shrink-0 items-center gap-1.5">
-                                {product.unit !== "pièce" && !product.package_size && product.unit_price_cents > 0 && (
+                                {product.unit_price_cents > 0 &&
+                                  ((product.unit !== "pièce" && !product.package_size) ||
+                                    (product.external_source === "mymarket" &&
+                                      measuredPackageSize(product.package_size))) && (
                                   <Button
                                     size="icon-sm"
                                     variant="outline"
@@ -2241,19 +2275,38 @@ export function FamilyTracker({
                                   {money(product.price_cents)}
                                 </p>
                               </div>
-                              <Button
-                                size="icon-sm"
-                                className="shrink-0 rounded-xl"
-                                disabled={myMarketBusyId === product.external_id}
-                                onClick={() => void addMyMarketProduct(product)}
-                                aria-label={`${t.addProduct}: ${product.name}`}
-                              >
-                                {myMarketBusyId === product.external_id ? (
-                                  <Loader2 className="animate-spin" />
-                                ) : (
-                                  <Plus />
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                {measuredPackageSize(product.package_size) && (
+                                  <Button
+                                    size="icon-sm"
+                                    variant="outline"
+                                    className="rounded-xl border-primary/25 text-primary"
+                                    disabled={myMarketBusyId === product.external_id}
+                                    onClick={() => void addMyMarketProduct(product, "amount")}
+                                    aria-label={`${t.buyByAmount}: ${product.name}`}
+                                    title={t.buyByAmount}
+                                  >
+                                    {myMarketBusyId === product.external_id ? (
+                                      <Loader2 className="animate-spin" />
+                                    ) : (
+                                      <WalletCards />
+                                    )}
+                                  </Button>
                                 )}
-                              </Button>
+                                <Button
+                                  size="icon-sm"
+                                  className="rounded-xl"
+                                  disabled={myMarketBusyId === product.external_id}
+                                  onClick={() => void addMyMarketProduct(product)}
+                                  aria-label={`${t.addProduct}: ${product.name}`}
+                                >
+                                  {myMarketBusyId === product.external_id ? (
+                                    <Loader2 className="animate-spin" />
+                                  ) : (
+                                    <Plus />
+                                  )}
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         </article>
@@ -2444,7 +2497,7 @@ export function FamilyTracker({
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold">{productName(amountProduct)}</p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {money(amountProduct.unit_price_cents)} / {amountProduct.unit}
+                    {money(amountProduct.unit_price_cents)} / {amountProduct.package_size || amountProduct.unit}
                   </p>
                 </div>
               </div>
