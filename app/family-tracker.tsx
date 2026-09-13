@@ -1590,7 +1590,14 @@ export function FamilyTracker({
   };
 
   const changeQuantity = (product: Product, direction: 1 | -1) => {
-    const step = product.package_size || product.unit === "pièce" ? 100 : 50;
+    const isMyMarketMeasuredProduct =
+      product.external_source === "mymarket" &&
+      (product.unit === "kg" || product.unit === "L");
+    const step = isMyMarketMeasuredProduct
+      ? 50
+      : product.package_size || product.unit === "pièce"
+        ? 100
+        : 50;
     setDraftAmounts((current) => {
       const updated = { ...current };
       delete updated[product.id];
