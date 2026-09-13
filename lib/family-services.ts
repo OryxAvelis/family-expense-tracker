@@ -6,7 +6,7 @@ export type TaskStatus = "pending" | "in_progress" | "completed" | "cancelled";
 
 export const PLAN_RULES = {
   free: { price_cents: 0, monthly_tasks: 2, recurring: false },
-  plus: { price_cents: 1500, monthly_tasks: 50, recurring: true },
+  plus: { price_cents: 1500, monthly_tasks: 15, recurring: true },
   pro: { price_cents: 2900, monthly_tasks: null, recurring: true },
 } as const;
 

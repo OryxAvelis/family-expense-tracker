@@ -40,7 +40,7 @@ const rolePath = (role: FamilySessionUser["role"]) => role === "admin" ? "/admin
 
 const planCards = [
   { id: "free" as const, name: "Gratuit", price: 0, subtitle: "Pour essayer simplement", features: ["Courses et dépenses", "2 services / mois", "Frais livraison 0,50 DH"] },
-  { id: "plus" as const, name: "Plus", price: 1500, subtitle: "Pour être mieux organisé", features: ["50 services / mois", "Services répétitifs", "Rappels intelligents", "Frais livraison 0,50 DH"] },
+  { id: "plus" as const, name: "Plus", price: 1500, subtitle: "Pour être mieux organisé", features: ["15 services / mois", "Services répétitifs", "Rappels intelligents", "Frais livraison 0,50 DH"] },
   { id: "pro" as const, name: "Pro", price: 2900, subtitle: "Pour tout débloquer", features: ["Services illimités", "Livraison sans frais", "Alertes hausse de prix", "Prédictions et économies"] },
 ];
 
