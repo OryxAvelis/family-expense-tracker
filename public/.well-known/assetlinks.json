@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "ma.depensesfamille.app",
+      "sha256_cert_fingerprints": [
+        "6A:93:04:81:C2:08:15:AA:64:8A:EF:F3:4F:CB:8F:3F:1A:84:BC:F1:D7:E6:98:DF:DA:0D:2B:EC:75:F9:34:55"
+      ]
+    }
+  }
+]

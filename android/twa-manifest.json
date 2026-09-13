@@ -1,0 +1,64 @@
+{
+  "packageId": "ma.depensesfamille.app",
+  "host": "family-expense-tracker-gamma-five.vercel.app",
+  "name": "Dépenses famille",
+  "launcherName": "Dépenses",
+  "display": "standalone",
+  "themeColor": "#087F64",
+  "themeColorDark": "#08121A",
+  "navigationColor": "#F3F8F6",
+  "navigationColorDark": "#08121A",
+  "navigationDividerColor": "#D3E0DC",
+  "navigationDividerColorDark": "#20313C",
+  "backgroundColor": "#F3F8F6",
+  "enableNotifications": true,
+  "startUrl": "/connexion",
+  "iconUrl": "https://family-expense-tracker-gamma-five.vercel.app/icons/icon-512.png",
+  "maskableIconUrl": "https://family-expense-tracker-gamma-five.vercel.app/icons/icon-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "android.keystore",
+    "alias": "android"
+  },
+  "appVersionName": "2",
+  "appVersionCode": 2,
+  "shortcuts": [
+    {
+      "name": "Nouvelle commande",
+      "shortName": "Commander",
+      "url": "https://family-expense-tracker-gamma-five.vercel.app/membre",
+      "chosenIconUrl": "https://family-expense-tracker-gamma-five.vercel.app/icons/icon-192.png"
+    },
+    {
+      "name": "File d’achats",
+      "shortName": "Livraison",
+      "url": "https://family-expense-tracker-gamma-five.vercel.app/livreur",
+      "chosenIconUrl": "https://family-expense-tracker-gamma-five.vercel.app/icons/icon-192.png"
+    }
+  ],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://family-expense-tracker-gamma-five.vercel.app/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://family-expense-tracker-gamma-five.vercel.app/",
+  "minSdkVersion": 21,
+  "orientation": "any",
+  "fingerprints": [
+    "6A:93:04:81:C2:08:15:AA:64:8A:EF:F3:4F:CB:8F:3F:1A:84:BC:F1:D7:E6:98:DF:DA:0D:2B:EC:75:F9:34:55"
+  ],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "protocolHandlers": [],
+  "fileHandlers": [],
+  "launchHandlerClientMode": "",
+  "displayOverride": [
+    "standalone"
+  ],
+  "appVersion": "2"
+}

@@ -1,0 +1,15 @@
+# Private Android signing material
+android.keystore
+*.jks
+*.keystore
+
+# Local Android/Gradle state
+.gradle/
+local.properties
+build/
+app/build/
+
+# Generated release packages
+*.apk
+*.aab
+*.idsig
