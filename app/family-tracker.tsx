@@ -12,6 +12,7 @@ import {
   CircleCheck,
   ClipboardCheck,
   Clock3,
+  Crown,
   Heart,
   ImagePlus,
   Languages,
@@ -242,6 +243,7 @@ type AppData = {
   monthlyTotals: MonthlyTotal[];
   pendingUsers: PendingUser[];
   deliveryServiceFeeCents: number;
+  currentPlan: "free" | "plus" | "pro";
   monthlyBudgetCents: number;
   favoriteProductIds: number[];
   deliveryWallet: DeliveryWallet;
@@ -1705,6 +1707,18 @@ export function FamilyTracker({
             </div>
 
             <div className="ms-auto flex items-center gap-1 sm:gap-2">
+              {role === "member" && (
+                <Link href="/abonnement" aria-label={`Forfait ${data.currentPlan}`}>
+                  <Button
+                    variant="outline"
+                    className="h-11 rounded-full border-border bg-card/70 px-3 shadow-sm hover:bg-card sm:px-4"
+                  >
+                    <Crown className="size-4 text-[#e99a1b]" />
+                    <span className="hidden min-[480px]:inline">Forfait</span>
+                    <Badge className="ms-0.5 rounded-full px-2 uppercase">{data.currentPlan}</Badge>
+                  </Button>
+                </Link>
+              )}
               {role !== "member" && (
                 <Link href="/services">
                   <Button size="icon" variant="ghost" className="size-11 rounded-xl border border-border bg-card/70" aria-label="Missions maison" title="Missions maison">
