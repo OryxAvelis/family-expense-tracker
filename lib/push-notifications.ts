@@ -7,11 +7,13 @@ import {
 import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 
 const PUSH_SUBSCRIPTIONS_META_KEY = "delivery_push_subscriptions";
-const MAX_PUSH_SUBSCRIPTIONS = 12;
+const MAX_PUSH_SUBSCRIPTIONS = 24;
 const BASE64_URL_PATTERN = /^[A-Za-z0-9_-]+={0,2}$/;
+type PushRole = "admin" | "delivery";
 
 type StoredPushSubscription = PushSubscription & {
   userId: number;
+  role: PushRole;
   createdAt: string;
 };
 
@@ -76,11 +78,14 @@ async function readSubscriptions() {
     const parsed = JSON.parse(data.value) as unknown;
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
-      (entry): entry is StoredPushSubscription =>
+      (entry): entry is Omit<StoredPushSubscription, "role"> & { role?: unknown } =>
         isValidSubscription(entry) &&
         Number.isInteger((entry as StoredPushSubscription).userId) &&
         typeof (entry as StoredPushSubscription).createdAt === "string",
-    );
+    ).map((entry) => ({
+      ...entry,
+      role: entry.role === "admin" ? "admin" as const : "delivery" as const,
+    }));
   } catch {
     return [];
   }
@@ -99,7 +104,7 @@ async function writeSubscriptions(subscriptions: StoredPushSubscription[]) {
   throwIfSupabaseError(error);
 }
 
-export async function saveDeliveryPushSubscription(userId: number, value: unknown) {
+export async function savePushSubscription(userId: number, role: PushRole, value: unknown) {
   if (!isValidSubscription(value)) throw new Error("Abonnement de notification invalide.");
   const subscriptions = await readSubscriptions();
   const next = subscriptions.filter((entry) => entry.endpoint !== value.endpoint);
@@ -108,12 +113,13 @@ export async function saveDeliveryPushSubscription(userId: number, value: unknow
     expirationTime: value.expirationTime ?? null,
     keys: value.keys,
     userId,
+    role,
     createdAt: new Date().toISOString(),
   });
   await writeSubscriptions(next);
 }
 
-export async function removeDeliveryPushSubscription(userId: number, endpoint: unknown) {
+export async function removePushSubscription(userId: number, endpoint: unknown) {
   if (typeof endpoint !== "string" || endpoint.length > 2048) {
     throw new Error("Abonnement de notification invalide.");
   }
@@ -121,6 +127,43 @@ export async function removeDeliveryPushSubscription(userId: number, endpoint: u
   await writeSubscriptions(
     subscriptions.filter((entry) => entry.userId !== userId || entry.endpoint !== endpoint),
   );
+}
+
+async function notifyRole(
+  role: PushRole,
+  message: { title: string; body: string; url: string; tag: string },
+) {
+  const vapid = vapidConfiguration();
+  if (!vapid) return;
+
+  try {
+    const subscriptions = await readSubscriptions();
+    const targets = subscriptions.filter((subscription) => subscription.role === role);
+    if (!targets.length) return;
+    setVapidDetails(vapid.subject, vapid.publicKey, vapid.privateKey);
+    const payload = JSON.stringify(message);
+    const staleEndpoints = new Set<string>();
+
+    await Promise.all(
+      targets.map(async (subscription) => {
+        try {
+          await sendNotification(subscription, payload, { TTL: 60 * 60, urgency: "high" });
+        } catch (error) {
+          const statusCode =
+            typeof error === "object" && error && "statusCode" in error
+              ? Number(error.statusCode)
+              : 0;
+          if (statusCode === 404 || statusCode === 410) staleEndpoints.add(subscription.endpoint);
+        }
+      }),
+    );
+
+    if (staleEndpoints.size) {
+      await writeSubscriptions(subscriptions.filter((entry) => !staleEndpoints.has(entry.endpoint)));
+    }
+  } catch {
+    // Notification failures must never block the action that triggered them.
+  }
 }
 
 export async function notifyDeliveryOfNewOrder({
@@ -134,47 +177,35 @@ export async function notifyDeliveryOfNewOrder({
   itemCount: number;
   hasMissingProducts: boolean;
 }) {
-  const vapid = vapidConfiguration();
-  if (!vapid) return;
-
-  try {
-    const subscriptions = await readSubscriptions();
-    if (!subscriptions.length) return;
-    setVapidDetails(vapid.subject, vapid.publicKey, vapid.privateKey);
-
-    const itemLabel = `${itemCount} article${itemCount === 1 ? "" : "s"}`;
-    const payload = JSON.stringify({
+  const itemLabel = `${itemCount} article${itemCount === 1 ? "" : "s"}`;
+  await notifyRole("delivery", {
       title: `Nouvelle commande · ${memberName}`,
       body: hasMissingProducts
         ? `${itemLabel} et un commentaire à vérifier.`
         : `${itemLabel} à acheter.`,
       url: "/livreur",
       tag: `family-cart-${cartId}`,
-    });
-    const staleEndpoints = new Set<string>();
+  });
+}
 
-    await Promise.all(
-      subscriptions.map(async (subscription) => {
-        try {
-          await sendNotification(subscription, payload, { TTL: 60 * 60, urgency: "high" });
-        } catch (error) {
-          const statusCode =
-            typeof error === "object" && error && "statusCode" in error
-              ? Number(error.statusCode)
-              : 0;
-          if (statusCode === 404 || statusCode === 410) {
-            staleEndpoints.add(subscription.endpoint);
-          }
-        }
-      }),
-    );
-
-    if (staleEndpoints.size) {
-      await writeSubscriptions(
-        subscriptions.filter((entry) => !staleEndpoints.has(entry.endpoint)),
-      );
-    }
-  } catch {
-    // A notification failure must never prevent the family order from being created.
-  }
+export async function notifyAdminOfPlanRequest({
+  paymentId,
+  memberName,
+  scope,
+  plan,
+  amountCents,
+}: {
+  paymentId: string;
+  memberName: string;
+  scope: "family" | "personal";
+  plan: "plus" | "pro";
+  amountCents: number;
+}) {
+  const amount = new Intl.NumberFormat("fr-MA", { style: "currency", currency: "MAD" }).format(amountCents / 100);
+  await notifyRole("admin", {
+    title: `Demande de forfait · ${memberName}`,
+    body: `${scope === "family" ? "Participation familiale" : "Forfait personnel"} ${plan.toUpperCase()} · ${amount}`,
+    url: "/admin",
+    tag: `plan-request-${paymentId}`,
+  });
 }

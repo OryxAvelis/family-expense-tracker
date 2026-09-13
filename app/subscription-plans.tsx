@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft, BadgeCheck, BellRing, Check, Clock3, Crown, Gift,
+  ArrowLeft, BadgeCheck, BellRing, Check, CircleX, Clock3, Crown, Gift,
   Loader2, Moon, PiggyBank, Sparkles, Sun, TrendingDown, TrendingUp, Users,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -52,18 +52,30 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
   const [targetPlan, setTargetPlan] = useState<"plus" | "pro">("plus");
   const [subscriptionScope, setSubscriptionScope] = useState<"family" | "personal">("family");
   const [celebrate, setCelebrate] = useState(false);
+  const [referenceTime, setReferenceTime] = useState(0);
 
   const load = useCallback(async () => {
     try {
       const response = await fetch("/api/services", { cache: "no-store" });
       const payload = await response.json() as Data;
       if (!response.ok) throw new Error(payload.error || "Chargement impossible.");
-      setData(payload); setTargetPlan(payload.familyTargetPlan);
+      setData(payload); setTargetPlan(payload.familyTargetPlan); setReferenceTime(Date.now());
     } catch (reason) { toast.error(reason instanceof Error ? reason.message : "Erreur."); }
   }, []);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    const interval = window.setInterval(() => void load(), 30_000);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [load]);
 
   const act = async (body: Record<string, unknown>, success: string) => {
@@ -72,7 +84,14 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
       const response = await fetch("/api/services", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const payload = await response.json() as Data;
       if (!response.ok) throw new Error(payload.error || "Action impossible.");
-      setData(payload); setTargetPlan(payload.familyTargetPlan); toast.success(success);
+      setData(payload); setTargetPlan(payload.familyTargetPlan);
+      toast.success(
+        body.action === "confirm_payment"
+          ? payload.unlocked
+            ? "Paiement confirmé et forfait activé."
+            : "Paiement confirmé. Le pot familial continue jusqu’au montant requis."
+          : success,
+      );
       if (payload.unlocked) { setCelebrate(true); window.setTimeout(() => setCelebrate(false), 2600); }
     } catch (reason) { toast.error(reason instanceof Error ? reason.message : "Erreur."); }
     finally { setBusy(""); }
@@ -83,11 +102,15 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
   const confirmedContributions = useMemo(() => data?.payments.filter((item) => item.scope === "family" && item.status === "confirmed") ?? [], [data]);
   const pending = useMemo(() => data?.payments.filter((item) => item.status === "pending") ?? [], [data]);
   const ownPending = pending.filter((item) => item.user_id === currentUser.id);
+  const latestOwnDecision = data?.payments.find((item) => item.user_id === currentUser.id && item.status !== "pending") ?? null;
   const votes = { plus: data?.votes.filter((vote) => vote.plan === "plus").length ?? 0, pro: data?.votes.filter((vote) => vote.plan === "pro").length ?? 0 };
   const selectedScopePlan = subscriptionScope === "family" ? data?.familyPlan : data?.personalPlan;
   const selectedScopeUsage = subscriptionScope === "family" ? data?.familyUsage : data?.personalUsage;
   const selectedScopeLimit = subscriptionScope === "family" ? data?.familyLimit : data?.personalLimit;
   const selectedMembership = subscriptionScope === "family" ? data?.familyMembership : data?.personalMembership;
+  const membershipDaysRemaining = selectedMembership && referenceTime
+    ? Math.ceil((new Date(selectedMembership.ends_at).getTime() - referenceTime) / 86_400_000)
+    : null;
 
   if (!data) return <main className="grid min-h-screen place-items-center bg-background"><Loader2 className="size-8 animate-spin text-primary" /></main>;
 
@@ -118,6 +141,8 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
 
         {ownPending.length > 0 && <div className="mt-5 flex items-center gap-3 rounded-2xl border border-[#f3a72f]/35 bg-[#f3a72f]/10 p-4"><Clock3 className="size-5 shrink-0 text-[#c37a00]"/><p className="text-sm"><strong>{ownPending.length} paiement{ownPending.length > 1 ? "s" : ""} en attente.</strong> Youssef activera le forfait après réception de l’argent.</p></div>}
 
+        {latestOwnDecision && <div className={`mt-5 flex items-center gap-3 rounded-2xl border p-4 ${latestOwnDecision.status === "confirmed" ? "border-primary/30 bg-primary/10" : "border-destructive/30 bg-destructive/10"}`}>{latestOwnDecision.status === "confirmed" ? <BadgeCheck className="size-5 shrink-0 text-primary"/> : <CircleX className="size-5 shrink-0 text-destructive"/>}<p className="text-sm"><strong>{latestOwnDecision.status === "confirmed" ? "Paiement accepté." : "Demande refusée."}</strong> {latestOwnDecision.status === "confirmed" ? `Votre demande ${latestOwnDecision.plan.toUpperCase()} a été traitée.` : "Contactez Youssef si vous souhaitez refaire la demande."}</p></div>}
+
         {data.trialAvailable && data.personalPlan !== "pro" && <article className="mt-5 flex flex-col items-start justify-between gap-4 rounded-[1.6rem] border border-primary/25 bg-primary/8 p-5 sm:flex-row sm:items-center"><div className="flex items-start gap-3"><Gift className="mt-1 size-7 text-primary"/><div><h3 className="font-bold">Essayez le forfait personnel Pro pendant 7 jours</h3><p className="text-sm text-muted-foreground">Aucun paiement ni carte bancaire. Une seule fois par compte.</p></div></div><Button className="w-full rounded-xl sm:w-auto" disabled={Boolean(busy)} onClick={() => void act({ action: "start_trial" }, "Votre essai Pro est actif !")}>Démarrer mon essai</Button></article>}
 
         <div className="mt-10 grid gap-5 lg:grid-cols-[1.15fr_.85fr]">
@@ -130,7 +155,7 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
           </article>
 
           <div className="space-y-5">
-            <article className="rounded-[2rem] border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><p className="text-sm text-muted-foreground">{subscriptionScope === "family" ? "Forfait de la famille" : "Votre forfait personnel"}</p><h2 className="mt-1 text-3xl font-black uppercase">{selectedScopePlan}</h2></div><Crown className="size-10 text-[#f3a72f]"/></div>{selectedMembership && <p className="mt-4 rounded-xl bg-muted/45 p-3 text-sm"><Clock3 className="me-2 inline size-4"/>Actif jusqu’au {new Date(selectedMembership.ends_at).toLocaleDateString("fr-MA")}</p>}<div className="mt-5 flex items-center justify-between text-sm"><span>Services ce mois</span><strong>{selectedScopeUsage} / {selectedScopeLimit ?? "∞"}</strong></div><Progress value={selectedScopeLimit ? Math.min(100, (selectedScopeUsage ?? 0) / selectedScopeLimit * 100) : 12} className="mt-2"/></article>
+            <article className="rounded-[2rem] border border-border bg-card p-5 sm:p-6"><div className="flex items-center justify-between"><div><p className="text-sm text-muted-foreground">{subscriptionScope === "family" ? "Forfait de la famille" : "Votre forfait personnel"}</p><h2 className="mt-1 text-3xl font-black uppercase">{selectedScopePlan}</h2></div><Crown className="size-10 text-[#f3a72f]"/></div>{selectedMembership && <p className={`mt-4 rounded-xl p-3 text-sm ${membershipDaysRemaining !== null && membershipDaysRemaining <= 7 ? "border border-[#f3a72f]/35 bg-[#f3a72f]/10 text-[#9a5b00] dark:text-[#ffbd57]" : "bg-muted/45"}`}><Clock3 className="me-2 inline size-4"/>Actif jusqu’au {new Date(selectedMembership.ends_at).toLocaleDateString("fr-MA")}{membershipDaysRemaining !== null && membershipDaysRemaining <= 7 && <strong> · Expire dans {Math.max(0, membershipDaysRemaining)} jour{membershipDaysRemaining === 1 ? "" : "s"}</strong>}</p>}<div className="mt-5 flex items-center justify-between text-sm"><span>Services ce mois</span><strong>{selectedScopeUsage} / {selectedScopeLimit ?? "∞"}</strong></div><Progress value={selectedScopeLimit ? Math.min(100, (selectedScopeUsage ?? 0) / selectedScopeLimit * 100) : 12} className="mt-2"/></article>
             {currentUser.role === "admin" && <article className="rounded-[2rem] border border-[#f3a72f]/30 bg-card p-5 sm:p-6"><h2 className="font-bold">Paiements à confirmer</h2><p className="mt-1 text-xs text-muted-foreground">Confirmez uniquement après avoir reçu l’argent.</p><div className="mt-4 space-y-3">{pending.map((payment) => <div key={payment.id} className="rounded-xl bg-muted/45 p-3"><div className="flex items-center justify-between gap-2"><div><strong className="text-sm">{payment.user_name}</strong><p className="text-xs text-muted-foreground">{payment.scope === "family" ? "Pot familial" : "Compte personnel"} · {payment.plan}</p></div><strong>{money(payment.amount_cents)}</strong></div><div className="mt-3 grid grid-cols-2 gap-2"><Button size="sm" className="rounded-lg" disabled={Boolean(busy)} onClick={() => void act({ action: "confirm_payment", paymentId: payment.id }, "Paiement confirmé.")}>Confirmer</Button><Button size="sm" variant="outline" className="rounded-lg" disabled={Boolean(busy)} onClick={() => void act({ action: "reject_payment", paymentId: payment.id }, "Paiement refusé.")}>Refuser</Button></div></div>)}{!pending.length && <p className="rounded-xl border border-dashed border-border p-4 text-center text-sm text-muted-foreground">Rien à confirmer.</p>}</div></article>}
           </div>
         </div>

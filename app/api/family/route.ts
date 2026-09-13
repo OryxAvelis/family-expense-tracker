@@ -7,8 +7,8 @@ import {
 import {
   getPushPublicKey,
   notifyDeliveryOfNewOrder,
-  removeDeliveryPushSubscription,
-  saveDeliveryPushSubscription,
+  removePushSubscription,
+  savePushSubscription,
 } from "@/lib/push-notifications";
 import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 import { effectivePlan, parseServicesState, serviceFeeForPlan, SERVICES_META_KEY } from "@/lib/family-services";
@@ -528,7 +528,7 @@ async function readState(viewer: FamilySessionUser) {
     favoriteProductIds,
     deliveryWallet,
     memberWallets,
-    pushPublicKey: viewer.role === "delivery" ? getPushPublicKey() : null,
+    pushPublicKey: viewer.role === "delivery" || viewer.role === "admin" ? getPushPublicKey() : null,
   };
 }
 
@@ -1026,15 +1026,15 @@ export async function POST(request: Request) {
       }
 
       case "subscribe_push": {
-        requireRole(viewer.role, "delivery");
+        if (viewer.role !== "delivery" && viewer.role !== "admin") throw new Error("Action non autorisée.");
         if (!getPushPublicKey()) throw new Error("Les notifications ne sont pas encore configurées.");
-        await saveDeliveryPushSubscription(viewer.id, body.subscription);
+        await savePushSubscription(viewer.id, viewer.role, body.subscription);
         break;
       }
 
       case "unsubscribe_push": {
-        requireRole(viewer.role, "delivery");
-        await removeDeliveryPushSubscription(viewer.id, body.endpoint);
+        if (viewer.role !== "delivery" && viewer.role !== "admin") throw new Error("Action non autorisée.");
+        await removePushSubscription(viewer.id, body.endpoint);
         break;
       }
 

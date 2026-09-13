@@ -3219,6 +3219,7 @@ function AdminDashboard({
     data.monthlyBudgetCents ? (data.monthlyBudgetCents / 100).toFixed(2) : "",
   );
   const [settleWalletOpen, setSettleWalletOpen] = useState(false);
+  const [planPushState, setPlanPushState] = useState<"checking" | "disabled" | "enabled" | "blocked" | "unavailable" | "working">("checking");
   const imageInputRef = useRef<HTMLInputElement>(null);
   const editImageInputRef = useRef<HTMLInputElement>(null);
   const newProductImagePreview = useMemo(
@@ -3243,6 +3244,29 @@ function AdminDashboard({
     },
     [editProductImagePreview],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkSubscription = async () => {
+      if (!data.pushPublicKey || !("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+        if (!cancelled) setPlanPushState("unavailable");
+        return;
+      }
+      if (Notification.permission === "denied") {
+        if (!cancelled) setPlanPushState("blocked");
+        return;
+      }
+      try {
+        const registration = await navigator.serviceWorker.register("/family-sw.js");
+        const subscription = await registration.pushManager.getSubscription();
+        if (!cancelled) setPlanPushState(subscription ? "enabled" : "disabled");
+      } catch {
+        if (!cancelled) setPlanPushState("unavailable");
+      }
+    };
+    void checkSubscription();
+    return () => { cancelled = true; };
+  }, [data.pushPublicKey]);
 
   const clearNewProductImage = () => {
     setNewProductImage(null);
@@ -3429,6 +3453,50 @@ function AdminDashboard({
     if (ok) setSettleWalletOpen(false);
   };
 
+  const togglePlanPushNotifications = async () => {
+    if (!data.pushPublicKey || planPushState === "working") return;
+    try {
+      setPlanPushState("working");
+      const registration = await navigator.serviceWorker.register("/family-sw.js");
+      const existing = await registration.pushManager.getSubscription();
+      if (existing) {
+        const saved = await act(
+          { action: "unsubscribe_push", actorRole: "admin", endpoint: existing.endpoint },
+          "Notifications de forfait désactivées.",
+        );
+        if (!saved) {
+          setPlanPushState("enabled");
+          return;
+        }
+        await existing.unsubscribe();
+        setPlanPushState("disabled");
+        return;
+      }
+      const permission = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+      if (permission !== "granted") {
+        setPlanPushState("blocked");
+        return;
+      }
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: decodeVapidPublicKey(data.pushPublicKey),
+      });
+      const saved = await act(
+        { action: "subscribe_push", actorRole: "admin", subscription: subscription.toJSON() },
+        "Notifications de forfait activées.",
+      );
+      if (!saved) {
+        await subscription.unsubscribe();
+        setPlanPushState("disabled");
+        return;
+      }
+      setPlanPushState("enabled");
+    } catch {
+      setPlanPushState(Notification.permission === "denied" ? "blocked" : "unavailable");
+      toast.error("Notifications indisponibles sur cet appareil.");
+    }
+  };
+
   const budgetRatio =
     data.monthlyBudgetCents > 0 ? currentMonthlyTotal / data.monthlyBudgetCents : 0;
   const budgetRemaining = Math.max(data.monthlyBudgetCents - currentMonthlyTotal, 0);
@@ -3515,17 +3583,26 @@ function AdminDashboard({
           </div>
 
           <div className="mb-8 rounded-3xl border border-[#f3a72f]/35 bg-[#f3a72f]/[0.06] p-4 sm:p-5">
-            <div className="mb-4 flex items-start gap-3">
+            <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start">
               <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-[#f3a72f]/15 text-[#c57900] dark:text-[#ffbd57]">
                 <Crown className="size-5" />
               </span>
-              <div>
+              <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-lg font-semibold">Demandes de forfait</h2>
                   {pendingPlanPayments.length > 0 && <Badge className="bg-[#f3a72f] text-[#2d1e07] hover:bg-[#f3a72f]">{pendingPlanPayments.length}</Badge>}
                 </div>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">Confirmez uniquement après avoir reçu le montant indiqué.</p>
               </div>
+              <Button
+                variant={planPushState === "enabled" ? "outline" : "default"}
+                className="rounded-xl sm:shrink-0"
+                disabled={planPushState === "checking" || planPushState === "working" || planPushState === "blocked" || planPushState === "unavailable"}
+                onClick={() => void togglePlanPushNotifications()}
+              >
+                {planPushState === "working" ? <Loader2 className="animate-spin" /> : <BellRing />}
+                {planPushState === "enabled" ? "Désactiver les alertes" : planPushState === "blocked" ? "Alertes bloquées" : planPushState === "unavailable" ? "Alertes indisponibles" : "M’alerter hors du site"}
+              </Button>
             </div>
 
             {pendingPlanPayments.length ? (

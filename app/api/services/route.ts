@@ -12,6 +12,7 @@ import {
   type ServicesState,
 } from "@/lib/family-services";
 import { addMemberWalletTransaction } from "@/lib/member-wallet";
+import { notifyAdminOfPlanRequest } from "@/lib/push-notifications";
 import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
@@ -171,7 +172,12 @@ async function responseFor(viewer: { id: number; role: string }, state: Services
     personalLimit: PLAN_RULES[personalPlan].monthly_tasks,
     familyFundCents: state.family_fund_cents,
     familyTargetPlan: state.family_target_plan, familyMembership, personalMembership,
-    payments: viewer.role === "admin" ? state.payments.slice().reverse() : state.payments.filter((payment) => payment.status === "confirmed" || payment.user_id === viewer.id).slice().reverse(),
+    payments: viewer.role === "admin"
+      ? state.payments.slice().reverse()
+      : state.payments.filter((payment) =>
+          payment.user_id === viewer.id ||
+          (payment.scope === "family" && payment.status === "confirmed"),
+        ).slice().reverse(),
     votes: state.votes, trialAvailable: !state.trial_used_by.includes(viewer.id),
     insights: await buildInsights(plan), unlocked,
   };
@@ -196,6 +202,7 @@ export async function POST(request: Request) {
     const users = await loadUsers();
     const now = new Date();
     let unlocked = false;
+    let planRequestNotification: Parameters<typeof notifyAdminOfPlanRequest>[0] | null = null;
 
     switch (body.action) {
       case "create_task": {
@@ -265,8 +272,10 @@ export async function POST(request: Request) {
       case "contribute_family": {
         const amountCents = positiveInt(body.amountCents, "Montant", 100_000);
         const plan = paidPlan(body.plan);
+        const paymentId = crypto.randomUUID();
         state.family_target_plan = plan;
-        state.payments.push({ id: crypto.randomUUID(), user_id: viewer.id, user_name: viewer.name, scope: "family", plan, amount_cents: amountCents, status: "pending", created_at: now.toISOString(), confirmed_at: null });
+        state.payments.push({ id: paymentId, user_id: viewer.id, user_name: viewer.name, scope: "family", plan, amount_cents: amountCents, status: "pending", created_at: now.toISOString(), confirmed_at: null });
+        planRequestNotification = { paymentId, memberName: viewer.name, scope: "family", plan, amountCents };
         break;
       }
       case "request_personal_plan": {
@@ -274,7 +283,10 @@ export async function POST(request: Request) {
         if (state.payments.some((payment) => payment.scope === "personal" && payment.user_id === viewer.id && payment.plan === plan && payment.status === "pending")) {
           throw new Error("Cette demande attend déjà la confirmation de l’administrateur.");
         }
-        state.payments.push({ id: crypto.randomUUID(), user_id: viewer.id, user_name: viewer.name, scope: "personal", plan, amount_cents: PLAN_RULES[plan].price_cents, status: "pending", created_at: now.toISOString(), confirmed_at: null });
+        const paymentId = crypto.randomUUID();
+        const amountCents = PLAN_RULES[plan].price_cents;
+        state.payments.push({ id: paymentId, user_id: viewer.id, user_name: viewer.name, scope: "personal", plan, amount_cents: amountCents, status: "pending", created_at: now.toISOString(), confirmed_at: null });
+        planRequestNotification = { paymentId, memberName: viewer.name, scope: "personal", plan, amountCents };
         break;
       }
       case "vote_plan": {
@@ -318,6 +330,7 @@ export async function POST(request: Request) {
       default: throw new Error("Action inconnue.");
     }
     await saveState(state);
+    if (planRequestNotification) await notifyAdminOfPlanRequest(planRequestNotification);
     return Response.json(await responseFor(viewer, state, unlocked));
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Erreur inattendue." }, { status: 400 });

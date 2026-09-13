@@ -6,7 +6,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Dépenses famille",
     short_name: "Dépenses",
     description: "Courses, commandes et dépenses de la famille.",
-    start_url: "/connexion",
+    start_url: "/",
     scope: "/",
     lang: "fr",
     dir: "auto",
