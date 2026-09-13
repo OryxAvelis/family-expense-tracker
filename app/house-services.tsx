@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft, CalendarClock, CheckCircle2, ChevronRight, CircleDollarSign, Clock3, Crown, Flame, Loader2,
-  Moon, Play, Plus, Repeat2, ShieldCheck, Sparkles, Sun, Trash2, WashingMachine,
+  Moon, Play, Repeat2, ShieldCheck, Sparkles, Sun, Trash2, WashingMachine,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -202,7 +202,6 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
         </div>
       </section>
 
-      <Button className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] end-4 z-20 h-14 rounded-full px-6 shadow-2xl sm:hidden" onClick={() => openService(templates.at(-1)!)}><Plus /> Autre service</Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[94svh] overflow-y-auto rounded-[1.75rem] p-0 sm:max-w-2xl">
           <DialogHeader className="sr-only"><DialogTitle>{selectedTemplate.title}</DialogTitle><DialogDescription>Détails et commande du service</DialogDescription></DialogHeader>
