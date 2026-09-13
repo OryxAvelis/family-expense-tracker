@@ -26,6 +26,7 @@ import {
   Pencil,
   PiggyBank,
   Plus,
+  ReceiptText,
   Repeat2,
   ScanBarcode,
   Search,
@@ -138,6 +139,8 @@ type PlanPayment = {
   status: "pending" | "confirmed" | "rejected";
   created_at: string;
   confirmed_at: string | null;
+  proof_key?: string | null;
+  proof_name?: string | null;
 };
 
 type Product = {
@@ -945,6 +948,7 @@ export function FamilyTracker({
 }) {
   const [data, setData] = useState<AppData | null>(null);
   const [pendingPlanPayments, setPendingPlanPayments] = useState<PlanPayment[]>([]);
+  const [planPaymentHistory, setPlanPaymentHistory] = useState<PlanPayment[]>([]);
   const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState(false);
   const [language, setLanguage] = useState<Language>("fr");
@@ -1030,7 +1034,9 @@ export function FamilyTracker({
           return;
         }
         if (!servicesResponse.ok) throw new Error(servicesPayload.error || "Impossible de charger les demandes de forfait.");
-        setPendingPlanPayments((servicesPayload.payments ?? []).filter((payment) => payment.status === "pending"));
+        const payments = servicesPayload.payments ?? [];
+        setPendingPlanPayments(payments.filter((payment) => payment.status === "pending"));
+        setPlanPaymentHistory(payments.filter((payment) => payment.status !== "pending"));
       }
       applyData(payload);
     } catch (error) {
@@ -1198,7 +1204,9 @@ export function FamilyTracker({
         return false;
       }
       if (!response.ok) throw new Error(payload.error || "Action impossible.");
-      setPendingPlanPayments((payload.payments ?? []).filter((payment) => payment.status === "pending"));
+      const payments = payload.payments ?? [];
+      setPendingPlanPayments(payments.filter((payment) => payment.status === "pending"));
+      setPlanPaymentHistory(payments.filter((payment) => payment.status !== "pending"));
       toast.success(success);
       return true;
     } catch (error) {
@@ -2429,6 +2437,7 @@ export function FamilyTracker({
             pendingCarts={pendingCarts}
             pendingUsers={pendingUsers}
             pendingPlanPayments={pendingPlanPayments}
+            planPaymentHistory={planPaymentHistory}
             itemsFor={itemsFor}
             productName={productName}
             money={money}
@@ -3154,6 +3163,7 @@ function AdminDashboard({
   pendingCarts,
   pendingUsers,
   pendingPlanPayments,
+  planPaymentHistory,
   itemsFor,
   productName,
   money,
@@ -3179,6 +3189,7 @@ function AdminDashboard({
   pendingCarts: Cart[];
   pendingUsers: PendingUser[];
   pendingPlanPayments: PlanPayment[];
+  planPaymentHistory: PlanPayment[];
   itemsFor: (cartId: number) => CartItem[];
   productName: (product: Pick<Product, "name_fr" | "name_ar" | "name_en">) => string;
   money: (cents: number) => string;
@@ -3621,6 +3632,17 @@ function AdminDashboard({
                       </div>
                       <strong className="shrink-0 text-lg text-primary">{money(payment.amount_cents)}</strong>
                     </div>
+                    {payment.proof_key && (
+                      <a
+                        href={`/api/services/proofs?paymentId=${encodeURIComponent(payment.id)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-3 inline-flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/5 px-3 py-2 text-sm font-semibold text-primary hover:bg-primary/10"
+                      >
+                        <ReceiptText className="size-4" />
+                        Voir le justificatif{payment.proof_name ? ` · ${payment.proof_name}` : ""}
+                      </a>
+                    )}
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       <Button
                         variant="outline"
@@ -3647,6 +3669,30 @@ function AdminDashboard({
                 Aucune demande de forfait en attente.
               </div>
             )}
+            <details className="mt-4 rounded-2xl border border-border bg-card">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 font-semibold">
+                <ReceiptText className="size-4 text-primary" />
+                Historique des forfaits
+                <Badge variant="outline" className="ms-auto">{planPaymentHistory.length}</Badge>
+              </summary>
+              <div className="max-h-80 space-y-2 overflow-y-auto border-t border-border p-3">
+                {planPaymentHistory.length ? planPaymentHistory.map((payment) => (
+                  <article key={payment.id} className="flex flex-col gap-2 rounded-xl bg-muted/40 p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{payment.user_name} · {payment.plan.toUpperCase()}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {payment.scope === "family" ? "Familial" : "Personnel"} · {new Date(payment.created_at).toLocaleDateString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA")}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {payment.proof_key && <a href={`/api/services/proofs?paymentId=${encodeURIComponent(payment.id)}`} target="_blank" rel="noreferrer" aria-label={`Voir le justificatif de ${payment.user_name}`} className="rounded-lg p-2 text-primary hover:bg-primary/10"><ReceiptText className="size-4" /></a>}
+                      <strong className="text-sm">{money(payment.amount_cents)}</strong>
+                      <Badge variant={payment.status === "confirmed" ? "default" : "outline"} className={payment.status === "rejected" ? "border-destructive/30 text-destructive" : ""}>{payment.status === "confirmed" ? "Confirmé" : "Refusé"}</Badge>
+                    </div>
+                  </article>
+                )) : <p className="py-5 text-center text-sm text-muted-foreground">Aucun historique pour le moment.</p>}
+              </div>
+            </details>
           </div>
 
           <div className="mb-4">

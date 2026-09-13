@@ -177,7 +177,9 @@ async function responseFor(viewer: { id: number; role: string }, state: Services
       : state.payments.filter((payment) =>
           payment.user_id === viewer.id ||
           (payment.scope === "family" && payment.status === "confirmed"),
-        ).slice().reverse(),
+        ).slice().reverse().map((payment) => payment.user_id === viewer.id
+          ? payment
+          : { ...payment, proof_key: null, proof_name: null }),
     votes: state.votes, trialAvailable: !state.trial_used_by.includes(viewer.id),
     insights: await buildInsights(plan), unlocked,
   };

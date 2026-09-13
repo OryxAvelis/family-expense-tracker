@@ -4,8 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft, BadgeCheck, BellRing, Check, CircleX, Clock3, Crown, Gift,
-  Loader2, Moon, PiggyBank, Sparkles, Sun, TrendingDown, TrendingUp, Users,
+  ArrowLeft, BadgeCheck, BellRing, Check, CircleX, Clock3, Crown, Gift, History,
+  Loader2, Moon, PiggyBank, ReceiptText, ShoppingBasket, Sparkles, Sun, TrendingDown, TrendingUp, Upload, Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -13,11 +13,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Toaster } from "@/components/ui/sonner";
+import { Switch } from "@/components/ui/switch";
 import { useFamilyTheme } from "@/hooks/use-family-theme";
 import type { FamilySessionUser } from "@/lib/family-auth";
 
 type Plan = "free" | "plus" | "pro";
-type Payment = { id: string; user_id: number; user_name: string; scope: "family" | "personal"; plan: "plus" | "pro"; amount_cents: number; status: "pending" | "confirmed" | "rejected"; created_at: string };
+type Payment = { id: string; user_id: number; user_name: string; scope: "family" | "personal"; plan: "plus" | "pro"; amount_cents: number; status: "pending" | "confirmed" | "rejected"; created_at: string; proof_key?: string | null; proof_name?: string | null };
 type Membership = { plan: "plus" | "pro"; ends_at: string; source: string } | null;
 type InsightData = {
   locked: boolean;
@@ -53,6 +54,8 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
   const [subscriptionScope, setSubscriptionScope] = useState<"family" | "personal">("family");
   const [celebrate, setCelebrate] = useState(false);
   const [referenceTime, setReferenceTime] = useState(0);
+  const [directEntry, setDirectEntry] = useState(false);
+  const [proofBusy, setProofBusy] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -77,6 +80,42 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [load]);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setDirectEntry(document.cookie.split("; ").some((entry) => entry === "family_direct_entry=1"));
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  const updateDirectEntry = (enabled: boolean) => {
+    setDirectEntry(enabled);
+    document.cookie = enabled
+      ? "family_direct_entry=1; Path=/; Max-Age=31536000; SameSite=Lax"
+      : "family_direct_entry=; Path=/; Max-Age=0; SameSite=Lax";
+    toast.success(enabled ? "Votre espace s’ouvrira directement la prochaine fois." : "Les forfaits resteront votre première page.");
+  };
+
+  const uploadProof = async (paymentId: string, file: File) => {
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Le justificatif ne doit pas dépasser 5 Mo.");
+      return;
+    }
+    try {
+      setProofBusy(paymentId);
+      const formData = new FormData();
+      formData.set("paymentId", paymentId);
+      formData.set("proof", file);
+      const response = await fetch("/api/services/proofs", { method: "POST", body: formData });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Envoi impossible.");
+      await load();
+      toast.success("Justificatif envoyé à Youssef.");
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "Envoi impossible.");
+    } finally {
+      setProofBusy("");
+    }
+  };
 
   const act = async (body: Record<string, unknown>, success: string) => {
     setBusy(String(body.action ?? "action"));
@@ -102,6 +141,7 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
   const confirmedContributions = useMemo(() => data?.payments.filter((item) => item.scope === "family" && item.status === "confirmed") ?? [], [data]);
   const pending = useMemo(() => data?.payments.filter((item) => item.status === "pending") ?? [], [data]);
   const ownPending = pending.filter((item) => item.user_id === currentUser.id);
+  const ownPayments = data?.payments.filter((item) => item.user_id === currentUser.id) ?? [];
   const latestOwnDecision = data?.payments.find((item) => item.user_id === currentUser.id && item.status !== "pending") ?? null;
   const votes = { plus: data?.votes.filter((vote) => vote.plan === "plus").length ?? 0, pro: data?.votes.filter((vote) => vote.plan === "pro").length ?? 0 };
   const selectedScopePlan = subscriptionScope === "family" ? data?.familyPlan : data?.personalPlan;
@@ -119,11 +159,11 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
       <Toaster theme={theme} position="top-center" richColors />
       {celebrate && <div className="pointer-events-none fixed inset-0 z-50 grid place-items-center bg-primary/10 backdrop-blur-sm"><div className="animate-in zoom-in-50 rounded-[2rem] border border-primary/30 bg-card p-10 text-center shadow-2xl"><Gift className="mx-auto size-14 animate-bounce text-primary"/><p className="mt-4 text-2xl font-black">Forfait débloqué !</p><p className="text-muted-foreground">Votre nouveau forfait est maintenant actif.</p></div></div>}
       <header className="sticky top-0 z-30 border-b border-border/80 bg-background/90 px-4 py-3 backdrop-blur-xl sm:px-8">
-        <div className="mx-auto flex max-w-6xl items-center gap-3"><Link href={rolePath(currentUser.role)}><Button size="icon" variant="outline" className="rounded-xl"><ArrowLeft /></Button></Link><Image src="/icons/icon-192.png" width={40} height={40} className="rounded-xl" alt=""/><div className="min-w-0 flex-1"><p className="truncate font-bold">Forfaits famille</p><p className="hidden text-xs text-muted-foreground sm:block">Choisissez ensemble, ou seulement pour vous.</p></div><Link href="/services"><Button variant="outline" className="rounded-xl"><Sparkles/><span className="hidden sm:inline">Missions</span></Button></Link><Button size="icon" variant="outline" className="rounded-xl" onClick={toggleTheme}>{theme === "dark" ? <Sun/> : <Moon/>}</Button></div>
+        <div className="mx-auto flex max-w-6xl items-center gap-3"><Link href={rolePath(currentUser.role)}><Button size="icon" variant="outline" className="rounded-xl" aria-label="Retour à mon espace"><ArrowLeft /></Button></Link><Image src="/icons/icon-192.png" width={40} height={40} className="rounded-xl" alt="Logo Dépenses famille"/><div className="min-w-0 flex-1"><p className="truncate font-bold">Forfaits famille</p><p className="hidden text-xs text-muted-foreground sm:block">Choisissez ensemble, ou seulement pour vous.</p></div><Link href="/services"><Button variant="outline" className="rounded-xl" aria-label="Ouvrir les services"><Sparkles/><span className="hidden sm:inline">Missions</span></Button></Link><Button size="icon" variant="outline" className="rounded-xl" onClick={toggleTheme} aria-label={theme === "dark" ? "Activer le thème clair" : "Activer le thème sombre"}>{theme === "dark" ? <Sun/> : <Moon/>}</Button></div>
       </header>
 
       <section className="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-12">
-        <div className="mx-auto max-w-3xl text-center"><Badge className="rounded-full bg-[#ffad42] px-4 py-1 text-[#30200b] hover:bg-[#ffad42]">PLUS DE TEMPS, MOINS DE DÉPENSES</Badge><h1 className="mt-5 text-4xl font-black tracking-[-0.055em] sm:text-6xl">Un forfait pour la maison. Un autre pour vous.</h1><p className="mx-auto mt-4 max-w-2xl text-muted-foreground">Choisissez le côté familial pour les besoins communs, ou le côté personnel pour commander vos propres services.</p></div>
+        <div className="mx-auto max-w-3xl text-center"><Badge className="rounded-full bg-[#ffad42] px-4 py-1 text-[#30200b] hover:bg-[#ffad42]">PLUS DE TEMPS, MOINS DE DÉPENSES</Badge><h1 className="mt-5 text-4xl font-black tracking-[-0.055em] sm:text-6xl">Un forfait pour la maison. Un autre pour vous.</h1><p className="mx-auto mt-4 max-w-2xl text-muted-foreground">Choisissez le côté familial pour les besoins communs, ou le côté personnel pour commander vos propres services.</p><div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row"><Link href={rolePath(currentUser.role)}><Button size="lg" className="h-12 rounded-2xl px-6"><ShoppingBasket/>Continuer vers mon espace</Button></Link><label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm"><Switch checked={directEntry} onCheckedChange={updateDirectEntry} aria-label="Ouvrir directement mon espace à la prochaine connexion"/><span className="text-start">Ouvrir directement la prochaine fois</span></label></div></div>
 
         <div className="mx-auto mt-8 grid max-w-2xl grid-cols-1 gap-2 rounded-[1.4rem] border border-border bg-card p-2 shadow-sm min-[430px]:grid-cols-2">
           <Button className="h-auto rounded-2xl py-4" variant={subscriptionScope === "family" ? "default" : "ghost"} onClick={() => setSubscriptionScope("family")}><Users/><span className="text-start"><strong className="block">Forfait familial</strong><small className="font-normal opacity-75">Payé ensemble, partagé par tous</small></span></Button>
@@ -139,7 +179,7 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
           </article>)}
         </div>
 
-        {ownPending.length > 0 && <div className="mt-5 flex items-center gap-3 rounded-2xl border border-[#f3a72f]/35 bg-[#f3a72f]/10 p-4"><Clock3 className="size-5 shrink-0 text-[#c37a00]"/><p className="text-sm"><strong>{ownPending.length} paiement{ownPending.length > 1 ? "s" : ""} en attente.</strong> Youssef activera le forfait après réception de l’argent.</p></div>}
+        {ownPending.length > 0 && <div className="mt-5 rounded-2xl border border-[#f3a72f]/35 bg-[#f3a72f]/10 p-4"><div className="flex items-center gap-3"><Clock3 className="size-5 shrink-0 text-[#c37a00]"/><p className="text-sm"><strong>{ownPending.length} paiement{ownPending.length > 1 ? "s" : ""} en attente.</strong> Youssef activera le forfait après réception de l’argent.</p></div><div className="mt-3 flex flex-wrap gap-2">{ownPending.map((payment) => <label key={payment.id} className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-[#f3a72f]/30 bg-card px-3 py-2 text-xs font-semibold"><input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" className="sr-only" disabled={proofBusy === payment.id} onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadProof(payment.id, file); event.currentTarget.value = ""; }}/>{proofBusy === payment.id ? <Loader2 className="size-4 animate-spin"/> : payment.proof_key ? <ReceiptText className="size-4 text-primary"/> : <Upload className="size-4"/>}{payment.proof_key ? "Remplacer le justificatif" : "Ajouter un justificatif"}</label>)}</div></div>}
 
         {latestOwnDecision && <div className={`mt-5 flex items-center gap-3 rounded-2xl border p-4 ${latestOwnDecision.status === "confirmed" ? "border-primary/30 bg-primary/10" : "border-destructive/30 bg-destructive/10"}`}>{latestOwnDecision.status === "confirmed" ? <BadgeCheck className="size-5 shrink-0 text-primary"/> : <CircleX className="size-5 shrink-0 text-destructive"/>}<p className="text-sm"><strong>{latestOwnDecision.status === "confirmed" ? "Paiement accepté." : "Demande refusée."}</strong> {latestOwnDecision.status === "confirmed" ? `Votre demande ${latestOwnDecision.plan.toUpperCase()} a été traitée.` : "Contactez Youssef si vous souhaitez refaire la demande."}</p></div>}
 
@@ -159,6 +199,13 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
             {currentUser.role === "admin" && <article className="rounded-[2rem] border border-[#f3a72f]/30 bg-card p-5 sm:p-6"><h2 className="font-bold">Paiements à confirmer</h2><p className="mt-1 text-xs text-muted-foreground">Confirmez uniquement après avoir reçu l’argent.</p><div className="mt-4 space-y-3">{pending.map((payment) => <div key={payment.id} className="rounded-xl bg-muted/45 p-3"><div className="flex items-center justify-between gap-2"><div><strong className="text-sm">{payment.user_name}</strong><p className="text-xs text-muted-foreground">{payment.scope === "family" ? "Pot familial" : "Compte personnel"} · {payment.plan}</p></div><strong>{money(payment.amount_cents)}</strong></div><div className="mt-3 grid grid-cols-2 gap-2"><Button size="sm" className="rounded-lg" disabled={Boolean(busy)} onClick={() => void act({ action: "confirm_payment", paymentId: payment.id }, "Paiement confirmé.")}>Confirmer</Button><Button size="sm" variant="outline" className="rounded-lg" disabled={Boolean(busy)} onClick={() => void act({ action: "reject_payment", paymentId: payment.id }, "Paiement refusé.")}>Refuser</Button></div></div>)}{!pending.length && <p className="rounded-xl border border-dashed border-border p-4 text-center text-sm text-muted-foreground">Rien à confirmer.</p>}</div></article>}
           </div>
         </div>
+
+        <section id="subscription-history" className="mt-10 scroll-mt-24 rounded-[2rem] border border-border bg-card p-5 sm:p-7">
+          <div className="flex items-start gap-3"><span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary"><History/></span><div><h2 className="text-xl font-black">Historique de mes forfaits</h2><p className="mt-1 text-sm text-muted-foreground">Demandes, contributions, décisions et justificatifs restent disponibles ici.</p></div></div>
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            {ownPayments.length ? ownPayments.map((payment) => <article key={payment.id} className="rounded-2xl border border-border bg-muted/35 p-4"><div className="flex items-start justify-between gap-3"><div><strong className="uppercase">{payment.plan}</strong><p className="mt-1 text-xs text-muted-foreground">{payment.scope === "family" ? "Contribution familiale" : "Forfait personnel"} · {new Date(payment.created_at).toLocaleDateString("fr-MA")}</p></div><Badge variant={payment.status === "confirmed" ? "default" : "outline"} className={payment.status === "rejected" ? "border-destructive/30 text-destructive" : ""}>{payment.status === "pending" ? "En attente" : payment.status === "confirmed" ? "Confirmé" : "Refusé"}</Badge></div><div className="mt-3 flex items-center justify-between text-sm"><strong>{money(payment.amount_cents)}</strong>{payment.proof_key && <a href={`/api/services/proofs?paymentId=${encodeURIComponent(payment.id)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-primary hover:underline"><ReceiptText className="size-4"/>Voir le justificatif</a>}</div></article>) : <p className="md:col-span-2 rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Aucun historique pour le moment.</p>}
+          </div>
+        </section>
 
         <section className="mt-10"><div className="mb-5 flex items-end justify-between"><div><Badge variant="outline" className="mb-2 border-[#f3a72f]/40 text-[#c37a00]"><Sparkles/>PRO</Badge><h2 className="text-2xl font-black">Assistant économies</h2><p className="text-sm text-muted-foreground">Vos achats deviennent des décisions utiles.</p></div></div>
           {data.insights.locked ? <div className="relative overflow-hidden rounded-[2rem] border border-[#f3a72f]/35 bg-card p-8 text-center"><div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#f3a72f]/8 via-transparent to-primary/8"/><Crown className="relative mx-auto size-10 text-[#f3a72f]"/><h3 className="relative mt-3 text-xl font-black">Débloquez votre analyse personnelle</h3><p className="relative mx-auto mt-2 max-w-xl text-sm text-muted-foreground">Pro repère les hausses, prévoit vos prochains besoins et montre où économiser.</p><Button className="relative mt-5 rounded-xl" onClick={() => void act({ action: "request_personal_plan", plan: "pro" }, "Demande Pro envoyée.")}>Débloquer avec Pro</Button></div> : <div className="grid gap-4 md:grid-cols-3">

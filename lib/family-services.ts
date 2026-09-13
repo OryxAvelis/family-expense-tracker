@@ -40,6 +40,8 @@ export type SubscriptionPayment = {
   status: "pending" | "confirmed" | "rejected";
   created_at: string;
   confirmed_at: string | null;
+  proof_key?: string | null;
+  proof_name?: string | null;
 };
 
 export type Membership = {
@@ -80,7 +82,13 @@ export function parseServicesState(value?: string): ServicesState {
             scope: task.scope === "personal" ? "personal" as const : "family" as const,
           }))
         : [],
-      payments: Array.isArray(raw.payments) ? raw.payments.slice(-500) : [],
+      payments: Array.isArray(raw.payments)
+        ? raw.payments.slice(-500).map((payment) => ({
+            ...payment,
+            proof_key: typeof payment.proof_key === "string" ? payment.proof_key : null,
+            proof_name: typeof payment.proof_name === "string" ? payment.proof_name : null,
+          }))
+        : [],
       memberships: Array.isArray(raw.memberships) ? raw.memberships.slice(-100) : [],
       votes: Array.isArray(raw.votes) ? raw.votes.slice(-100) : [],
       family_target_plan: raw.family_target_plan === "pro" ? "pro" : "plus",

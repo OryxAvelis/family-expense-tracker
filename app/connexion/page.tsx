@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { getPageFamilyUser } from "@/lib/family-auth";
+import { familyRolePath, getPageFamilyUser } from "@/lib/family-auth";
 import { LoginForm } from "../login-form";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,9 @@ export const metadata: Metadata = {
 
 export default async function LoginPage() {
   const user = await getPageFamilyUser();
-  if (user) redirect("/abonnement");
+  if (user) {
+    const directEntry = (await cookies()).get("family_direct_entry")?.value === "1";
+    redirect(directEntry ? familyRolePath(user.role) : "/abonnement");
+  }
   return <LoginForm />;
 }

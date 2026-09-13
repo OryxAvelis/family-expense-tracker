@@ -143,8 +143,8 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
           <Link href={rolePath(currentUser.role)}><Button size="icon" variant="outline" className="rounded-xl" aria-label="Retour"><ArrowLeft /></Button></Link>
           <Image src="/icons/icon-192.png" width={40} height={40} className="rounded-xl" alt="" />
           <div className="min-w-0 flex-1"><p className="truncate font-bold">Missions maison</p><p className="text-xs text-muted-foreground">La famille s’entraide, simplement.</p></div>
-          <Link href="/abonnement"><Button variant="outline" className="rounded-xl"><Crown className="text-[#e99a1b]"/><span className="hidden sm:inline">Forfait</span><Badge className="ms-1 uppercase">{data.plan}</Badge></Button></Link>
-          <Button size="icon" variant="outline" className="rounded-xl" onClick={toggleTheme}>{theme === "dark" ? <Sun /> : <Moon />}</Button>
+          <Link href="/abonnement"><Button variant="outline" className="rounded-xl" aria-label={`Ouvrir le forfait ${data.plan}`}><Crown className="text-[#e99a1b]"/><span className="hidden sm:inline">Forfait</span><Badge className="ms-1 uppercase">{data.plan}</Badge></Button></Link>
+          <Button size="icon" variant="outline" className="rounded-xl" onClick={toggleTheme} aria-label={theme === "dark" ? "Activer le thème clair" : "Activer le thème sombre"}>{theme === "dark" ? <Sun /> : <Moon />}</Button>
         </div>
       </header>
 
@@ -215,7 +215,7 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
               {(task.status === "pending" || task.status === "in_progress") && <div className="mt-5 flex gap-2">
                 {canWork && task.status === "pending" && <Button className="flex-1 rounded-xl" variant="outline" disabled={busy} onClick={() => void act({ action: "update_task_status", taskId: task.id, status: "in_progress" }, "Mission commencée.")}><Play /> Commencer</Button>}
                 {canWork && <Button className="flex-1 rounded-xl" disabled={busy} onClick={() => void act({ action: "update_task_status", taskId: task.id, status: "completed" }, "Bravo, mission terminée !")}><CheckCircle2 /> Terminer</Button>}
-                {(currentUser.role === "admin" || task.creator_id === currentUser.id) && <Button size="icon" variant="ghost" className="rounded-xl text-destructive" disabled={busy} onClick={() => void act({ action: "update_task_status", taskId: task.id, status: "cancelled" }, "Mission annulée.")}><Trash2 /></Button>}
+                {(currentUser.role === "admin" || task.creator_id === currentUser.id) && <Button size="icon" variant="ghost" className="rounded-xl text-destructive" aria-label={`Annuler la mission ${task.title}`} disabled={busy} onClick={() => void act({ action: "update_task_status", taskId: task.id, status: "cancelled" }, "Mission annulée.")}><Trash2 /></Button>}
               </div>}
             </article>;
           })}
