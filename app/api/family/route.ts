@@ -41,6 +41,8 @@ const DELIVERY_SERVICE_FEE_CENTS = 50;
 const MONTHLY_BUDGET_META_KEY = "family_monthly_budget_cents";
 const DELIVERY_PAID_META_KEY = "delivery_wallet_paid_cents";
 const MAX_MONTHLY_BUDGET_CENTS = 100_000_000;
+const MAX_MEMBER_DEPOSIT_CENTS = 100_000_000;
+const MEMBER_WALLET_PREFIX = "member_wallet_";
 
 type ActionBody = {
   action?: string;
@@ -105,6 +107,15 @@ type ItemRow = {
   >;
 };
 
+type MemberWalletTransaction = {
+  id: string;
+  type: "deposit" | "order";
+  amount_cents: number;
+  cart_id: number | null;
+  created_at: string;
+  actor_name: string;
+};
+
 const nowIso = () => new Date().toISOString();
 
 function asPositiveInt(value: unknown, field: string) {
@@ -130,6 +141,65 @@ function metaInteger(value: string | undefined) {
 
 function favoriteMetaKey(userId: number) {
   return `member_favorites_${userId}`;
+}
+
+function memberWalletMetaKey(userId: number) {
+  return `${MEMBER_WALLET_PREFIX}${userId}`;
+}
+
+function parseMemberWallet(value: string | undefined) {
+  if (!value) return [] as MemberWalletTransaction[];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+      .map((entry) => ({
+        id: asText(entry.id),
+        type: entry.type === "order" ? "order" as const : "deposit" as const,
+        amount_cents: Number(entry.amount_cents),
+        cart_id: Number.isInteger(Number(entry.cart_id)) && Number(entry.cart_id) > 0
+          ? Number(entry.cart_id)
+          : null,
+        created_at: asText(entry.created_at),
+        actor_name: asText(entry.actor_name),
+      }))
+      .filter(
+        (entry) =>
+          entry.id &&
+          Number.isSafeInteger(entry.amount_cents) &&
+          entry.amount_cents !== 0 &&
+          entry.created_at,
+      )
+      .slice(-200);
+  } catch {
+    return [];
+  }
+}
+
+async function addMemberWalletTransaction(
+  memberId: number,
+  transaction: MemberWalletTransaction,
+) {
+  const db = getSupabaseAdmin();
+  const key = memberWalletMetaKey(memberId);
+  const { data, error: readError } = await db
+    .from("app_meta")
+    .select("value")
+    .eq("key", key)
+    .maybeSingle();
+  throwIfSupabaseError(readError);
+
+  const transactions = parseMemberWallet(data?.value);
+  if (transactions.some((entry) => entry.id === transaction.id)) return;
+
+  const { error: writeError } = await db
+    .from("app_meta")
+    .upsert(
+      { key, value: JSON.stringify([...transactions, transaction].slice(-200)) },
+      { onConflict: "key" },
+    );
+  throwIfSupabaseError(writeError);
 }
 
 function parseFavoriteIds(value: string | undefined) {
@@ -254,8 +324,6 @@ function cartOrder(
 
 async function readState(viewer: FamilySessionUser) {
   const db = getSupabaseAdmin();
-  const metadataKeys = [MONTHLY_BUDGET_META_KEY, DELIVERY_PAID_META_KEY];
-  if (viewer.role === "member") metadataKeys.push(favoriteMetaKey(viewer.id));
 
   const [usersResult, productsResult, cartsResult, metadataResult] = await Promise.all([
     db.from("family_users").select("id, name, username, role, initials").eq("active", true).order("id"),
@@ -274,7 +342,7 @@ async function readState(viewer: FamilySessionUser) {
       )
       .neq("status", "cancelled")
       .limit(200),
-    db.from("app_meta").select("key, value").in("key", metadataKeys),
+    db.from("app_meta").select("key, value"),
   ]);
   throwIfSupabaseError(usersResult.error);
   throwIfSupabaseError(productsResult.error);
@@ -304,6 +372,28 @@ async function readState(viewer: FamilySessionUser) {
   }
 
   const users = (usersResult.data ?? []) as UserRow[];
+  const memberWallets = users
+    .filter((user) => user.role === "member" && (viewer.role !== "member" || user.id === viewer.id))
+    .map((user) => {
+      const transactions = parseMemberWallet(metadata.get(memberWalletMetaKey(user.id)));
+      const creditedCents = transactions.reduce(
+        (total, entry) => total + Math.max(entry.amount_cents, 0),
+        0,
+      );
+      const spentCents = transactions.reduce(
+        (total, entry) => total + Math.max(-entry.amount_cents, 0),
+        0,
+      );
+      return {
+        member_id: user.id,
+        member_name: user.name,
+        member_initials: user.initials,
+        balance_cents: creditedCents - spentCents,
+        credited_cents: creditedCents,
+        spent_cents: spentCents,
+        transactions: transactions.slice().reverse(),
+      };
+    });
   const products = ((productsResult.data ?? []) as unknown as ProductRow[]).map(
     ({ cart_items, ...product }) => ({ ...product, has_orders: Number(Boolean(cart_items?.length)) }),
   );
@@ -443,6 +533,7 @@ async function readState(viewer: FamilySessionUser) {
     monthlyBudgetCents,
     favoriteProductIds,
     deliveryWallet,
+    memberWallets,
     pushPublicKey: viewer.role === "delivery" ? getPushPublicKey() : null,
   };
 }
@@ -721,7 +812,7 @@ export async function POST(request: Request) {
         const cartId = asPositiveInt(body.cartId, "cartId");
         const { data: cart, error: cartError } = await db
           .from("carts")
-          .select("id, missing_products_note")
+          .select("id, member_id, missing_products_note")
           .eq("id", cartId)
           .in("status", ACTIVE_CART_STATUSES)
           .maybeSingle();
@@ -730,7 +821,7 @@ export async function POST(request: Request) {
 
         const { data: rows, error } = await db
           .from("cart_items")
-          .select("product_id, actual_unit_price_cents, purchase_status, products!inner(purchase_count)")
+          .select("product_id, quantity_hundredths, actual_unit_price_cents, purchase_status, products!inner(purchase_count)")
           .eq("cart_id", cartId);
         throwIfSupabaseError(error);
         if (
@@ -761,6 +852,51 @@ export async function POST(request: Request) {
           .maybeSingle();
         throwIfSupabaseError(finishError);
         if (!finished) throw new Error("Ce panier a déjà été traité.");
+        const purchasedTotalCents = (rows ?? [])
+          .filter((entry) => entry.purchase_status === "bought")
+          .reduce(
+            (total, entry) =>
+              total + Math.round((entry.actual_unit_price_cents * entry.quantity_hundredths) / 100),
+            0,
+          );
+        await addMemberWalletTransaction(Number(cart.member_id), {
+          id: `order-${cartId}`,
+          type: "order",
+          amount_cents: -(purchasedTotalCents + DELIVERY_SERVICE_FEE_CENTS),
+          cart_id: cartId,
+          created_at: nowIso(),
+          actor_name: viewer.name,
+        });
+        break;
+      }
+
+      case "add_member_funds": {
+        if (viewer.role !== "admin" && viewer.role !== "delivery") {
+          throw new Error("Action non autorisée pour ce rôle.");
+        }
+        const memberId = asPositiveInt(body.memberId, "memberId");
+        const amountCents = asPositiveInt(body.amountCents, "amountCents");
+        if (amountCents > MAX_MEMBER_DEPOSIT_CENTS) {
+          throw new Error("Le montant est trop élevé.");
+        }
+        const { data: member, error: memberError } = await db
+          .from("family_users")
+          .select("id")
+          .eq("id", memberId)
+          .eq("role", "member")
+          .eq("active", true)
+          .maybeSingle();
+        throwIfSupabaseError(memberError);
+        if (!member) throw new Error("Membre introuvable.");
+
+        await addMemberWalletTransaction(memberId, {
+          id: crypto.randomUUID(),
+          type: "deposit",
+          amount_cents: amountCents,
+          cart_id: null,
+          created_at: nowIso(),
+          actor_name: viewer.name,
+        });
         break;
       }
 

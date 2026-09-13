@@ -208,6 +208,25 @@ type DeliveryWallet = {
   earnedThisMonthCents: number;
 };
 
+type MemberWalletTransaction = {
+  id: string;
+  type: "deposit" | "order";
+  amount_cents: number;
+  cart_id: number | null;
+  created_at: string;
+  actor_name: string;
+};
+
+type MemberWallet = {
+  member_id: number;
+  member_name: string;
+  member_initials: string;
+  balance_cents: number;
+  credited_cents: number;
+  spent_cents: number;
+  transactions: MemberWalletTransaction[];
+};
+
 type AppData = {
   users: FamilyUser[];
   products: Product[];
@@ -219,6 +238,7 @@ type AppData = {
   monthlyBudgetCents: number;
   favoriteProductIds: number[];
   deliveryWallet: DeliveryWallet;
+  memberWallets: MemberWallet[];
   pushPublicKey: string | null;
 };
 
@@ -374,6 +394,20 @@ const words = {
     profilePhoto: "Photo de profil",
     profilePhotoDescription: "Choisissez la photo qui vous représentera dans l’espace familial.",
     editProfilePhoto: "Modifier la photo de profil",
+    memberBalance: "Solde personnel",
+    availableBalance: "Solde disponible",
+    moneyReceived: "Argent reçu",
+    orderExpenses: "Dépenses des commandes",
+    balanceHistory: "Historique du solde",
+    noBalanceHistory: "Aucun mouvement pour le moment.",
+    deposit: "Versement",
+    orderDebit: "Commande",
+    memberBalances: "Soldes des membres",
+    memberBalancesHelp: "Enregistrez l’argent remis à Josef. Les commandes terminées sont déduites automatiquement.",
+    addFunds: "Ajouter de l’argent",
+    amount: "Montant",
+    fundsAdded: "Versement ajouté au solde.",
+    negativeBalance: "Montant à remettre au livreur",
   },
   ar: {
     brand: "مصاريف العائلة",
@@ -526,6 +560,20 @@ const words = {
     profilePhoto: "صورة الملف الشخصي",
     profilePhotoDescription: "اختر الصورة التي ستمثلك داخل مساحة العائلة.",
     editProfilePhoto: "تعديل صورة الملف الشخصي",
+    memberBalance: "الرصيد الشخصي",
+    availableBalance: "الرصيد المتبقي",
+    moneyReceived: "المبلغ المستلم",
+    orderExpenses: "مصاريف الطلبات",
+    balanceHistory: "سجل الرصيد",
+    noBalanceHistory: "لا توجد عمليات بعد.",
+    deposit: "إيداع",
+    orderDebit: "طلب",
+    memberBalances: "أرصدة أفراد العائلة",
+    memberBalancesHelp: "سجّل المال المُسلّم لجوزيف. تُخصم الطلبات المكتملة تلقائياً.",
+    addFunds: "إضافة المال",
+    amount: "المبلغ",
+    fundsAdded: "تمت إضافة المبلغ إلى الرصيد.",
+    negativeBalance: "المبلغ الواجب تسليمه للمكلّف بالشراء",
   },
   en: {
     brand: "Family expenses",
@@ -678,6 +726,20 @@ const words = {
     profilePhoto: "Profile photo",
     profilePhotoDescription: "Choose the photo that represents you in the family space.",
     editProfilePhoto: "Edit profile photo",
+    memberBalance: "Personal balance",
+    availableBalance: "Available balance",
+    moneyReceived: "Money received",
+    orderExpenses: "Order expenses",
+    balanceHistory: "Balance history",
+    noBalanceHistory: "No transactions yet.",
+    deposit: "Deposit",
+    orderDebit: "Order",
+    memberBalances: "Member balances",
+    memberBalancesHelp: "Record money given to Josef. Completed orders are deducted automatically.",
+    addFunds: "Add money",
+    amount: "Amount",
+    fundsAdded: "Deposit added to the balance.",
+    negativeBalance: "Amount owed to the buyer",
   },
 } as const;
 
@@ -2046,6 +2108,8 @@ export function FamilyTracker({
             ) : (
               <MemberSettings
                 currentUser={currentUser}
+                wallet={data.memberWallets.find((entry) => entry.member_id === currentUser.id) ?? null}
+                money={money}
                 language={language}
                 setLanguage={updateLanguage}
                 theme={theme}
@@ -2105,6 +2169,7 @@ export function FamilyTracker({
             profileImageVersion={profileImageVersion}
             serviceFeeCents={deliveryServiceFeeCents}
             wallet={data.deliveryWallet}
+            memberWallets={data.memberWallets}
             monthlyBudgetCents={monthlyBudgetCents}
             currentMonthlyTotal={currentMonthlyTotal}
             pushPublicKey={data.pushPublicKey}
@@ -2257,6 +2322,8 @@ type CopySet = (typeof words)[Language];
 
 function MemberSettings({
   currentUser,
+  wallet,
+  money,
   language,
   setLanguage,
   theme,
@@ -2266,6 +2333,8 @@ function MemberSettings({
   t,
 }: {
   currentUser: FamilySessionUser;
+  wallet: MemberWallet | null;
+  money: (cents: number) => string;
   language: Language;
   setLanguage: (language: Language) => void;
   theme: "light" | "dark";
@@ -2282,6 +2351,59 @@ function MemberSettings({
 
   return (
     <div className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
+      <article className="relative overflow-hidden rounded-[1.75rem] border border-primary/20 bg-gradient-to-br from-primary/15 via-card to-card p-5 sm:p-6 lg:col-span-2">
+        <div className="pointer-events-none absolute -end-16 -top-20 size-56 rounded-full bg-primary/10 blur-3xl" />
+        <div className="relative grid gap-5 md:grid-cols-[1fr_1.25fr] md:items-start">
+          <div>
+            <span className="mb-5 grid size-11 place-items-center rounded-2xl bg-primary/12 text-primary">
+              <WalletCards className="size-5" />
+            </span>
+            <p className="text-sm font-medium text-muted-foreground">{t.memberBalance}</p>
+            <p className={`mt-2 text-4xl font-black tracking-[-0.05em] ${wallet && wallet.balance_cents < 0 ? "text-destructive" : "text-foreground"}`}>
+              {money(wallet?.balance_cents ?? 0)}
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {wallet && wallet.balance_cents < 0 ? t.negativeBalance : t.availableBalance}
+            </p>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <div className="rounded-2xl border border-border/70 bg-card/75 p-3">
+                <p className="text-xs text-muted-foreground">{t.moneyReceived}</p>
+                <p className="mt-1 font-bold text-primary">+{money(wallet?.credited_cents ?? 0)}</p>
+              </div>
+              <div className="rounded-2xl border border-border/70 bg-card/75 p-3">
+                <p className="text-xs text-muted-foreground">{t.orderExpenses}</p>
+                <p className="mt-1 font-bold">−{money(wallet?.spent_cents ?? 0)}</p>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-border/75 bg-card/80 p-4">
+            <h2 className="font-semibold">{t.balanceHistory}</h2>
+            <div className="mt-3 space-y-2">
+              {wallet?.transactions.length ? wallet.transactions.slice(0, 8).map((entry) => (
+                <div key={entry.id} className="flex items-center gap-3 rounded-xl bg-muted/45 px-3 py-2.5">
+                  <span className={`grid size-9 shrink-0 place-items-center rounded-xl ${entry.amount_cents > 0 ? "bg-primary/12 text-primary" : "bg-destructive/10 text-destructive"}`}>
+                    {entry.amount_cents > 0 ? <Plus className="size-4" /> : <ShoppingCart className="size-4" />}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">
+                      {entry.type === "deposit" ? t.deposit : `${t.orderDebit} #${entry.cart_id}`}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(entry.created_at).toLocaleDateString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", { dateStyle: "medium" })}
+                    </p>
+                  </div>
+                  <strong className={entry.amount_cents > 0 ? "text-primary" : "text-destructive"}>
+                    {entry.amount_cents > 0 ? "+" : "−"}{money(Math.abs(entry.amount_cents))}
+                  </strong>
+                </div>
+              )) : (
+                <p className="rounded-xl border border-dashed border-border p-5 text-center text-sm text-muted-foreground">{t.noBalanceHistory}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </article>
+
       <article className="rounded-[1.75rem] border border-border bg-card p-5 sm:p-6">
         <div className="mb-6 flex items-center gap-4">
           <button
@@ -2379,6 +2501,108 @@ function MemberSettings({
         </div>
       </article>
     </div>
+  );
+}
+
+function MemberBalancesManager({
+  wallets,
+  money,
+  act,
+  busy,
+  t,
+  language,
+  actorRole,
+}: {
+  wallets: MemberWallet[];
+  money: (cents: number) => string;
+  act: (body: Record<string, unknown>, success: string) => Promise<boolean>;
+  busy: boolean;
+  t: CopySet;
+  language: Language;
+  actorRole: "admin" | "delivery";
+}) {
+  const [amounts, setAmounts] = useState<Record<number, string>>({});
+
+  const addFunds = async (event: FormEvent, memberId: number) => {
+    event.preventDefault();
+    const raw = amounts[memberId] ?? "";
+    const amountCents = Math.round(Number(raw.replace(",", ".")) * 100);
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
+      toast.error(t.invalidPrice);
+      return;
+    }
+    const ok = await act(
+      { action: "add_member_funds", actorRole, memberId, amountCents },
+      t.fundsAdded,
+    );
+    if (ok) setAmounts((current) => ({ ...current, [memberId]: "" }));
+  };
+
+  return (
+    <section className="rounded-3xl border border-primary/20 bg-primary/[0.035] p-4 sm:p-5">
+      <div className="mb-4 flex items-start gap-3">
+        <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
+          <WalletCards className="size-5" />
+        </span>
+        <div>
+          <h2 className="text-lg font-semibold">{t.memberBalances}</h2>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">{t.memberBalancesHelp}</p>
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        {wallets.map((wallet) => (
+          <article key={wallet.member_id} className="rounded-2xl border border-border bg-card p-4">
+            <div className="flex items-center gap-3">
+              <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-secondary font-bold text-primary">
+                {wallet.member_initials}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold">{wallet.member_name}</p>
+                <p className="text-xs text-muted-foreground">{t.availableBalance}</p>
+              </div>
+              <strong className={`text-lg tabular-nums ${wallet.balance_cents < 0 ? "text-destructive" : "text-primary"}`}>
+                {money(wallet.balance_cents)}
+              </strong>
+            </div>
+
+            <form className="mt-4 flex gap-2" onSubmit={(event) => void addFunds(event, wallet.member_id)}>
+              <div className="relative min-w-0 flex-1">
+                <Input
+                  inputMode="decimal"
+                  value={amounts[wallet.member_id] ?? ""}
+                  onChange={(event) => setAmounts((current) => ({ ...current, [wallet.member_id]: event.target.value }))}
+                  placeholder="200.00"
+                  className="h-10 rounded-xl pe-11"
+                  aria-label={`${t.amount} · ${wallet.member_name}`}
+                />
+                <span className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DH</span>
+              </div>
+              <Button type="submit" className="h-10 rounded-xl" disabled={busy || !(amounts[wallet.member_id] ?? "").trim()}>
+                <Plus className="size-4" /> <span className="hidden sm:inline">{t.addFunds}</span>
+              </Button>
+            </form>
+
+            <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span>{t.moneyReceived}: {money(wallet.credited_cents)}</span>
+              <span>{t.orderExpenses}: {money(wallet.spent_cents)}</span>
+            </div>
+            {wallet.transactions[0] && (
+              <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3 text-xs">
+                <span className="truncate text-muted-foreground">
+                  {wallet.transactions[0].type === "deposit"
+                    ? t.deposit
+                    : `${t.orderDebit} #${wallet.transactions[0].cart_id}`} · {new Date(wallet.transactions[0].created_at).toLocaleDateString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", { dateStyle: "medium" })}
+                </span>
+                <strong className={wallet.transactions[0].amount_cents > 0 ? "text-primary" : "text-destructive"}>
+                  {wallet.transactions[0].amount_cents > 0 ? "+" : "−"}{money(Math.abs(wallet.transactions[0].amount_cents))}
+                </strong>
+              </div>
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -2893,6 +3117,18 @@ function AdminDashboard({
                 {t.noAccountRequests}
               </div>
             )}
+          </div>
+
+          <div className="mb-8">
+            <MemberBalancesManager
+              wallets={data.memberWallets}
+              money={money}
+              act={act}
+              busy={busy}
+              t={t}
+              language={language}
+              actorRole="admin"
+            />
           </div>
 
           <div className="mb-4">
@@ -3465,6 +3701,7 @@ function DeliveryDashboard({
   profileImageVersion,
   serviceFeeCents,
   wallet,
+  memberWallets,
   monthlyBudgetCents,
   currentMonthlyTotal,
   pushPublicKey,
@@ -3487,6 +3724,7 @@ function DeliveryDashboard({
   profileImageVersion: number;
   serviceFeeCents: number;
   wallet: DeliveryWallet;
+  memberWallets: MemberWallet[];
   monthlyBudgetCents: number;
   currentMonthlyTotal: number;
   pushPublicKey: string | null;
@@ -3714,6 +3952,18 @@ function DeliveryDashboard({
             {pushState === "enabled" ? t.disableNotifications : t.enableNotifications}
           </Button>
         </article>
+      </div>
+
+      <div className="mb-5">
+        <MemberBalancesManager
+          wallets={memberWallets}
+          money={money}
+          act={act}
+          busy={busy}
+          t={t}
+          language={language}
+          actorRole="delivery"
+        />
       </div>
 
       {view === "queue" ? (
