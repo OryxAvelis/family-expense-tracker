@@ -1,3 +1,5 @@
+import { createECDH, createHash } from "node:crypto";
+
 import {
   sendNotification,
   setVapidDetails,
@@ -9,7 +11,8 @@ import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 const PUSH_SUBSCRIPTIONS_META_KEY = "delivery_push_subscriptions";
 const MAX_PUSH_SUBSCRIPTIONS = 24;
 const BASE64_URL_PATTERN = /^[A-Za-z0-9_-]+={0,2}$/;
-type PushRole = "admin" | "delivery";
+const P256_ORDER = BigInt("0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
+type PushRole = "admin" | "delivery" | "member";
 
 type StoredPushSubscription = PushSubscription & {
   userId: number;
@@ -17,13 +20,33 @@ type StoredPushSubscription = PushSubscription & {
   createdAt: string;
 };
 
+function derivedVapidKeys() {
+  const serverSecret = (
+    process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY
+  )?.trim();
+  if (!serverSecret) return null;
+  const digest = createHash("sha256")
+    .update(`family-expense-tracker:vapid:v1:${serverSecret}`)
+    .digest("hex");
+  const one = BigInt(1);
+  const scalar = (BigInt(`0x${digest}`) % (P256_ORDER - one)) + one;
+  const privateKeyBytes = Buffer.from(scalar.toString(16).padStart(64, "0"), "hex");
+  const ecdh = createECDH("prime256v1");
+  ecdh.setPrivateKey(privateKeyBytes);
+  return {
+    publicKey: ecdh.getPublicKey(undefined, "uncompressed").toString("base64url"),
+    privateKey: privateKeyBytes.toString("base64url"),
+  };
+}
+
 function vapidConfiguration() {
   const publicKey = process.env.VAPID_PUBLIC_KEY?.trim() ?? "";
   const privateKey = process.env.VAPID_PRIVATE_KEY?.trim() ?? "";
-  const subject = process.env.VAPID_SUBJECT?.trim() || "mailto:family@example.com";
+  const subject = process.env.VAPID_SUBJECT?.trim() || "https://family-expense-tracker-gamma-five.vercel.app";
 
-  if (!publicKey || !privateKey) return null;
-  return { publicKey, privateKey, subject };
+  if (publicKey && privateKey) return { publicKey, privateKey, subject };
+  const derived = derivedVapidKeys();
+  return derived ? { ...derived, subject } : null;
 }
 
 export function getPushPublicKey() {
@@ -84,7 +107,11 @@ async function readSubscriptions() {
         typeof (entry as StoredPushSubscription).createdAt === "string",
     ).map((entry) => ({
       ...entry,
-      role: entry.role === "admin" ? "admin" as const : "delivery" as const,
+      role: entry.role === "admin"
+        ? "admin" as const
+        : entry.role === "member"
+          ? "member" as const
+          : "delivery" as const,
     }));
   } catch {
     return [];
@@ -134,12 +161,21 @@ async function notifyRole(
   message: { title: string; body: string; url: string; tag: string },
 ) {
   const vapid = vapidConfiguration();
-  if (!vapid) return;
+  if (!vapid) return 0;
 
   try {
     const subscriptions = await readSubscriptions();
-    const targets = subscriptions.filter((subscription) => subscription.role === role);
-    if (!targets.length) return;
+    const { data: activeUsers, error: activeUsersError } = await getSupabaseAdmin()
+      .from("family_users")
+      .select("id")
+      .eq("role", role)
+      .eq("active", true);
+    throwIfSupabaseError(activeUsersError);
+    const activeUserIds = new Set((activeUsers ?? []).map((user) => Number(user.id)));
+    const targets = subscriptions.filter(
+      (subscription) => subscription.role === role && activeUserIds.has(subscription.userId),
+    );
+    if (!targets.length) return 0;
     setVapidDetails(vapid.subject, vapid.publicKey, vapid.privateKey);
     const payload = JSON.stringify(message);
     const staleEndpoints = new Set<string>();
@@ -161,9 +197,39 @@ async function notifyRole(
     if (staleEndpoints.size) {
       await writeSubscriptions(subscriptions.filter((entry) => !staleEndpoints.has(entry.endpoint)));
     }
+    return targets.length - staleEndpoints.size;
   } catch {
     // Notification failures must never block the action that triggered them.
+    return 0;
   }
+}
+
+export async function notifyMembersOfShoppingReminder() {
+  const reminders = [
+    {
+      title: "Il manque quelque chose à la maison ?",
+      body: "Ajoutez votre commande maintenant pour ne rien oublier.",
+    },
+    {
+      title: "Petit rappel courses",
+      body: "Pain, lait, légumes… vérifiez les besoins de la maison en quelques secondes.",
+    },
+    {
+      title: "Nouveau dans Dépenses famille",
+      body: "Les essais Pro nécessitent maintenant l’accord de Youssef, avec un suivi clair.",
+    },
+    {
+      title: "Votre panier vous attend",
+      body: "Ouvrez le catalogue et envoyez les produits dont la famille a besoin.",
+    },
+  ];
+  const slot = Math.floor(Date.now() / (3 * 60 * 60 * 1000));
+  const reminder = reminders[slot % reminders.length];
+  return notifyRole("member", {
+    ...reminder,
+    url: "/membre",
+    tag: "family-shopping-reminder",
+  });
 }
 
 export async function notifyDeliveryOfNewOrder({

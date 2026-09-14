@@ -1,0 +1,34 @@
+name: Shopping reminders
+
+on:
+  schedule:
+    - cron: "17 9-21/3 * * *"
+      timezone: "Africa/Casablanca"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: shopping-reminders
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Notify opted-in family members
+        run: |
+          set -euo pipefail
+          TOKEN_RESPONSE=$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=family-expense-tracker-reminders")
+          ID_TOKEN=$(printf '%s' "$TOKEN_RESPONSE" | jq --raw-output '.value')
+          test -n "$ID_TOKEN"
+          test "$ID_TOKEN" != "null"
+          curl --fail --silent --show-error \
+            --retry 3 \
+            --header "Authorization: Bearer $ID_TOKEN" \
+            https://family-expense-tracker-gamma-five.vercel.app/api/notifications/reminders

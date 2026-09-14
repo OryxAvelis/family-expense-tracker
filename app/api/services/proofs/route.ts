@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 const MAX_PROOF_BYTES = 5 * 1024 * 1024;
 const STORAGE_BUCKET = "product-images";
 const PROOF_KEY_PATTERN =
-  /^payment-proofs\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(?:jpg|png|webp|pdf)$/;
+  /^payment-proofs\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/;
 
 function proofType(bytes: Uint8Array) {
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
@@ -25,9 +25,6 @@ function proofType(bytes: Uint8Array) {
     bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
   ) {
     return { contentType: "image/webp", extension: "webp" } as const;
-  }
-  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46 && bytes[4] === 0x2d) {
-    return { contentType: "application/pdf", extension: "pdf" } as const;
   }
   return null;
 }
@@ -110,7 +107,7 @@ export async function POST(request: Request) {
     const bytes = new Uint8Array(await proof.arrayBuffer());
     const type = proofType(bytes);
     if (!type) {
-      return Response.json({ error: "Utilisez une image JPG, PNG, WebP ou un PDF." }, { status: 415 });
+      return Response.json({ error: "Utilisez une image JPG, PNG ou WebP." }, { status: 415 });
     }
 
     const previousKey = payment.proof_key;

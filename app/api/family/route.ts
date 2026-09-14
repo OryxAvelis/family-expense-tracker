@@ -497,15 +497,25 @@ async function readState(viewer: FamilySessionUser) {
       );
     }
     const completedOrders = completedOrderRows.length;
+    const orderEarnedCents = completedOrderRows.reduce((sum, cart) => {
+      const storedFee = metadata.get(`${CART_SERVICE_FEE_PREFIX}${cart.id}`);
+      return sum + (storedFee === undefined ? DELIVERY_SERVICE_FEE_CENTS : metaInteger(storedFee));
+    }, 0);
     const deliveryIds = new Set(users.filter((user) => user.role === "delivery").map((user) => user.id));
     const completedMissions = servicesState.tasks.filter(
       (task) => task.status === "completed" && deliveryIds.has(task.assignee_id),
     );
     const missionEarnedCents = completedMissions.reduce((sum, task) => sum + task.reward_cents, 0);
-    const earnedCents = completedOrders * DELIVERY_SERVICE_FEE_CENTS + missionEarnedCents;
+    const earnedCents = orderEarnedCents + missionEarnedCents;
     const paidCents = Math.min(metaInteger(metadata.get(DELIVERY_PAID_META_KEY)), earnedCents);
     const currentMonth = nowIso().slice(0, 7);
     const completedThisMonth = completedOrderRows.filter((cart) => cart.completed_at?.startsWith(currentMonth)).length;
+    const orderEarnedThisMonthCents = completedOrderRows
+      .filter((cart) => cart.completed_at?.startsWith(currentMonth))
+      .reduce((sum, cart) => {
+        const storedFee = metadata.get(`${CART_SERVICE_FEE_PREFIX}${cart.id}`);
+        return sum + (storedFee === undefined ? DELIVERY_SERVICE_FEE_CENTS : metaInteger(storedFee));
+      }, 0);
     const missionsThisMonth = completedMissions.filter(
       (task) => task.completed_at?.startsWith(currentMonth),
     );
@@ -518,7 +528,7 @@ async function readState(viewer: FamilySessionUser) {
       unpaidCents: earnedCents - paidCents,
       completedThisMonth,
       missionsThisMonth: missionsThisMonth.length,
-      earnedThisMonthCents: completedThisMonth * DELIVERY_SERVICE_FEE_CENTS + missionsThisMonth.reduce((sum, task) => sum + task.reward_cents, 0),
+      earnedThisMonthCents: orderEarnedThisMonthCents + missionsThisMonth.reduce((sum, task) => sum + task.reward_cents, 0),
     };
   }
 
@@ -536,7 +546,7 @@ async function readState(viewer: FamilySessionUser) {
     favoriteProductIds,
     deliveryWallet,
     memberWallets,
-    pushPublicKey: viewer.role === "delivery" || viewer.role === "admin" ? getPushPublicKey() : null,
+    pushPublicKey: getPushPublicKey(),
   };
 }
 
@@ -1126,17 +1136,41 @@ export async function POST(request: Request) {
           .eq("active", true);
         throwIfSupabaseError(membersError);
         const memberIds = (activeMembers ?? []).map((member) => Number(member.id));
-        let completedOrders = 0;
+        let completedCartIds: number[] = [];
         if (memberIds.length) {
-          const { count, error: countError } = await db
+          const { data: completedCarts, error: cartsError } = await db
             .from("carts")
-            .select("id", { count: "exact", head: true })
+            .select("id")
             .eq("status", "completed")
-            .in("member_id", memberIds);
-          throwIfSupabaseError(countError);
-          completedOrders = count ?? 0;
+            .in("member_id", memberIds)
+            .limit(1000);
+          throwIfSupabaseError(cartsError);
+          completedCartIds = (completedCarts ?? []).map((cart) => Number(cart.id));
         }
-        const paidCents = completedOrders * DELIVERY_SERVICE_FEE_CENTS;
+        const { data: accountingMeta, error: metaReadError } = await db
+          .from("app_meta")
+          .select("key, value");
+        throwIfSupabaseError(metaReadError);
+        const metadata = new Map((accountingMeta ?? []).map((entry) => [String(entry.key), String(entry.value)]));
+        const completedOrderIds = completedCartIds.filter(
+          (cartId) => metadata.get(`${OFFLINE_PURCHASE_PREFIX}${cartId}`) !== "1",
+        );
+        const orderEarningsCents = completedOrderIds.reduce((sum, cartId) => {
+          const storedFee = metadata.get(`${CART_SERVICE_FEE_PREFIX}${cartId}`);
+          return sum + (storedFee === undefined ? DELIVERY_SERVICE_FEE_CENTS : metaInteger(storedFee));
+        }, 0);
+        const servicesState = parseServicesState(metadata.get(SERVICES_META_KEY));
+        const { data: deliveryUsers, error: deliveryUsersError } = await db
+          .from("family_users")
+          .select("id")
+          .eq("role", "delivery")
+          .eq("active", true);
+        throwIfSupabaseError(deliveryUsersError);
+        const deliveryIds = new Set((deliveryUsers ?? []).map((user) => Number(user.id)));
+        const missionEarningsCents = servicesState.tasks
+          .filter((task) => task.status === "completed" && deliveryIds.has(task.assignee_id))
+          .reduce((sum, task) => sum + task.reward_cents, 0);
+        const paidCents = orderEarningsCents + missionEarningsCents;
         const { error } = await db
           .from("app_meta")
           .upsert(
@@ -1148,14 +1182,12 @@ export async function POST(request: Request) {
       }
 
       case "subscribe_push": {
-        if (viewer.role !== "delivery" && viewer.role !== "admin") throw new Error("Action non autorisée.");
         if (!getPushPublicKey()) throw new Error("Les notifications ne sont pas encore configurées.");
         await savePushSubscription(viewer.id, viewer.role, body.subscription);
         break;
       }
 
       case "unsubscribe_push": {
-        if (viewer.role !== "delivery" && viewer.role !== "admin") throw new Error("Action non autorisée.");
         await removePushSubscription(viewer.id, body.endpoint);
         break;
       }

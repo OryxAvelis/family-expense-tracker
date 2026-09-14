@@ -20,7 +20,7 @@ Members can also browse the live MyMarket Morocco catalogue in French, Arabic, o
 
 Each completed order adds a fixed 0.50 DH delivery service fee. The fee is included in member totals and admin analytics, while the delivery page shows Josef's monthly service earnings.
 
-The administration page also manages the monthly family budget and records when Josef's wallet has been paid. Members can favorite products and rebuild their latest completed basket. Josef can enable Web Push notifications to receive new orders even when the website is closed.
+The administration page also manages the monthly family budget and records when Josef's wallet has been paid. Members can favorite products and rebuild their latest completed basket. Josef can enable Web Push notifications to receive new orders even when the website is closed. Members can opt in to device reminders from Settings; GitHub Actions sends the reminder every three hours from 09:00 through 21:00 Africa/Casablanca.
 
 ## Run locally
 
@@ -28,7 +28,7 @@ The administration page also manages the monthly family budget and records when 
 2. Copy `.dev.vars.example` to `.env.local` and configure the database, login, and notification values.
 3. Run `npm run dev`. The home page opens the shared login.
 
-Web Push requires `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` in the deployment environment.
+For explicit Web Push credentials, configure `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` in the deployment environment. If they are omitted, the server derives a stable VAPID key pair from the existing Supabase server secret. Scheduled reminder calls are authenticated with GitHub Actions OIDC and require no long-lived GitHub or Vercel reminder secret.
 
 Real family PINs and Supabase secret keys must remain in private environment
 variables and must never be committed.

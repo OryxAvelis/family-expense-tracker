@@ -392,6 +392,8 @@ const words = {
     orderRepeated: "Le panier est prêt à être renvoyé.",
     notificationsNewOrders: "Notifications des nouvelles commandes",
     notificationsHelp: "Recevez une alerte même lorsque le site est fermé.",
+    shoppingReminders: "Rappels des courses",
+    shoppingRemindersHelp: "Un rappel utile toutes les 3 heures, de 9 h à 21 h, avec les nouveautés de la maison.",
     enableNotifications: "Activer",
     disableNotifications: "Désactiver",
     notificationsEnabled: "Notifications activées",
@@ -566,6 +568,8 @@ const words = {
     orderRepeated: "السلة جاهزة لإعادة الإرسال.",
     notificationsNewOrders: "إشعارات الطلبات الجديدة",
     notificationsHelp: "توصل بتنبيه حتى عندما يكون الموقع مغلقاً.",
+    shoppingReminders: "تذكيرات التسوق",
+    shoppingRemindersHelp: "تذكير مفيد كل 3 ساعات، من 9 صباحاً إلى 9 مساءً، مع جديد المنزل.",
     enableNotifications: "تفعيل",
     disableNotifications: "إيقاف",
     notificationsEnabled: "الإشعارات مفعلة",
@@ -740,6 +744,8 @@ const words = {
     orderRepeated: "The cart is ready to submit again.",
     notificationsNewOrders: "New-order notifications",
     notificationsHelp: "Receive an alert even when the site is closed.",
+    shoppingReminders: "Shopping reminders",
+    shoppingRemindersHelp: "A helpful reminder every 3 hours, from 9 AM to 9 PM, including household updates.",
     enableNotifications: "Enable",
     disableNotifications: "Disable",
     notificationsEnabled: "Notifications enabled",
@@ -2427,6 +2433,8 @@ export function FamilyTracker({
                 toggleTheme={toggleTheme}
                 profileImageVersion={profileImageVersion}
                 onEditProfile={() => setProfileDialogOpen(true)}
+                pushPublicKey={data.pushPublicKey}
+                act={act}
                 t={t}
               />
             )}
@@ -2731,6 +2739,8 @@ function MemberSettings({
   toggleTheme,
   profileImageVersion,
   onEditProfile,
+  pushPublicKey,
+  act,
   t,
 }: {
   currentUser: FamilySessionUser;
@@ -2742,8 +2752,92 @@ function MemberSettings({
   toggleTheme: () => void;
   profileImageVersion: number;
   onEditProfile: () => void;
+  pushPublicKey: string | null;
+  act: (body: Record<string, unknown>, success: string) => Promise<boolean>;
   t: CopySet;
 }) {
+  const [reminderState, setReminderState] = useState<
+    "checking" | "disabled" | "enabled" | "blocked" | "unavailable" | "working"
+  >("checking");
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkReminderSubscription = async () => {
+      if (
+        !pushPublicKey ||
+        !("serviceWorker" in navigator) ||
+        !("PushManager" in window) ||
+        !("Notification" in window)
+      ) {
+        if (!cancelled) setReminderState("unavailable");
+        return;
+      }
+      if (Notification.permission === "denied") {
+        if (!cancelled) setReminderState("blocked");
+        return;
+      }
+      try {
+        const registration = await navigator.serviceWorker.register("/family-sw.js");
+        const subscription = await registration.pushManager.getSubscription();
+        if (!cancelled) setReminderState(subscription ? "enabled" : "disabled");
+      } catch {
+        if (!cancelled) setReminderState("unavailable");
+      }
+    };
+    void checkReminderSubscription();
+    return () => {
+      cancelled = true;
+    };
+  }, [pushPublicKey]);
+
+  const toggleShoppingReminders = async () => {
+    if (!pushPublicKey || reminderState === "working") return;
+    try {
+      setReminderState("working");
+      const registration = await navigator.serviceWorker.register("/family-sw.js");
+      const existing = await registration.pushManager.getSubscription();
+
+      if (existing) {
+        const saved = await act(
+          { action: "unsubscribe_push", actorRole: "member", endpoint: existing.endpoint },
+          t.notificationsDisabled,
+        );
+        if (!saved) {
+          setReminderState("enabled");
+          return;
+        }
+        await existing.unsubscribe();
+        setReminderState("disabled");
+        return;
+      }
+
+      const permission = Notification.permission === "granted"
+        ? "granted"
+        : await Notification.requestPermission();
+      if (permission !== "granted") {
+        setReminderState("blocked");
+        return;
+      }
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: decodeVapidPublicKey(pushPublicKey),
+      });
+      const saved = await act(
+        { action: "subscribe_push", actorRole: "member", subscription: subscription.toJSON() },
+        t.notificationsEnabled,
+      );
+      if (!saved) {
+        await subscription.unsubscribe();
+        setReminderState("disabled");
+        return;
+      }
+      setReminderState("enabled");
+    } catch (error) {
+      setReminderState(Notification.permission === "denied" ? "blocked" : "unavailable");
+      toast.error(error instanceof Error ? error.message : t.notificationsUnavailable);
+    }
+  };
+
   const logout = () => {
     void fetch("/api/auth/logout", { method: "POST" }).finally(() => {
       window.location.assign("/connexion");
@@ -2898,6 +2992,38 @@ function MemberSettings({
                 <Moon /> {t.dark}
               </Button>
             </div>
+          </div>
+
+          <Separator />
+
+          <div>
+            <div className="flex items-start gap-3">
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/12 text-primary">
+                <BellRing className="size-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold">{t.shoppingReminders}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {reminderState === "enabled"
+                    ? t.notificationsEnabled
+                    : reminderState === "blocked"
+                      ? t.notificationsBlocked
+                      : reminderState === "unavailable"
+                        ? t.notificationsUnavailable
+                        : t.shoppingRemindersHelp}
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant={reminderState === "enabled" ? "outline" : "default"}
+              className="mt-4 w-full rounded-xl"
+              disabled={reminderState === "checking" || reminderState === "working" || reminderState === "blocked" || reminderState === "unavailable"}
+              onClick={() => void toggleShoppingReminders()}
+            >
+              {reminderState === "working" ? <Loader2 className="animate-spin" /> : <BellRing />}
+              {reminderState === "enabled" ? t.disableNotifications : t.enableNotifications}
+            </Button>
           </div>
         </div>
       </article>
