@@ -41,6 +41,39 @@ export function parseMemberWallet(value: string | undefined) {
   }
 }
 
+export function summarizeMemberWallet(transactions: MemberWalletTransaction[]) {
+  let balanceCents = 0;
+  let creditedCents = 0;
+  let spentCents = 0;
+  const effectiveTransactions: MemberWalletTransaction[] = [];
+
+  for (const transaction of transactions) {
+    if (transaction.amount_cents > 0) {
+      balanceCents += transaction.amount_cents;
+      creditedCents += transaction.amount_cents;
+      effectiveTransactions.push(transaction);
+      continue;
+    }
+
+    const walletDebitCents = Math.min(-transaction.amount_cents, balanceCents);
+    if (walletDebitCents <= 0) continue;
+
+    balanceCents -= walletDebitCents;
+    spentCents += walletDebitCents;
+    effectiveTransactions.push({
+      ...transaction,
+      amount_cents: -walletDebitCents,
+    });
+  }
+
+  return {
+    balanceCents,
+    creditedCents,
+    spentCents,
+    transactions: effectiveTransactions,
+  };
+}
+
 export async function addMemberWalletTransaction(memberId: number, transaction: MemberWalletTransaction) {
   const db = getSupabaseAdmin();
   const key = memberWalletMetaKey(memberId);

@@ -12,7 +12,12 @@ import {
 } from "@/lib/push-notifications";
 import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 import { effectivePlan, parseServicesState, serviceFeeForPlan, SERVICES_META_KEY } from "@/lib/family-services";
-import { addMemberWalletTransaction, memberWalletMetaKey, parseMemberWallet } from "@/lib/member-wallet";
+import {
+  addMemberWalletTransaction,
+  memberWalletMetaKey,
+  parseMemberWallet,
+  summarizeMemberWallet,
+} from "@/lib/member-wallet";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -343,22 +348,15 @@ async function readState(viewer: FamilySessionUser) {
     .filter((user) => user.role === "member" && (viewer.role !== "member" || user.id === viewer.id))
     .map((user) => {
       const transactions = parseMemberWallet(metadata.get(memberWalletMetaKey(user.id)));
-      const creditedCents = transactions.reduce(
-        (total, entry) => total + Math.max(entry.amount_cents, 0),
-        0,
-      );
-      const spentCents = transactions.reduce(
-        (total, entry) => total + Math.max(-entry.amount_cents, 0),
-        0,
-      );
+      const wallet = summarizeMemberWallet(transactions);
       return {
         member_id: user.id,
         member_name: user.name,
         member_initials: user.initials,
-        balance_cents: creditedCents - spentCents,
-        credited_cents: creditedCents,
-        spent_cents: spentCents,
-        transactions: transactions.slice().reverse(),
+        balance_cents: wallet.balanceCents,
+        credited_cents: wallet.creditedCents,
+        spent_cents: wallet.spentCents,
+        transactions: wallet.transactions.slice().reverse(),
       };
     });
   const products = ((productsResult.data ?? []) as unknown as ProductRow[]).map(

@@ -3519,7 +3519,10 @@ function OfflinePurchaseDialog({
     const price = parsePrice(prices[product.id] ?? "");
     return total + (Number.isFinite(price) ? Math.round(price * quantities[product.id] / 100) : 0);
   }, 0);
-  const remainingBalanceCents = availableBalanceCents - totalCents;
+  const spendableBalanceCents = Math.max(availableBalanceCents, 0);
+  const walletDebitCents = Math.min(totalCents, spendableBalanceCents);
+  const directPaymentCents = Math.max(totalCents - walletDebitCents, 0);
+  const remainingBalanceCents = spendableBalanceCents - walletDebitCents;
 
   const productStep = (product: Product) => product.unit === "pièce" || product.package_size ? 100 : 50;
   const changeQuantity = (product: Product, direction: 1 | -1) => {
@@ -3653,7 +3656,7 @@ function OfflinePurchaseDialog({
             <section className="mx-auto mt-6 max-w-3xl space-y-5">
               <div>
                 <h3 className="text-lg font-semibold">Pour quel membre est cet achat ?</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Le total sera retiré de son solde personnel.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Le solde prépayé sera utilisé s’il est disponible. Le reste peut être payé directement.</p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 {members.map((member) => {
@@ -3824,13 +3827,14 @@ function OfflinePurchaseDialog({
                   );
                 })}
               </div>
-              <div className={`mt-4 grid gap-3 rounded-2xl p-4 sm:grid-cols-3 ${remainingBalanceCents < 0 ? "bg-destructive/8" : "bg-primary/[0.06]"}`}>
+              <div className="mt-4 grid gap-3 rounded-2xl bg-primary/[0.06] p-4 sm:grid-cols-4">
                 <div><p className="text-xs text-muted-foreground">Solde du membre</p><p className="mt-1 text-lg font-bold">{money(availableBalanceCents)}</p></div>
-                <div><p className="text-xs text-muted-foreground">Total de l’achat</p><p className="mt-1 text-lg font-bold">− {money(totalCents)}</p></div>
-                <div><p className="text-xs text-muted-foreground">Solde après achat</p><p className={`mt-1 text-xl font-bold ${remainingBalanceCents < 0 ? "text-destructive" : "text-primary"}`}>{money(remainingBalanceCents)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Total de l’achat</p><p className="mt-1 text-lg font-bold">{money(totalCents)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Déduit du solde</p><p className="mt-1 text-lg font-bold">− {money(walletDebitCents)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Solde après achat</p><p className="mt-1 text-xl font-bold text-primary">{money(remainingBalanceCents)}</p></div>
               </div>
-              {remainingBalanceCents < 0 && (
-                <p className="mt-3 flex items-center gap-2 text-sm text-destructive"><AlertTriangle className="size-4" /> Cet achat dépasse le solde du membre.</p>
+              {directPaymentCents > 0 && (
+                <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground"><CircleCheck className="size-4 text-primary" /> {money(directPaymentCents)} sera payé directement. Aucun solde négatif ne sera créé.</p>
               )}
             </section>
           )}
@@ -3839,7 +3843,7 @@ function OfflinePurchaseDialog({
         <DialogFooter className="mt-auto flex-row items-center justify-between gap-3 border-t border-border bg-card/95 px-4 py-4 backdrop-blur sm:px-7">
           <div className="min-w-0">
             <p className="text-xs text-muted-foreground">{step === 3 ? "Solde après achat" : "Reste"}</p>
-            <p className={`truncate text-lg font-bold sm:text-2xl ${remainingBalanceCents < 0 ? "text-destructive" : "text-primary"}`}>{money(remainingBalanceCents)}</p>
+            <p className="truncate text-lg font-bold text-primary sm:text-2xl">{money(remainingBalanceCents)}</p>
           </div>
           {step === 2 ? (
             <Button type="button" disabled={!memberId || !selected.length} onClick={() => setStep(3)} className="h-11 rounded-xl px-5">
