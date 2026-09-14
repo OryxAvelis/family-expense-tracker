@@ -46,6 +46,7 @@ const DELIVERY_PAID_META_KEY = "delivery_wallet_paid_cents";
 const MAX_MONTHLY_BUDGET_CENTS = 100_000_000;
 const MAX_MEMBER_DEPOSIT_CENTS = 100_000_000;
 const CART_SERVICE_FEE_PREFIX = "cart_service_fee_";
+const OFFLINE_PURCHASE_PREFIX = "offline_purchase_";
 const AMOUNT_REQUEST_SENTINEL_CENTS = 2_147_483_647;
 
 type ActionBody = {
@@ -376,6 +377,7 @@ async function readState(viewer: FamilySessionUser) {
         approved_at: cart.approved_at,
         completed_at: cart.completed_at,
         missing_products_note: cart.missing_products_note,
+        offline_purchase: metadata.get(`${OFFLINE_PURCHASE_PREFIX}${cart.id}`) === "1",
         member_name: member.name,
         member_initials: member.initials,
         service_fee_cents: cart.status === "completed"
@@ -388,8 +390,11 @@ async function readState(viewer: FamilySessionUser) {
     .sort(cartOrder)
     .slice(0, 80);
 
-  const visibleCarts =
-    viewer.role === "member" ? carts.filter((cart) => cart.member_id === viewer.id) : carts;
+  const visibleCarts = viewer.role === "member"
+    ? carts.filter((cart) => cart.member_id === viewer.id)
+    : viewer.role === "delivery"
+      ? carts.filter((cart) => !cart.offline_purchase)
+      : carts;
   const visibleCartIds = visibleCarts.map((cart) => cart.id);
 
   let items: Array<Record<string, unknown>> = [];
@@ -478,16 +483,20 @@ async function readState(viewer: FamilySessionUser) {
     earnedThisMonthCents: 0,
   };
   if (viewer.role === "admin" || viewer.role === "delivery") {
-    let completedOrders = 0;
+    let completedOrderRows: Array<{ id: number; completed_at: string | null }> = [];
     if (activeMemberIds.length) {
-      const { count, error } = await db
+      const { data, error } = await db
         .from("carts")
-        .select("id", { count: "exact", head: true })
+        .select("id, completed_at")
         .eq("status", "completed")
-        .in("member_id", activeMemberIds);
+        .in("member_id", activeMemberIds)
+        .limit(1000);
       throwIfSupabaseError(error);
-      completedOrders = count ?? 0;
+      completedOrderRows = ((data ?? []) as Array<{ id: number; completed_at: string | null }>).filter(
+        (cart) => metadata.get(`${OFFLINE_PURCHASE_PREFIX}${cart.id}`) !== "1",
+      );
     }
+    const completedOrders = completedOrderRows.length;
     const deliveryIds = new Set(users.filter((user) => user.role === "delivery").map((user) => user.id));
     const completedMissions = servicesState.tasks.filter(
       (task) => task.status === "completed" && deliveryIds.has(task.assignee_id),
@@ -496,8 +505,7 @@ async function readState(viewer: FamilySessionUser) {
     const earnedCents = completedOrders * DELIVERY_SERVICE_FEE_CENTS + missionEarnedCents;
     const paidCents = Math.min(metaInteger(metadata.get(DELIVERY_PAID_META_KEY)), earnedCents);
     const currentMonth = nowIso().slice(0, 7);
-    const completedThisMonth =
-      monthlyTotals.find((entry) => entry.month === currentMonth)?.carts_count ?? 0;
+    const completedThisMonth = completedOrderRows.filter((cart) => cart.completed_at?.startsWith(currentMonth)).length;
     const missionsThisMonth = completedMissions.filter(
       (task) => task.completed_at?.startsWith(currentMonth),
     );
@@ -916,6 +924,120 @@ export async function POST(request: Request) {
           created_at: nowIso(),
           actor_name: viewer.name,
         });
+        break;
+      }
+
+      case "record_offline_purchase": {
+        requireRole(viewer.role, "admin");
+        const memberId = asPositiveInt(body.memberId, "memberId");
+        const rawItems = Array.isArray(body.items) ? body.items : [];
+        if (!rawItems.length || rawItems.length > 50) throw new Error("Ajoutez entre 1 et 50 produits.");
+
+        const purchasedDate = asText(body.purchasedDate);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(purchasedDate)) throw new Error("La date d’achat est invalide.");
+        const completedAt = new Date(`${purchasedDate}T12:00:00.000Z`);
+        const todayEnd = new Date();
+        todayEnd.setUTCHours(23, 59, 59, 999);
+        const oldestAllowed = new Date();
+        oldestAllowed.setUTCFullYear(oldestAllowed.getUTCFullYear() - 2);
+        if (Number.isNaN(completedAt.getTime()) || completedAt > todayEnd || completedAt < oldestAllowed) {
+          throw new Error("Choisissez une date comprise dans les deux dernières années.");
+        }
+
+        const { data: member, error: memberError } = await db
+          .from("family_users")
+          .select("id")
+          .eq("id", memberId)
+          .eq("role", "member")
+          .eq("active", true)
+          .maybeSingle();
+        throwIfSupabaseError(memberError);
+        if (!member) throw new Error("Membre introuvable.");
+
+        const itemByProduct = new Map<number, { quantityHundredths: number; actualUnitPriceCents: number }>();
+        for (const rawItem of rawItems) {
+          const item = rawItem as Record<string, unknown>;
+          const productId = asPositiveInt(item.productId, "productId");
+          const quantityHundredths = asPositiveInt(item.quantityHundredths, "quantityHundredths");
+          const actualUnitPriceCents = asPositiveInt(item.actualUnitPriceCents, "actualUnitPriceCents");
+          if (quantityHundredths > 100_000 || actualUnitPriceCents > 10_000_000) {
+            throw new Error("Une quantité ou un prix est trop élevé.");
+          }
+          itemByProduct.set(productId, { quantityHundredths, actualUnitPriceCents });
+        }
+
+        const productIds = [...itemByProduct.keys()];
+        const { data: products, error: productsError } = await db
+          .from("products")
+          .select("id, unit_price_cents")
+          .eq("active", true)
+          .in("id", productIds);
+        throwIfSupabaseError(productsError);
+        if (!products || products.length !== productIds.length) throw new Error("Un produit est indisponible.");
+
+        const timestamp = completedAt.toISOString();
+        const { data: created, error: cartError } = await db
+          .from("carts")
+          .insert({
+            member_id: memberId,
+            status: "completed",
+            priority: "normal",
+            missing_products_note: "",
+            created_at: timestamp,
+            submitted_at: timestamp,
+            approved_at: timestamp,
+            completed_at: timestamp,
+          })
+          .select("id")
+          .single();
+        throwIfSupabaseError(cartError);
+        if (!created) throw new Error("L’achat n’a pas pu être créé.");
+
+        const cartId = Number(created.id);
+        const rows = products.map((product) => {
+          const item = itemByProduct.get(Number(product.id))!;
+          return {
+            cart_id: cartId,
+            product_id: product.id,
+            quantity_hundredths: item.quantityHundredths,
+            requested_unit_price_cents: product.unit_price_cents,
+            actual_unit_price_cents: item.actualUnitPriceCents,
+            purchase_status: "bought",
+          };
+        });
+        const totalCents = rows.reduce(
+          (total, item) => total + Math.round((item.actual_unit_price_cents * item.quantity_hundredths) / 100),
+          0,
+        );
+
+        const { error: itemError } = await db.from("cart_items").insert(rows);
+        if (itemError) {
+          await db.from("carts").delete().eq("id", cartId);
+          throwIfSupabaseError(itemError);
+        }
+        try {
+          const { error: metaError } = await db.from("app_meta").upsert([
+            { key: `${CART_SERVICE_FEE_PREFIX}${cartId}`, value: "0" },
+            { key: `${OFFLINE_PURCHASE_PREFIX}${cartId}`, value: "1" },
+          ], { onConflict: "key" });
+          throwIfSupabaseError(metaError);
+          await addMemberWalletTransaction(memberId, {
+            id: `order-${cartId}`,
+            type: "order",
+            amount_cents: -totalCents,
+            cart_id: cartId,
+            created_at: timestamp,
+            actor_name: viewer.name,
+          });
+        } catch (error) {
+          await db.from("cart_items").delete().eq("cart_id", cartId);
+          await db.from("carts").delete().eq("id", cartId);
+          await db.from("app_meta").delete().in("key", [
+            `${CART_SERVICE_FEE_PREFIX}${cartId}`,
+            `${OFFLINE_PURCHASE_PREFIX}${cartId}`,
+          ]);
+          throw error;
+        }
         break;
       }
 

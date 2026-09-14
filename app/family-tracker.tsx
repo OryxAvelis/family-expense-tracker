@@ -195,6 +195,7 @@ type Cart = {
   completed_at: string | null;
   missing_products_note: string;
   service_fee_cents: number;
+  offline_purchase?: boolean;
 };
 
 type CartItem = {
@@ -3063,7 +3064,7 @@ function MemberCarts({
             <article key={cart.id} className="rounded-3xl border border-border bg-card p-5">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="font-semibold">Panier #{cart.id}</p>
+                  <p className="flex flex-wrap items-center gap-2 font-semibold">Panier #{cart.id}{cart.offline_purchase && <Badge variant="outline" className="border-primary/25 text-primary">Achat enregistré</Badge>}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {new Date(cart.submitted_at).toLocaleString("fr-MA", { dateStyle: "medium", timeStyle: "short" })}
                   </p>
@@ -3114,7 +3115,7 @@ function MemberCarts({
             <div className="mb-4 flex items-center gap-3">
               <span className="grid size-10 place-items-center rounded-2xl bg-primary/12 text-primary"><CircleCheck /></span>
               <div>
-                <p className="font-semibold">Panier #{latestResult.id}</p>
+                <p className="flex flex-wrap items-center gap-2 font-semibold">Panier #{latestResult.id}{latestResult.offline_purchase && <Badge variant="outline" className="border-primary/25 text-primary">Achat enregistré</Badge>}</p>
                 <p className="text-xs text-muted-foreground">{statusText.completed}</p>
               </div>
             </div>
@@ -3156,6 +3157,149 @@ function MemberCarts({
         )}
       </div>
     </div>
+  );
+}
+
+function OfflinePurchaseDialog({
+  data,
+  productName,
+  money,
+  parsePrice,
+  act,
+  busy,
+}: {
+  data: AppData;
+  productName: (product: Pick<Product, "name_fr" | "name_ar" | "name_en">) => string;
+  money: (cents: number) => string;
+  parsePrice: (value: string) => number;
+  act: (body: Record<string, unknown>, success: string) => Promise<boolean>;
+  busy: boolean;
+}) {
+  const today = useMemo(
+    () => {
+      const current = new Date();
+      return new Date(current.getTime() - current.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+    },
+    [],
+  );
+  const members = data.users.filter((user) => user.role === "member");
+  const [open, setOpen] = useState(false);
+  const [memberId, setMemberId] = useState("");
+  const [purchasedDate, setPurchasedDate] = useState(today);
+  const [search, setSearch] = useState("");
+  const [quantities, setQuantities] = useState<Record<number, number>>({});
+  const [prices, setPrices] = useState<Record<number, string>>({});
+
+  const selected = data.products.filter((product) => (quantities[product.id] ?? 0) > 0);
+  const visibleProducts = data.products.filter((product) => {
+    const query = search.trim().toLocaleLowerCase();
+    if (!query) return true;
+    return `${product.name_fr} ${product.name_ar} ${product.name_en}`.toLocaleLowerCase().includes(query);
+  }).slice(0, 12);
+  const totalCents = selected.reduce((total, product) => {
+    const price = parsePrice(prices[product.id] ?? "");
+    return total + (Number.isFinite(price) ? Math.round(price * quantities[product.id] / 100) : 0);
+  }, 0);
+
+  const productStep = (product: Product) => product.unit === "pièce" || product.package_size ? 100 : 50;
+  const changeQuantity = (product: Product, direction: 1 | -1) => {
+    const step = productStep(product);
+    setQuantities((current) => {
+      const next = Math.max(0, (current[product.id] ?? 0) + direction * step);
+      const updated = { ...current };
+      if (next) updated[product.id] = next;
+      else delete updated[product.id];
+      return updated;
+    });
+    if (direction === 1) {
+      setPrices((current) => current[product.id] ? current : {
+        ...current,
+        [product.id]: (product.unit_price_cents / 100).toFixed(2),
+      });
+    }
+  };
+
+  const reset = () => {
+    setMemberId("");
+    setPurchasedDate(today);
+    setSearch("");
+    setQuantities({});
+    setPrices({});
+  };
+
+  const submit = async () => {
+    if (!memberId || !selected.length) {
+      toast.error("Choisissez un membre et au moins un produit.");
+      return;
+    }
+    const items = selected.map((product) => ({
+      productId: product.id,
+      quantityHundredths: quantities[product.id],
+      actualUnitPriceCents: parsePrice(prices[product.id] ?? ""),
+    }));
+    if (items.some((item) => !Number.isInteger(item.actualUnitPriceCents) || item.actualUnitPriceCents <= 0)) {
+      toast.error("Vérifiez le prix de chaque produit.");
+      return;
+    }
+    const ok = await act(
+      { action: "record_offline_purchase", memberId: Number(memberId), purchasedDate, items },
+      "Achat ajouté au compte du membre, sans frais de livraison.",
+    );
+    if (ok) {
+      setOpen(false);
+      reset();
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (next && !memberId && members[0]) setMemberId(String(members[0].id)); }}>
+      <DialogTrigger asChild>
+        <Button className="w-full rounded-xl sm:w-auto"><ShoppingCart /> Enregistrer un achat passé</Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[calc(100dvh-1rem)] max-w-3xl overflow-y-auto rounded-3xl border-border bg-card sm:max-h-[calc(100dvh-2rem)]">
+        <DialogHeader>
+          <DialogTitle>Achat effectué sans commande</DialogTitle>
+          <DialogDescription>Ajoutez-le au compte du membre et aux statistiques. Aucun frais de livraison ne sera appliqué.</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Membre</Label>
+            <Select value={memberId} onValueChange={setMemberId}>
+              <SelectTrigger className="h-11 rounded-xl"><SelectValue placeholder="Choisir le membre" /></SelectTrigger>
+              <SelectContent>{members.map((member) => <SelectItem key={member.id} value={String(member.id)}>{member.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="offline-purchase-date">Date de l’achat</Label>
+            <Input id="offline-purchase-date" type="date" max={today} value={purchasedDate} onChange={(event) => setPurchasedDate(event.target.value)} className="h-11 rounded-xl" />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="offline-product-search">Ajouter des produits</Label>
+          <div className="relative"><Search className="absolute start-3 top-3 size-5 text-muted-foreground" /><Input id="offline-product-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pain, baguette, lait…" className="h-11 rounded-xl ps-10" /></div>
+          <div className="grid max-h-44 gap-2 overflow-y-auto rounded-2xl border border-border p-2 sm:grid-cols-2">
+            {visibleProducts.map((product) => <button key={product.id} type="button" onClick={() => changeQuantity(product, 1)} className="flex items-center justify-between gap-3 rounded-xl bg-muted/45 px-3 py-2 text-start hover:bg-primary/10"><span className="truncate text-sm font-semibold">{productName(product)}</span><span className="shrink-0 text-xs text-primary">+ Ajouter</span></button>)}
+            {!visibleProducts.length && <p className="p-4 text-center text-sm text-muted-foreground sm:col-span-2">Aucun produit trouvé.</p>}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Produits achetés</Label>
+          {selected.length ? selected.map((product) => {
+            const quantity = quantities[product.id];
+            const packageLabel = product.package_size || product.unit;
+            return <div key={product.id} className="grid gap-3 rounded-2xl border border-border p-3 sm:grid-cols-[1fr_auto_9rem] sm:items-center"><div className="min-w-0"><p className="truncate text-sm font-semibold">{productName(product)}</p><p className="text-xs text-muted-foreground">{packageLabel}</p></div><div className="flex items-center justify-between rounded-xl bg-muted px-2"><Button type="button" size="icon" variant="ghost" className="size-9" aria-label={`Réduire ${productName(product)}`} onClick={() => changeQuantity(product, -1)}><span aria-hidden>−</span></Button><strong className="min-w-14 text-center text-sm">{quantity / 100} ×</strong><Button type="button" size="icon" variant="ghost" className="size-9" aria-label={`Ajouter ${productName(product)}`} onClick={() => changeQuantity(product, 1)}><Plus /></Button></div><div className="relative"><Input inputMode="decimal" value={prices[product.id] ?? ""} onChange={(event) => setPrices((current) => ({ ...current, [product.id]: event.target.value }))} aria-label={`Prix unitaire de ${productName(product)}`} className="h-10 rounded-xl pe-10" /><span className="absolute end-3 top-2.5 text-xs font-bold text-muted-foreground">DH</span></div></div>;
+          }) : <p className="rounded-2xl border border-dashed border-border p-5 text-center text-sm text-muted-foreground">Ajoutez les produits achetés.</p>}
+        </div>
+
+        <DialogFooter className="gap-2 sm:items-center sm:justify-between">
+          <strong>Total : {money(totalCents)}</strong>
+          <Button disabled={busy || !memberId || !selected.length} onClick={() => void submit()} className="rounded-xl">{busy ? <Loader2 className="animate-spin" /> : <Check />} Enregistrer l’achat</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -3515,9 +3659,12 @@ function AdminDashboard({
 
   return (
     <section className="mx-auto max-w-7xl px-5 pb-10 pt-7 sm:px-8 lg:px-12 lg:pt-10">
-      <div className="mb-7">
-        <p className="mb-2 text-sm font-semibold text-[#b76500] dark:text-[#ffb454]">{t.admin}</p>
-        <h1 className="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">La maison, en un coup d’œil.</h1>
+      <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="mb-2 text-sm font-semibold text-[#b76500] dark:text-[#ffb454]">{t.admin}</p>
+          <h1 className="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">La maison, en un coup d’œil.</h1>
+        </div>
+        <OfflinePurchaseDialog data={data} productName={productName} money={money} parsePrice={parsePrice} act={act} busy={busy} />
       </div>
 
       <Tabs defaultValue="requests">
