@@ -87,3 +87,19 @@ export async function addMemberWalletTransaction(memberId: number, transaction: 
   );
   throwIfSupabaseError(error);
 }
+
+export async function removeMemberWalletTransaction(memberId: number, transactionId: string) {
+  const db = getSupabaseAdmin();
+  const key = memberWalletMetaKey(memberId);
+  const { data, error: readError } = await db.from("app_meta").select("value").eq("key", key).maybeSingle();
+  throwIfSupabaseError(readError);
+  const transactions = parseMemberWallet(data?.value);
+  const remaining = transactions.filter((entry) => entry.id !== transactionId);
+  if (remaining.length === transactions.length) return false;
+  const { error } = await db.from("app_meta").upsert(
+    { key, value: JSON.stringify(remaining) },
+    { onConflict: "key" },
+  );
+  throwIfSupabaseError(error);
+  return true;
+}

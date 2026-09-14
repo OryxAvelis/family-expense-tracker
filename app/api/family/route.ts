@@ -16,6 +16,7 @@ import {
   addMemberWalletTransaction,
   memberWalletMetaKey,
   parseMemberWallet,
+  removeMemberWalletTransaction,
   summarizeMemberWallet,
 } from "@/lib/member-wallet";
 
@@ -52,6 +53,7 @@ const MAX_MONTHLY_BUDGET_CENTS = 100_000_000;
 const MAX_MEMBER_DEPOSIT_CENTS = 100_000_000;
 const CART_SERVICE_FEE_PREFIX = "cart_service_fee_";
 const OFFLINE_PURCHASE_PREFIX = "offline_purchase_";
+const CART_PAYMENT_METHOD_PREFIX = "cart_payment_method_";
 const AMOUNT_REQUEST_SENTINEL_CENTS = 2_147_483_647;
 
 type ActionBody = {
@@ -1076,6 +1078,34 @@ export async function POST(request: Request) {
           created_at: nowIso(),
           actor_name: viewer.name,
         });
+        break;
+      }
+
+      case "mark_order_paid_directly": {
+        if (viewer.role !== "admin" && viewer.role !== "delivery") {
+          throw new Error("Action non autorisée pour ce rôle.");
+        }
+        const cartId = asPositiveInt(body.cartId, "cartId");
+        const { data: cart, error: cartError } = await db
+          .from("carts")
+          .select("id, member_id, status")
+          .eq("id", cartId)
+          .eq("status", "completed")
+          .maybeSingle();
+        throwIfSupabaseError(cartError);
+        if (!cart) throw new Error("Commande terminée introuvable.");
+
+        const removed = await removeMemberWalletTransaction(
+          Number(cart.member_id),
+          `order-${cartId}`,
+        );
+        if (!removed) throw new Error("Cette commande ne touche déjà plus au portefeuille.");
+
+        const { error: paymentError } = await db.from("app_meta").upsert(
+          { key: `${CART_PAYMENT_METHOD_PREFIX}${cartId}`, value: "direct" },
+          { onConflict: "key" },
+        );
+        throwIfSupabaseError(paymentError);
         break;
       }
 
