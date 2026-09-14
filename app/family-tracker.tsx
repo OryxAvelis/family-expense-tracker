@@ -104,7 +104,6 @@ import type { FamilySessionUser } from "@/lib/family-auth";
 
 type Language = "fr" | "ar" | "en";
 type Role = "member" | "admin" | "delivery";
-type CatalogSource = "family" | "mymarket";
 type CartStatus = "pending" | "ready" | "shopping" | "completed";
 type Priority = "urgent" | "normal" | null;
 type PurchaseStatus = "requested" | "bought" | "unbought";
@@ -181,6 +180,118 @@ type MyMarketProduct = {
   package_size: string | null;
   store: string;
 };
+
+const PRODUCT_SEARCH_ALIASES = [
+  ["lait", "milk", "حليب", "halib"],
+  ["pain", "bread", "خبز", "khobz"],
+  ["baguette", "خبزة", "خبز"],
+  ["farine", "flour", "دقيق", "daqiq"],
+  ["semoule", "semolina", "سميد", "smida"],
+  ["sucre", "sugar", "سكر", "sokkar"],
+  ["huile", "oil", "زيت", "zit"],
+  ["oeuf", "oeufs", "egg", "eggs", "بيض"],
+  ["savon", "soap", "صابون"],
+  ["lessive", "detergent", "غسيل"],
+  ["cafe", "coffee", "قهوة", "qahwa"],
+  ["the", "tea", "شاي", "atay"],
+  ["eau", "water", "ماء", "ma"],
+  ["fromage", "cheese", "جبن"],
+  ["yaourt", "yogurt", "ياغورت"],
+  ["riz", "rice", "ارز", "أرز"],
+  ["pates", "pasta", "معكرونة"],
+  ["nettoyage", "cleaning", "تنظيف"],
+  ["hygiene", "عناية", "نظافة"],
+] as const;
+
+const CATEGORY_SEARCH_TERMS: Record<string, string> = {
+  food: "alimentation food nourriture غذاء مواد غذائية",
+  cleaning: "nettoyage cleaning entretien تنظيف",
+  hygiene: "hygiene beauty personal care نظافة عناية",
+  school: "ecole school scolaire مدرسة",
+  household: "maison household home منزل",
+  health: "sante health pharmacie صحة",
+};
+
+function normalizeProductSearch(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f\u064b-\u065f\u0670]/g, "")
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function searchTerms(value: string) {
+  const normalized = normalizeProductSearch(value);
+  if (!normalized) return [];
+  const terms = new Set(normalized.split(/\s+/).filter(Boolean));
+  for (const group of PRODUCT_SEARCH_ALIASES) {
+    if (group.some((term) => terms.has(normalizeProductSearch(term)))) {
+      group.forEach((term) => terms.add(normalizeProductSearch(term)));
+    }
+  }
+  return [...terms];
+}
+
+function editDistance(left: string, right: string) {
+  if (left === right) return 0;
+  if (!left.length) return right.length;
+  if (!right.length) return left.length;
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1] + 1,
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length];
+}
+
+function productSearchScore(query: string, values: Array<string | null | undefined>) {
+  const phrase = normalizeProductSearch(query);
+  if (!phrase) return 1;
+  const haystack = normalizeProductSearch(values.filter(Boolean).join(" "));
+  if (!haystack) return 0;
+  if (haystack === phrase) return 1_000;
+  if (haystack.startsWith(phrase)) return 850;
+  if (haystack.includes(phrase)) return 700;
+
+  const words = haystack.split(/\s+/).filter(Boolean);
+  const terms = searchTerms(query);
+  let score = 0;
+  for (const term of terms) {
+    let best = 0;
+    for (const word of words) {
+      if (word === term) best = Math.max(best, 120);
+      else if (word.startsWith(term) || term.startsWith(word)) best = Math.max(best, 95);
+      else if (word.includes(term) || term.includes(word)) best = Math.max(best, 70);
+      else if (term.length >= 4 && Math.abs(word.length - term.length) <= 2) {
+        const distance = editDistance(term, word);
+        if (distance <= Math.max(1, Math.floor(term.length * 0.25))) {
+          best = Math.max(best, 55 - distance * 5);
+        }
+      }
+    }
+    score += best;
+  }
+  const originalTerms = phrase.split(/\s+/).filter(Boolean);
+  const matchedOriginalTerms = originalTerms.filter((term) =>
+    words.some((word) =>
+      word.includes(term) ||
+      term.includes(word) ||
+      (term.length >= 4 && editDistance(term, word) <= 1),
+    ),
+  ).length;
+  return matchedOriginalTerms === originalTerms.length || score >= 95 ? score : 0;
+}
 
 type Cart = {
   id: number;
@@ -437,6 +548,9 @@ const words = {
     priceToConfirm: "Prix à confirmer",
     scannedAdded: "Produit scanné ajouté au panier.",
     familyCatalog: "Catalogue maison",
+    unifiedCatalog: "Tous les produits",
+    unifiedCatalogHint: "Le catalogue familial et MyMarket réunis dans une seule recherche.",
+    searchSuggestions: "Suggestions de recherche",
     myMarketCatalog: "Catalogue MyMarket",
     myMarketHint: "Prix MyMarket en ligne — Josef confirme le prix réel.",
     myMarketRules: "Tous les rayons sauf Animaux",
@@ -613,6 +727,9 @@ const words = {
     priceToConfirm: "السعر يحتاج إلى تأكيد",
     scannedAdded: "تمت إضافة المنتج إلى السلة.",
     familyCatalog: "منتجات البيت",
+    unifiedCatalog: "جميع المنتجات",
+    unifiedCatalogHint: "منتجات البيت وMyMarket في بحث واحد.",
+    searchSuggestions: "اقتراحات البحث",
     myMarketCatalog: "منتجات MyMarket",
     myMarketHint: "ثمن MyMarket على الإنترنت — جوزيف يؤكد الثمن الحقيقي.",
     myMarketRules: "كل الأقسام ما عدا الحيوانات",
@@ -789,6 +906,9 @@ const words = {
     priceToConfirm: "Price to confirm",
     scannedAdded: "Scanned product added to the cart.",
     familyCatalog: "House catalog",
+    unifiedCatalog: "All products",
+    unifiedCatalogHint: "The family catalog and MyMarket combined in one search.",
+    searchSuggestions: "Search suggestions",
     myMarketCatalog: "MyMarket catalog",
     myMarketHint: "Online MyMarket price — Josef confirms the real price.",
     myMarketRules: "All departments except Animals",
@@ -979,12 +1099,7 @@ export function FamilyTracker({
   const [scanDialogOpen, setScanDialogOpen] = useState(false);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [profileImageVersion, setProfileImageVersion] = useState(0);
-  const [catalogSource, setCatalogSource] = useState<CatalogSource>("family");
-  const [myMarketProducts, setMyMarketProducts] = useState<MyMarketProduct[]>([]);
-  const [myMarketLoading, setMyMarketLoading] = useState(false);
-  const [myMarketLoadedLanguage, setMyMarketLoadedLanguage] = useState<Language | null>(null);
   const [myMarketError, setMyMarketError] = useState("");
-  const [myMarketVisible, setMyMarketVisible] = useState(24);
   const [myMarketBusyId, setMyMarketBusyId] = useState<string | null>(null);
   const [myMarketRemoteSearch, setMyMarketRemoteSearch] = useState<{
     query: string;
@@ -992,6 +1107,8 @@ export function FamilyTracker({
   }>({ query: "", products: [] });
   const [myMarketSearchingQuery, setMyMarketSearchingQuery] = useState("");
   const myMarketSearchSequence = useRef(0);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [highlightedSuggestion, setHighlightedSuggestion] = useState(-1);
   const [newProduct, setNewProduct] = useState({
     nameFr: "",
     nameAr: "",
@@ -1010,7 +1127,7 @@ export function FamilyTracker({
   const t = words[language];
   const myMarketSearching =
     search.trim().length >= 2 &&
-    myMarketSearchingQuery === search.trim().toLocaleLowerCase();
+    myMarketSearchingQuery === normalizeProductSearch(search);
 
   const applyData = useCallback((payload: AppData) => {
     setData(payload);
@@ -1052,63 +1169,21 @@ export function FamilyTracker({
     }
   }, [applyData, role]);
 
-  const loadMyMarketCatalogue = useCallback(async () => {
-    try {
-      setMyMarketLoading(true);
-      setMyMarketError("");
-      const response = await fetch(`/api/products/mymarket?lang=${language}`, {
-        cache: "no-store",
-      });
-      const payload = (await response.json()) as {
-        products?: MyMarketProduct[];
-        error?: string;
-      };
-      if (response.status === 401) {
-        window.location.replace("/connexion");
-        return;
-      }
-      if (!response.ok || !Array.isArray(payload.products)) {
-        throw new Error(payload.error || "Catalogue MyMarket indisponible.");
-      }
-      setMyMarketProducts(payload.products);
-      setMyMarketLoadedLanguage(language);
-    } catch (error) {
-      setMyMarketError(
-        error instanceof Error ? error.message : "Catalogue MyMarket indisponible.",
-      );
-    } finally {
-      setMyMarketLoading(false);
-    }
-  }, [language]);
-
   useEffect(() => {
     const initialLoad = window.setTimeout(() => void loadData(), 0);
     return () => window.clearTimeout(initialLoad);
   }, [loadData]);
 
   useEffect(() => {
-    if (
-      role !== "member" ||
-      catalogSource !== "mymarket" ||
-      myMarketLoadedLanguage === language
-    ) {
-      return;
-    }
-    const initialLoad = window.setTimeout(() => void loadMyMarketCatalogue(), 0);
-    return () => window.clearTimeout(initialLoad);
-  }, [catalogSource, language, loadMyMarketCatalogue, myMarketLoadedLanguage, role]);
-
-  useEffect(() => {
     const query = search.trim();
-    const normalizedQuery = query.toLocaleLowerCase();
+    const normalizedQuery = normalizeProductSearch(query);
     const sequence = ++myMarketSearchSequence.current;
 
-    if (role !== "member" || catalogSource !== "mymarket" || query.length < 2) {
-      return;
-    }
+    if (role !== "member" || normalizedQuery.length < 2) return;
 
     const searchDelay = window.setTimeout(async () => {
       setMyMarketSearchingQuery(normalizedQuery);
+      setMyMarketError("");
       try {
         const parameters = new URLSearchParams({ lang: language, q: query });
         const response = await fetch(`/api/products/mymarket?${parameters.toString()}`, {
@@ -1128,19 +1203,22 @@ export function FamilyTracker({
         if (myMarketSearchSequence.current === sequence) {
           setMyMarketRemoteSearch({ query: normalizedQuery, products: payload.products });
         }
-      } catch {
+      } catch (error) {
         if (myMarketSearchSequence.current === sequence) {
           setMyMarketRemoteSearch({ query: normalizedQuery, products: [] });
+          setMyMarketError(
+            error instanceof Error ? error.message : "Recherche MyMarket indisponible.",
+          );
         }
       } finally {
         if (myMarketSearchSequence.current === sequence) {
           setMyMarketSearchingQuery("");
         }
       }
-    }, 300);
+    }, 180);
 
     return () => window.clearTimeout(searchDelay);
-  }, [catalogSource, language, role, search]);
+  }, [language, role, search]);
 
   useEffect(() => {
     const refreshWhenVisible = () => {
@@ -1393,40 +1471,93 @@ export function FamilyTracker({
   const itemsFor = (cartId: number) => data?.items.filter((item) => item.cart_id === cartId) ?? [];
   const filteredProducts = useMemo(() => {
     if (!data) return [];
-    const needle = search.trim().toLocaleLowerCase();
+    const query = search.trim();
     const favoriteIds = new Set(data.favoriteProductIds);
-    return data.products.filter((product) => {
-      const categoryMatch = category === "all" || product.category === category;
-      const favoriteMatch = !showFavorites || favoriteIds.has(product.id);
-      const textMatch =
-        !needle ||
-        [product.name_fr, product.name_ar, product.name_en]
-          .join(" ")
-          .toLocaleLowerCase()
-          .includes(needle);
-      return categoryMatch && favoriteMatch && textMatch;
-    });
+    return data.products
+      .map((product) => ({
+        product,
+        score: productSearchScore(query, [
+          product.name_fr,
+          product.name_ar,
+          product.name_en,
+          product.barcode,
+          product.package_size,
+          CATEGORY_SEARCH_TERMS[product.category],
+        ]),
+      }))
+      .filter(({ product, score }) =>
+        (category === "all" || product.category === category) &&
+        (!showFavorites || favoriteIds.has(product.id)) &&
+        (!query || score > 0),
+      )
+      .sort((left, right) =>
+        query
+          ? right.score - left.score || right.product.purchase_count - left.product.purchase_count
+          : right.product.purchase_count - left.product.purchase_count || left.product.id - right.product.id,
+      )
+      .map(({ product }) => product);
   }, [category, data, search, showFavorites]);
 
   const filteredMyMarketProducts = useMemo(() => {
-    const needle = search.trim().toLocaleLowerCase();
-    const localMatches = myMarketProducts.filter((product) => {
-      const categoryMatch = category === "all" || product.category === category;
-      const textMatch = !needle || product.name.toLocaleLowerCase().includes(needle);
-      return categoryMatch && textMatch;
-    });
-    if (!needle || myMarketRemoteSearch.query !== needle) return localMatches;
-
-    const mergedMatches = new Map<string, MyMarketProduct>();
-    for (const product of [...myMarketRemoteSearch.products, ...localMatches]) {
-      if (category === "all" || product.category === category) {
-        mergedMatches.set(product.external_id, product);
-      }
+    const query = search.trim();
+    if (!data || query.length < 2 || myMarketRemoteSearch.query !== normalizeProductSearch(query)) {
+      return [];
     }
-    return [...mergedMatches.values()];
-  }, [category, myMarketProducts, myMarketRemoteSearch, search]);
+    const importedIds = new Set(
+      data.products
+        .filter((product) => product.external_source === "mymarket" && product.external_id)
+        .map((product) => product.external_id),
+    );
+    const localNames = new Set(data.products.map((product) => normalizeProductSearch(productName(product))));
+    return myMarketRemoteSearch.products
+      .map((product) => ({
+        product,
+        score: productSearchScore(query, [
+          product.name,
+          product.package_size,
+          product.store,
+          CATEGORY_SEARCH_TERMS[product.category],
+        ]),
+      }))
+      .filter(({ product, score }) =>
+        !showFavorites &&
+        !importedIds.has(product.external_id) &&
+        !localNames.has(normalizeProductSearch(product.name)) &&
+        (category === "all" || product.category === category) &&
+        score > 0,
+      )
+      .sort((left, right) => right.score - left.score)
+      .map(({ product }) => product);
+  }, [category, data, myMarketRemoteSearch, productName, search, showFavorites]);
 
-  const visibleMyMarketProducts = filteredMyMarketProducts.slice(0, myMarketVisible);
+  const autocompleteSuggestions = useMemo(() => {
+    const query = search.trim();
+    if (!query) return [] as Array<{
+      key: string;
+      name: string;
+      imageUrl: string | null;
+      packageSize: string | null;
+      priceCents: number;
+      source: "family" | "mymarket";
+    }>;
+    const local = filteredProducts.slice(0, 8).map((product) => ({
+      key: `family-${product.id}`,
+      name: productName(product),
+      imageUrl: product.image_url,
+      packageSize: product.package_size || `1 ${product.unit}`,
+      priceCents: product.unit_price_cents,
+      source: "family" as const,
+    }));
+    const remote = filteredMyMarketProducts.slice(0, 8).map((product) => ({
+      key: `mymarket-${product.external_id}`,
+      name: product.name,
+      imageUrl: product.image_url,
+      packageSize: product.package_size,
+      priceCents: product.price_cents,
+      source: "mymarket" as const,
+    }));
+    return [...local, ...remote].slice(0, 8);
+  }, [filteredMyMarketProducts, filteredProducts, productName, search]);
 
   const draftProducts = Object.entries(draft)
     .filter(([, quantity]) => quantity > 0)
@@ -2103,35 +2234,6 @@ export function FamilyTracker({
 
             {memberView === "catalog" ? (
               <>
-                <div
-                  className="mb-4 inline-flex rounded-2xl border border-border bg-card/70 p-1.5"
-                  role="group"
-                  aria-label={t.catalog}
-                >
-                  <Button
-                    variant={catalogSource === "family" ? "default" : "ghost"}
-                    className="rounded-xl"
-                    aria-pressed={catalogSource === "family"}
-                    onClick={() => {
-                      setCatalogSource("family");
-                      setMyMarketVisible(24);
-                    }}
-                  >
-                    <ShoppingBasket /> {t.familyCatalog}
-                  </Button>
-                  <Button
-                    variant={catalogSource === "mymarket" ? "default" : "ghost"}
-                    className="rounded-xl"
-                    aria-pressed={catalogSource === "mymarket"}
-                    onClick={() => {
-                      setCatalogSource("mymarket");
-                      setMyMarketVisible(24);
-                    }}
-                  >
-                    MyMarket
-                  </Button>
-                </div>
-
                 <div className="mb-5 flex max-w-3xl gap-2">
                   <div className="relative min-w-0 flex-1">
                     <Search className="pointer-events-none absolute start-4 top-1/2 z-10 size-5 -translate-y-1/2 text-muted-foreground" />
@@ -2139,12 +2241,88 @@ export function FamilyTracker({
                       value={search}
                       onChange={(event) => {
                         setSearch(event.target.value);
-                        setMyMarketVisible(24);
+                        setHighlightedSuggestion(-1);
                       }}
+                      onFocus={() => setSearchFocused(true)}
+                      onBlur={() => setSearchFocused(false)}
+                      onKeyDown={(event) => {
+                        if (!autocompleteSuggestions.length) return;
+                        if (event.key === "ArrowDown") {
+                          event.preventDefault();
+                          setHighlightedSuggestion((current) => (current + 1) % autocompleteSuggestions.length);
+                        } else if (event.key === "ArrowUp") {
+                          event.preventDefault();
+                          setHighlightedSuggestion((current) =>
+                            current <= 0 ? autocompleteSuggestions.length - 1 : current - 1,
+                          );
+                        } else if (event.key === "Enter" && highlightedSuggestion >= 0) {
+                          event.preventDefault();
+                          const suggestion = autocompleteSuggestions[highlightedSuggestion];
+                          setSearch(suggestion.name);
+                          setCategory("all");
+                          setShowFavorites(false);
+                          setSearchFocused(false);
+                          setHighlightedSuggestion(-1);
+                        } else if (event.key === "Escape") {
+                          setSearchFocused(false);
+                          setHighlightedSuggestion(-1);
+                        }
+                      }}
+                      aria-autocomplete="list"
+                      aria-controls="product-search-suggestions"
+                      aria-expanded={searchFocused && Boolean(search.trim())}
                       aria-label={t.search}
                       placeholder={t.search}
                       className="h-14 rounded-2xl border-border bg-card/75 ps-12 text-base placeholder:text-muted-foreground focus-visible:border-primary/60 focus-visible:ring-primary/15"
                     />
+                    {searchFocused && search.trim() && (
+                      <div
+                        id="product-search-suggestions"
+                        role="listbox"
+                        aria-label={t.searchSuggestions}
+                        className="absolute inset-x-0 top-full z-40 mt-2 max-h-[min(26rem,65vh)] overflow-y-auto rounded-2xl border border-border bg-card p-2 shadow-[0_24px_70px_rgba(0,0,0,0.2)]"
+                      >
+                        {autocompleteSuggestions.length ? autocompleteSuggestions.map((suggestion, index) => (
+                          <button
+                            key={suggestion.key}
+                            type="button"
+                            role="option"
+                            aria-selected={highlightedSuggestion === index}
+                            className={`flex w-full items-center gap-3 rounded-xl p-2.5 text-start transition-colors ${highlightedSuggestion === index ? "bg-primary/12" : "hover:bg-muted/70"}`}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              setSearch(suggestion.name);
+                              setCategory("all");
+                              setShowFavorites(false);
+                              setSearchFocused(false);
+                              setHighlightedSuggestion(-1);
+                            }}
+                          >
+                            <ProductImage
+                              position="0% 0%"
+                              name={suggestion.name}
+                              imageUrl={suggestion.imageUrl}
+                              className="size-12 shrink-0 rounded-xl"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-semibold">{suggestion.name}</span>
+                              <span className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                                <span className={suggestion.source === "mymarket" ? "text-primary" : ""}>
+                                  {suggestion.source === "mymarket" ? "MyMarket" : t.familyCatalog}
+                                </span>
+                                {suggestion.packageSize && <span className="truncate">· {suggestion.packageSize}</span>}
+                              </span>
+                            </span>
+                            <strong className="shrink-0 text-sm">{suggestion.priceCents > 0 ? money(suggestion.priceCents) : t.priceToConfirm}</strong>
+                          </button>
+                        )) : (
+                          <div className="flex items-center gap-3 px-3 py-4 text-sm text-muted-foreground">
+                            {myMarketSearching ? <Loader2 className="size-4 animate-spin text-primary" /> : <Search className="size-4" />}
+                            {myMarketSearching ? t.myMarketSearching : t.noProducts}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <Button
                     variant="outline"
@@ -2164,48 +2342,34 @@ export function FamilyTracker({
                       key={key}
                       variant={category === key ? "default" : "outline"}
                       className={category === key ? "h-10 rounded-full px-5" : "h-10 rounded-full border-border bg-card/65 px-5 text-muted-foreground"}
-                      onClick={() => {
-                        setCategory(key);
-                        setMyMarketVisible(24);
-                      }}
+                      onClick={() => setCategory(key)}
                     >
                       {t[key]}
                     </Button>
                   ))}
-                  {catalogSource === "family" && (
-                    <Button
-                      variant={showFavorites ? "default" : "outline"}
-                      className={showFavorites ? "h-10 rounded-full px-5" : "h-10 rounded-full border-border bg-card/65 px-5 text-muted-foreground"}
-                      aria-pressed={showFavorites}
-                      onClick={() => setShowFavorites((current) => !current)}
-                    >
-                      <Heart className={showFavorites ? "fill-current" : ""} />
-                      {t.favorites}
-                    </Button>
-                  )}
+                  <Button
+                    variant={showFavorites ? "default" : "outline"}
+                    className={showFavorites ? "h-10 rounded-full px-5" : "h-10 rounded-full border-border bg-card/65 px-5 text-muted-foreground"}
+                    aria-pressed={showFavorites}
+                    onClick={() => setShowFavorites((current) => !current)}
+                  >
+                    <Heart className={showFavorites ? "fill-current" : ""} />
+                    {t.favorites}
+                  </Button>
                 </div>
 
                 <div className="mb-4 flex items-end justify-between gap-4">
                   <div>
-                    <h2 className="text-xl font-semibold tracking-tight">
-                      {catalogSource === "mymarket" ? t.myMarketCatalog : t.essentials}
-                    </h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {catalogSource === "mymarket" ? t.myMarketHint : t.estimated}
-                    </p>
-                    {catalogSource === "mymarket" && (
-                      <p className="mt-1 text-xs font-medium text-primary">{t.myMarketRules}</p>
-                    )}
+                    <h2 className="text-xl font-semibold tracking-tight">{t.unifiedCatalog}</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">{t.unifiedCatalogHint}</p>
                   </div>
                   <Badge variant="outline" className="border-border bg-card/70 px-3 py-1.5 text-muted-foreground">
-                    {catalogSource === "mymarket"
-                      ? filteredMyMarketProducts.length
-                      : filteredProducts.length}
+                    {filteredProducts.length + filteredMyMarketProducts.length}
                   </Badge>
                 </div>
 
-                {catalogSource === "family" ? (
-                  filteredProducts.length ? (
+                {filteredProducts.length || filteredMyMarketProducts.length ? (
+                  <>
                     <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
                       {filteredProducts.map((product) => (
                         <article key={product.id} className="group overflow-hidden rounded-[1.35rem] border border-border bg-card shadow-[0_18px_50px_rgba(0,0,0,0.10)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.15)]">
@@ -2272,35 +2436,7 @@ export function FamilyTracker({
                           </div>
                         </article>
                       ))}
-                    </div>
-                  ) : (
-                    <div className="rounded-3xl border border-dashed border-border bg-card/60 p-10 text-center text-muted-foreground">
-                      <Search className="mx-auto mb-3 size-7" />
-                      {t.noProducts}
-                    </div>
-                  )
-                ) : myMarketLoading ? (
-                  <div aria-label={t.myMarketLoading} className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
-                    {Array.from({ length: 8 }, (_, index) => (
-                      <div key={index} className="overflow-hidden rounded-[1.35rem] border border-border bg-card p-3">
-                        <Skeleton className="aspect-[1.05] w-full rounded-2xl" />
-                        <Skeleton className="mt-4 h-5 w-4/5" />
-                        <Skeleton className="mt-3 h-8 w-2/3" />
-                      </div>
-                    ))}
-                  </div>
-                ) : myMarketError ? (
-                  <div className="rounded-3xl border border-dashed border-destructive/40 bg-card/60 p-10 text-center">
-                    <AlertTriangle className="mx-auto mb-3 size-7 text-destructive" />
-                    <p className="text-muted-foreground">{myMarketError}</p>
-                    <Button className="mt-5 rounded-xl" onClick={() => void loadMyMarketCatalogue()}>
-                      {t.retry}
-                    </Button>
-                  </div>
-                ) : visibleMyMarketProducts.length ? (
-                  <>
-                    <div className="grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
-                      {visibleMyMarketProducts.map((product) => (
+                      {filteredMyMarketProducts.map((product) => (
                         <article
                           key={product.external_id}
                           className="group flex min-w-0 flex-col overflow-hidden rounded-[1.35rem] border border-border bg-card shadow-[0_18px_50px_rgba(0,0,0,0.10)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.15)]"
@@ -2378,15 +2514,16 @@ export function FamilyTracker({
                         </article>
                       ))}
                     </div>
-                    {visibleMyMarketProducts.length < filteredMyMarketProducts.length && (
-                      <div className="mt-7 flex justify-center">
-                        <Button
-                          variant="outline"
-                          className="rounded-xl bg-card"
-                          onClick={() => setMyMarketVisible((current) => current + 24)}
-                        >
-                          {t.loadMore}
-                        </Button>
+                    {myMarketSearching && search.trim().length >= 2 && (
+                      <div className="mt-4 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="size-4 animate-spin text-primary" />
+                        {t.myMarketSearching}
+                      </div>
+                    )}
+                    {myMarketError && search.trim().length >= 2 && (
+                      <div className="mt-4 flex items-center justify-center gap-2 rounded-2xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                        <AlertTriangle className="size-4" />
+                        {myMarketError}
                       </div>
                     )}
                   </>
@@ -2397,8 +2534,12 @@ export function FamilyTracker({
                   </div>
                 ) : (
                   <div className="rounded-3xl border border-dashed border-border bg-card/60 p-10 text-center text-muted-foreground">
-                    <Search className="mx-auto mb-3 size-7" />
-                    {t.noProducts}
+                    {myMarketError ? (
+                      <AlertTriangle className="mx-auto mb-3 size-7 text-destructive" />
+                    ) : (
+                      <Search className="mx-auto mb-3 size-7" />
+                    )}
+                    {myMarketError || t.noProducts}
                   </div>
                 )}
               </>

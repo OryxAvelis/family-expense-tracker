@@ -12,6 +12,25 @@ const CACHE_DURATION_MS = 30 * 60 * 1000;
 const SEARCH_CACHE_DURATION_MS = 5 * 60 * 1000;
 const MAX_SEARCH_CACHE_ENTRIES = 60;
 
+const SEARCH_ALIAS_GROUPS = [
+  ["lait", "milk", "حليب"],
+  ["pain", "bread", "خبز"],
+  ["farine", "flour", "دقيق"],
+  ["semoule", "semolina", "سميد"],
+  ["sucre", "sugar", "سكر"],
+  ["huile", "oil", "زيت"],
+  ["oeuf", "oeufs", "egg", "eggs", "بيض"],
+  ["savon", "soap", "صابون"],
+  ["lessive", "detergent", "غسيل"],
+  ["cafe", "coffee", "قهوة"],
+  ["the", "tea", "شاي"],
+  ["eau", "water", "ماء"],
+  ["fromage", "cheese", "جبن"],
+  ["yaourt", "yogurt", "ياغورت"],
+  ["riz", "rice", "ارز"],
+  ["pates", "pasta", "معكرونة"],
+] as const;
+
 type Language = "fr" | "ar" | "en";
 
 type MyMarketVariant = {
@@ -106,6 +125,59 @@ function normalized(value: unknown) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase();
+}
+
+function editDistance(left: string, right: string) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1] + 1,
+        previous[rightIndex] + 1,
+        previous[rightIndex - 1] + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length];
+}
+
+function searchQueryVariants(query: string) {
+  const cleanQuery = cleanText(query, 120);
+  const queryWords = new Set(normalized(cleanQuery).split(/\s+/).filter(Boolean));
+  const variants = new Set([cleanQuery]);
+
+  for (const group of SEARCH_ALIAS_GROUPS) {
+    const matchesAlias = group.some((term) => {
+      const normalizedTerm = normalized(term);
+      return [...queryWords].some(
+        (word) =>
+          word === normalizedTerm ||
+          (word.length >= 4 &&
+            normalizedTerm.length >= 4 &&
+            Math.abs(word.length - normalizedTerm.length) <= 1 &&
+            editDistance(word, normalizedTerm) <= 1),
+      );
+    });
+    if (matchesAlias) {
+      for (const term of group) {
+        variants.add(term);
+        if (variants.size >= 4) return [...variants];
+      }
+    }
+  }
+
+  const usefulWords = cleanQuery
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter((word) => normalized(word).length >= 4)
+    .sort((left, right) => right.length - left.length);
+  for (const word of usefulWords) {
+    variants.add(word);
+    if (variants.size >= 4) break;
+  }
+  return [...variants];
 }
 
 function localizedPath(language: Language) {
@@ -407,18 +479,19 @@ async function searchMyMarketCatalogue(query: string, preferredLanguage: Languag
       (language) => language !== preferredLanguage,
     ),
   ];
+  const queryVariants = searchQueryVariants(query);
   const [responses, animalIds] = await Promise.all([
     Promise.all(
-      languages.map(async (language) => {
+      languages.flatMap((language) => queryVariants.map(async (queryVariant) => {
         try {
           return await fetchJson<MyMarketSearchResponse>(
-            searchUrl(query, language),
+            searchUrl(queryVariant, language),
             "La recherche MyMarket est momentanément indisponible.",
           );
         } catch {
           return null;
         }
-      }),
+      })),
     ),
     fetchAnimalIds(),
   ]);
