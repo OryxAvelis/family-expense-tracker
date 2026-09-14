@@ -3486,19 +3486,40 @@ function OfflinePurchaseDialog({
   const [memberId, setMemberId] = useState("");
   const [purchasedDate, setPurchasedDate] = useState(today);
   const [search, setSearch] = useState("");
+  const [step, setStep] = useState<1 | 2 | 3>(2);
+  const [showAllProducts, setShowAllProducts] = useState(false);
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [prices, setPrices] = useState<Record<number, string>>({});
 
+  const selectedMember = members.find((member) => member.id === Number(memberId)) ?? null;
+  const selectedWallet = data.memberWallets.find((wallet) => wallet.member_id === Number(memberId));
+  const availableBalanceCents = selectedWallet?.balance_cents ?? 0;
   const selected = data.products.filter((product) => (quantities[product.id] ?? 0) > 0);
-  const visibleProducts = data.products.filter((product) => {
-    const query = search.trim().toLocaleLowerCase();
-    if (!query) return true;
-    return `${product.name_fr} ${product.name_ar} ${product.name_en}`.toLocaleLowerCase().includes(query);
-  }).slice(0, 12);
+  const visibleProducts = data.products
+    .map((product) => ({
+      product,
+      score: productSearchScore(search, [
+        product.name_fr,
+        product.name_ar,
+        product.name_en,
+        product.barcode,
+        product.package_size,
+        CATEGORY_SEARCH_TERMS[product.category],
+      ]),
+    }))
+    .filter(({ score }) => !search.trim() || score > 0)
+    .sort((left, right) =>
+      search.trim()
+        ? right.score - left.score || right.product.purchase_count - left.product.purchase_count
+        : right.product.purchase_count - left.product.purchase_count,
+    )
+    .slice(0, search.trim() || showAllProducts ? 18 : 6)
+    .map(({ product }) => product);
   const totalCents = selected.reduce((total, product) => {
     const price = parsePrice(prices[product.id] ?? "");
     return total + (Number.isFinite(price) ? Math.round(price * quantities[product.id] / 100) : 0);
   }, 0);
+  const remainingBalanceCents = availableBalanceCents - totalCents;
 
   const productStep = (product: Product) => product.unit === "pièce" || product.package_size ? 100 : 50;
   const changeQuantity = (product: Product, direction: 1 | -1) => {
@@ -3522,6 +3543,13 @@ function OfflinePurchaseDialog({
     setMemberId("");
     setPurchasedDate(today);
     setSearch("");
+    setStep(2);
+    setShowAllProducts(false);
+    setQuantities({});
+    setPrices({});
+  };
+
+  const clearProducts = () => {
     setQuantities({});
     setPrices({});
   };
@@ -3551,51 +3579,282 @@ function OfflinePurchaseDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (next && !memberId && members[0]) setMemberId(String(members[0].id)); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next && !memberId && members[0]) setMemberId(String(members[0].id));
+      }}
+    >
       <DialogTrigger asChild>
-        <Button className="w-full rounded-xl sm:w-auto"><ShoppingCart /> Enregistrer un achat passé</Button>
+        <Button className="w-full rounded-xl sm:w-auto"><ShoppingCart /> Achat pour un membre</Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[calc(100dvh-1rem)] max-w-3xl overflow-y-auto rounded-3xl border-border bg-card sm:max-h-[calc(100dvh-2rem)]">
-        <DialogHeader>
-          <DialogTitle>Achat effectué sans commande</DialogTitle>
-          <DialogDescription>Ajoutez-le au compte du membre et aux statistiques. Aucun frais de livraison ne sera appliqué.</DialogDescription>
-        </DialogHeader>
+      <DialogContent className="flex max-h-[calc(100dvh-1rem)] max-w-6xl flex-col gap-0 overflow-hidden rounded-[1.75rem] border-border bg-card p-0 sm:max-h-[calc(100dvh-2rem)] sm:max-w-6xl">
+        <div className="scrollbar-thin overflow-y-auto px-4 pb-4 pt-5 sm:px-7 sm:pb-6 sm:pt-7">
+          <DialogHeader className="pe-8 text-start">
+            <DialogTitle className="text-2xl tracking-[-0.025em] sm:text-3xl">Achat pour un membre</DialogTitle>
+            <DialogDescription className="mt-1 text-sm leading-6 sm:text-base">
+              Ajoutez les produits achetés au compte d’un membre. Aucun frais de livraison ne sera appliqué.
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label>Membre</Label>
-            <Select value={memberId} onValueChange={setMemberId}>
-              <SelectTrigger className="h-11 rounded-xl"><SelectValue placeholder="Choisir le membre" /></SelectTrigger>
-              <SelectContent>{members.map((member) => <SelectItem key={member.id} value={String(member.id)}>{member.name}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="offline-purchase-date">Date de l’achat</Label>
-            <Input id="offline-purchase-date" type="date" max={today} value={purchasedDate} onChange={(event) => setPurchasedDate(event.target.value)} className="h-11 rounded-xl" />
-          </div>
+          <nav aria-label="Étapes de l’achat" className="relative mx-auto mt-5 grid max-w-4xl grid-cols-3 sm:mt-6">
+            <span className="absolute start-[16.66%] end-[16.66%] top-4 h-px bg-border" aria-hidden />
+            {([
+              [1, "Membre"],
+              [2, "Produits"],
+              [3, "Vérification"],
+            ] as const).map(([stepNumber, label]) => {
+              const active = step === stepNumber;
+              const available = stepNumber !== 3 || selected.length > 0;
+              return (
+                <button
+                  key={stepNumber}
+                  type="button"
+                  disabled={!available}
+                  onClick={() => setStep(stepNumber)}
+                  className="relative z-10 flex flex-col items-center gap-1.5 text-xs font-medium text-muted-foreground disabled:opacity-45 sm:text-sm"
+                  aria-current={active ? "step" : undefined}
+                >
+                  <span className={`grid size-8 place-items-center rounded-full border transition-colors ${active ? "border-primary bg-primary font-bold text-primary-foreground" : "border-border bg-card"}`}>
+                    {stepNumber}
+                  </span>
+                  <span className={active ? "font-semibold text-primary" : ""}>{label}</span>
+                </button>
+              );
+            })}
+          </nav>
+
+          {selectedMember && (
+            <section className="mt-5 flex flex-col gap-4 rounded-2xl bg-primary/[0.055] p-4 sm:mt-6 sm:flex-row sm:items-center">
+              <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary/15 text-lg font-bold text-primary">
+                {selectedMember.initials}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-lg font-semibold">{selectedMember.name}</p>
+                <p className="text-sm text-muted-foreground">Membre de la famille</p>
+              </div>
+              <div className="flex items-center gap-3 border-t border-border/70 pt-3 sm:border-s sm:border-t-0 sm:ps-5 sm:pt-0">
+                <span className="grid size-10 place-items-center rounded-xl bg-primary/12 text-primary"><WalletCards className="size-5" /></span>
+                <div>
+                  <p className="text-xs text-muted-foreground">Solde disponible</p>
+                  <p className="text-xl font-bold text-primary">{money(availableBalanceCents)}</p>
+                </div>
+              </div>
+              {step !== 1 && (
+                <Button type="button" variant="ghost" className="justify-start rounded-xl text-primary" onClick={() => setStep(1)}>
+                  <Pencil className="size-4" /> Modifier
+                </Button>
+              )}
+            </section>
+          )}
+
+          {step === 1 && (
+            <section className="mx-auto mt-6 max-w-3xl space-y-5">
+              <div>
+                <h3 className="text-lg font-semibold">Pour quel membre est cet achat ?</h3>
+                <p className="mt-1 text-sm text-muted-foreground">Le total sera retiré de son solde personnel.</p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {members.map((member) => {
+                  const wallet = data.memberWallets.find((entry) => entry.member_id === member.id);
+                  const active = memberId === String(member.id);
+                  return (
+                    <button
+                      key={member.id}
+                      type="button"
+                      onClick={() => setMemberId(String(member.id))}
+                      className={`flex items-center gap-3 rounded-2xl border p-4 text-start transition-colors ${active ? "border-primary bg-primary/[0.07]" : "border-border hover:border-primary/40 hover:bg-muted/40"}`}
+                    >
+                      <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary/12 font-bold text-primary">{member.initials}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-semibold">{member.name}</span>
+                        <span className="mt-1 block text-sm text-muted-foreground">{money(wallet?.balance_cents ?? 0)} disponible</span>
+                      </span>
+                      {active && <CircleCheck className="size-5 shrink-0 text-primary" />}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="grid gap-2 sm:max-w-xs">
+                <Label htmlFor="offline-purchase-date">Date de l’achat</Label>
+                <Input id="offline-purchase-date" type="date" max={today} value={purchasedDate} onChange={(event) => setPurchasedDate(event.target.value)} className="h-11 rounded-xl" />
+              </div>
+              <div className="flex justify-end">
+                <Button type="button" disabled={!memberId} onClick={() => setStep(2)} className="h-11 rounded-xl px-5">
+                  Continuer vers les produits <ChevronRight />
+                </Button>
+              </div>
+            </section>
+          )}
+
+          {step === 2 && (
+            <section className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(22rem,0.95fr)]">
+              <div className="rounded-2xl bg-muted/35 p-3 sm:p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold sm:text-lg">Rechercher un produit</h3>
+                    <p className="text-xs text-muted-foreground">Ajout rapide depuis le catalogue familial</p>
+                  </div>
+                  {!search && data.products.length > 6 && (
+                    <Button type="button" size="sm" variant="outline" className="rounded-full bg-card" onClick={() => setShowAllProducts((current) => !current)}>
+                      {showAllProducts ? "Voir moins" : "Voir tout"}
+                    </Button>
+                  )}
+                </div>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute start-3.5 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="offline-product-search"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Rechercher lait, pain, farine…"
+                    className="h-12 rounded-xl bg-card ps-11"
+                  />
+                </div>
+                <div className="mt-4 flex items-center justify-between">
+                  <p className="text-sm font-semibold">{search ? "Résultats" : "Produits fréquents"}</p>
+                  <Badge variant="outline" className="bg-card text-muted-foreground">{visibleProducts.length}</Badge>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {visibleProducts.map((product) => (
+                    <article key={product.id} className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card">
+                      <ProductImage position={product.image_position} name={productName(product)} imageUrl={product.image_url} className="aspect-[1.35]" />
+                      <div className="flex flex-1 flex-col p-2.5">
+                        <p className="line-clamp-2 text-sm font-semibold leading-5">{productName(product)}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{product.package_size || `1 ${product.unit}`}</p>
+                        <p className="mt-2 text-sm font-bold">{money(product.unit_price_cents)}</p>
+                        <Button type="button" size="sm" variant="outline" className="mt-2 w-full rounded-xl border-primary/25 text-primary" onClick={() => changeQuantity(product, 1)}>
+                          <Plus className="size-4" /> Ajouter
+                        </Button>
+                      </div>
+                    </article>
+                  ))}
+                  {!visibleProducts.length && (
+                    <p className="col-span-2 rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground sm:col-span-3">Aucun produit trouvé.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card p-3 sm:p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold sm:text-lg">Panier de {selectedMember?.name ?? "ce membre"}</h3>
+                    <p className="text-xs text-muted-foreground">{selected.length} produit{selected.length === 1 ? "" : "s"}</p>
+                  </div>
+                  {selected.length > 0 && (
+                    <Button type="button" size="sm" variant="ghost" className="rounded-xl text-muted-foreground hover:text-destructive" onClick={clearProducts}>
+                      <Trash2 className="size-4" /> Vider
+                    </Button>
+                  )}
+                </div>
+                <div className="scrollbar-thin mt-3 max-h-[25rem] space-y-1 overflow-y-auto pe-1">
+                  {selected.length ? selected.map((product) => {
+                    const quantity = quantities[product.id];
+                    const parsedPrice = parsePrice(prices[product.id] ?? "");
+                    const lineTotal = Number.isFinite(parsedPrice) ? Math.round(parsedPrice * quantity / 100) : 0;
+                    return (
+                      <div key={product.id} className="grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-center gap-2 border-b border-border/70 py-3 last:border-0">
+                        <ProductImage position={product.image_position} name={productName(product)} imageUrl={product.image_url} className="size-11 rounded-xl" />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{productName(product)}</p>
+                          <p className="text-xs text-muted-foreground">{product.package_size || `1 ${product.unit}`} · {money(lineTotal)}</p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <div className="flex items-center rounded-xl bg-muted">
+                              <Button type="button" size="icon" variant="ghost" className="size-8 rounded-xl" aria-label={`Réduire ${productName(product)}`} onClick={() => changeQuantity(product, -1)}><span aria-hidden>−</span></Button>
+                              <strong className="min-w-10 text-center text-xs">{quantity / 100}</strong>
+                              <Button type="button" size="icon" variant="ghost" className="size-8 rounded-xl" aria-label={`Ajouter ${productName(product)}`} onClick={() => changeQuantity(product, 1)}><Plus className="size-4" /></Button>
+                            </div>
+                            <div className="relative w-28">
+                              <Input inputMode="decimal" value={prices[product.id] ?? ""} onChange={(event) => setPrices((current) => ({ ...current, [product.id]: event.target.value }))} aria-label={`Prix unitaire de ${productName(product)}`} className="h-8 rounded-xl pe-8 text-xs" />
+                              <span className="absolute end-2.5 top-2 text-[10px] font-bold text-muted-foreground">DH</span>
+                            </div>
+                          </div>
+                        </div>
+                        <Button type="button" size="icon" variant="ghost" className="size-9 rounded-xl text-muted-foreground hover:text-destructive" aria-label={`Retirer ${productName(product)}`} onClick={() => {
+                          setQuantities((current) => { const updated = { ...current }; delete updated[product.id]; return updated; });
+                          setPrices((current) => { const updated = { ...current }; delete updated[product.id]; return updated; });
+                        }}><Trash2 className="size-4" /></Button>
+                      </div>
+                    );
+                  }) : (
+                    <div className="grid min-h-56 place-items-center rounded-2xl border border-dashed border-border p-6 text-center">
+                      <div>
+                        <ShoppingBasket className="mx-auto size-8 text-primary/55" />
+                        <p className="mt-3 text-sm font-medium">Le panier est vide</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">Ajoutez les produits achetés depuis la liste.</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-auto grid gap-2 border-t border-border pt-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="offline-purchase-date-compact" className="text-xs text-muted-foreground">Date de l’achat</Label>
+                    <Input id="offline-purchase-date-compact" type="date" max={today} value={purchasedDate} onChange={(event) => setPurchasedDate(event.target.value)} className="mt-1 h-10 rounded-xl" />
+                  </div>
+                  <div className="rounded-xl bg-primary/[0.06] px-3 py-2">
+                    <p className="text-xs text-muted-foreground">Total du panier</p>
+                    <p className="text-xl font-bold">{money(totalCents)}</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {step === 3 && (
+            <section className="mx-auto mt-6 max-w-3xl">
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold">Vérifiez l’achat</h3>
+                <p className="mt-1 text-sm text-muted-foreground">Confirmez le membre, les produits, les quantités et les prix réels.</p>
+              </div>
+              <div className="overflow-hidden rounded-2xl border border-border">
+                {selected.map((product) => {
+                  const quantity = quantities[product.id];
+                  const parsedPrice = parsePrice(prices[product.id] ?? "");
+                  const lineTotal = Number.isFinite(parsedPrice) ? Math.round(parsedPrice * quantity / 100) : 0;
+                  return (
+                    <div key={product.id} className="flex items-center gap-3 border-b border-border p-3 last:border-0">
+                      <ProductImage position={product.image_position} name={productName(product)} imageUrl={product.image_url} className="size-12 rounded-xl" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold">{productName(product)}</p>
+                        <p className="text-xs text-muted-foreground">{quantity / 100} × {money(parsedPrice || 0)}</p>
+                      </div>
+                      <strong className="text-sm">{money(lineTotal)}</strong>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className={`mt-4 grid gap-3 rounded-2xl p-4 sm:grid-cols-3 ${remainingBalanceCents < 0 ? "bg-destructive/8" : "bg-primary/[0.06]"}`}>
+                <div><p className="text-xs text-muted-foreground">Solde du membre</p><p className="mt-1 text-lg font-bold">{money(availableBalanceCents)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Total de l’achat</p><p className="mt-1 text-lg font-bold">− {money(totalCents)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Solde après achat</p><p className={`mt-1 text-xl font-bold ${remainingBalanceCents < 0 ? "text-destructive" : "text-primary"}`}>{money(remainingBalanceCents)}</p></div>
+              </div>
+              {remainingBalanceCents < 0 && (
+                <p className="mt-3 flex items-center gap-2 text-sm text-destructive"><AlertTriangle className="size-4" /> Cet achat dépasse le solde du membre.</p>
+              )}
+            </section>
+          )}
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="offline-product-search">Ajouter des produits</Label>
-          <div className="relative"><Search className="absolute start-3 top-3 size-5 text-muted-foreground" /><Input id="offline-product-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pain, baguette, lait…" className="h-11 rounded-xl ps-10" /></div>
-          <div className="grid max-h-44 gap-2 overflow-y-auto rounded-2xl border border-border p-2 sm:grid-cols-2">
-            {visibleProducts.map((product) => <button key={product.id} type="button" onClick={() => changeQuantity(product, 1)} className="flex items-center justify-between gap-3 rounded-xl bg-muted/45 px-3 py-2 text-start hover:bg-primary/10"><span className="truncate text-sm font-semibold">{productName(product)}</span><span className="shrink-0 text-xs text-primary">+ Ajouter</span></button>)}
-            {!visibleProducts.length && <p className="p-4 text-center text-sm text-muted-foreground sm:col-span-2">Aucun produit trouvé.</p>}
+        <DialogFooter className="mt-auto flex-row items-center justify-between gap-3 border-t border-border bg-card/95 px-4 py-4 backdrop-blur sm:px-7">
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">{step === 3 ? "Solde après achat" : "Reste"}</p>
+            <p className={`truncate text-lg font-bold sm:text-2xl ${remainingBalanceCents < 0 ? "text-destructive" : "text-primary"}`}>{money(remainingBalanceCents)}</p>
           </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label>Produits achetés</Label>
-          {selected.length ? selected.map((product) => {
-            const quantity = quantities[product.id];
-            const packageLabel = product.package_size || product.unit;
-            return <div key={product.id} className="grid gap-3 rounded-2xl border border-border p-3 sm:grid-cols-[1fr_auto_9rem] sm:items-center"><div className="min-w-0"><p className="truncate text-sm font-semibold">{productName(product)}</p><p className="text-xs text-muted-foreground">{packageLabel}</p></div><div className="flex items-center justify-between rounded-xl bg-muted px-2"><Button type="button" size="icon" variant="ghost" className="size-9" aria-label={`Réduire ${productName(product)}`} onClick={() => changeQuantity(product, -1)}><span aria-hidden>−</span></Button><strong className="min-w-14 text-center text-sm">{quantity / 100} ×</strong><Button type="button" size="icon" variant="ghost" className="size-9" aria-label={`Ajouter ${productName(product)}`} onClick={() => changeQuantity(product, 1)}><Plus /></Button></div><div className="relative"><Input inputMode="decimal" value={prices[product.id] ?? ""} onChange={(event) => setPrices((current) => ({ ...current, [product.id]: event.target.value }))} aria-label={`Prix unitaire de ${productName(product)}`} className="h-10 rounded-xl pe-10" /><span className="absolute end-3 top-2.5 text-xs font-bold text-muted-foreground">DH</span></div></div>;
-          }) : <p className="rounded-2xl border border-dashed border-border p-5 text-center text-sm text-muted-foreground">Ajoutez les produits achetés.</p>}
-        </div>
-
-        <DialogFooter className="gap-2 sm:items-center sm:justify-between">
-          <strong>Total : {money(totalCents)}</strong>
-          <Button disabled={busy || !memberId || !selected.length} onClick={() => void submit()} className="rounded-xl">{busy ? <Loader2 className="animate-spin" /> : <Check />} Enregistrer l’achat</Button>
+          {step === 2 ? (
+            <Button type="button" disabled={!memberId || !selected.length} onClick={() => setStep(3)} className="h-11 rounded-xl px-5">
+              Vérifier l’achat <ChevronRight />
+            </Button>
+          ) : step === 3 ? (
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setStep(2)} className="hidden h-11 rounded-xl sm:inline-flex">Modifier</Button>
+              <Button disabled={busy || !memberId || !selected.length} onClick={() => void submit()} className="h-11 rounded-xl px-5">
+                {busy ? <Loader2 className="animate-spin" /> : <Check />} Enregistrer l’achat
+              </Button>
+            </div>
+          ) : (
+            <Button type="button" disabled={!memberId} onClick={() => setStep(2)} className="h-11 rounded-xl px-5">Continuer <ChevronRight /></Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
