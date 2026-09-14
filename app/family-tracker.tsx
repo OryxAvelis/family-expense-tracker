@@ -255,6 +255,20 @@ function editDistance(left: string, right: string) {
   return previous[right.length];
 }
 
+function termMatchesWord(term: string, word: string) {
+  if (word === term || word.startsWith(term) || term.startsWith(word)) return true;
+  if (word.includes(term) || term.includes(word)) return true;
+  if (term.length < 4 || Math.abs(word.length - term.length) > 2) return false;
+  return editDistance(term, word) <= (term.length >= 7 ? 2 : 1);
+}
+
+function equivalentSearchTerms(term: string) {
+  const group = PRODUCT_SEARCH_ALIASES.find((aliases) =>
+    aliases.some((alias) => normalizeProductSearch(alias) === term),
+  );
+  return group ? group.map((alias) => normalizeProductSearch(alias)) : [term];
+}
+
 function productSearchScore(query: string, values: Array<string | null | undefined>) {
   const phrase = normalizeProductSearch(query);
   if (!phrase) return 1;
@@ -284,13 +298,11 @@ function productSearchScore(query: string, values: Array<string | null | undefin
   }
   const originalTerms = phrase.split(/\s+/).filter(Boolean);
   const matchedOriginalTerms = originalTerms.filter((term) =>
-    words.some((word) =>
-      word.includes(term) ||
-      term.includes(word) ||
-      (term.length >= 4 && editDistance(term, word) <= 1),
+    equivalentSearchTerms(term).some((equivalent) =>
+      words.some((word) => termMatchesWord(equivalent, word)),
     ),
   ).length;
-  return matchedOriginalTerms === originalTerms.length || score >= 95 ? score : 0;
+  return matchedOriginalTerms === originalTerms.length ? score : 0;
 }
 
 type Cart = {
@@ -1547,6 +1559,14 @@ export function FamilyTracker({
       packageSize: product.package_size || `1 ${product.unit}`,
       priceCents: product.unit_price_cents,
       source: "family" as const,
+      score: productSearchScore(query, [
+        productName(product),
+        product.name_fr,
+        product.name_ar,
+        product.name_en,
+        product.barcode,
+        product.package_size,
+      ]),
     }));
     const remote = filteredMyMarketProducts.slice(0, 8).map((product) => ({
       key: `mymarket-${product.external_id}`,
@@ -1555,8 +1575,11 @@ export function FamilyTracker({
       packageSize: product.package_size,
       priceCents: product.price_cents,
       source: "mymarket" as const,
+      score: productSearchScore(query, [product.name, product.package_size, product.store]),
     }));
-    return [...local, ...remote].slice(0, 8);
+    return [...local, ...remote]
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 8);
   }, [filteredMyMarketProducts, filteredProducts, productName, search]);
 
   const draftProducts = Object.entries(draft)
