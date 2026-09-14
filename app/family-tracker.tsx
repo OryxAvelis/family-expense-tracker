@@ -173,6 +173,7 @@ type ProductFormDraft = {
 type MyMarketProduct = {
   external_id: string;
   name: string;
+  search_text?: string;
   category: Product["category"];
   image_url: string | null;
   price_cents: number;
@@ -1528,6 +1529,7 @@ export function FamilyTracker({
         product,
         score: productSearchScore(query, [
           product.name,
+          product.search_text,
           product.package_size,
           product.store,
           CATEGORY_SEARCH_TERMS[product.category],
@@ -1577,7 +1579,12 @@ export function FamilyTracker({
       packageSize: product.package_size,
       priceCents: product.price_cents,
       source: "mymarket" as const,
-      score: productSearchScore(query, [product.name, product.package_size, product.store]),
+      score: productSearchScore(query, [
+        product.name,
+        product.search_text,
+        product.package_size,
+        product.store,
+      ]),
     }));
     return [...local, ...remote]
       .sort((left, right) => right.score - left.score)

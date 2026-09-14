@@ -82,6 +82,7 @@ type MyMarketSearchResponse = {
 type MyMarketCatalogProduct = {
   external_id: string;
   name: string;
+  search_text?: string;
   category: "food" | "cleaning" | "hygiene" | "school" | "household" | "health";
   image_url: string | null;
   price_cents: number;
@@ -508,7 +509,12 @@ async function searchMyMarketCatalogue(query: string, preferredLanguage: Languag
     }
     for (const source of results) {
       const product = toSearchCatalogProduct(source, animalIds);
-      if (product && !products.has(product.external_id)) {
+      if (!product) continue;
+      const existing = products.get(product.external_id);
+      if (existing) {
+        existing.search_text = `${existing.search_text ?? existing.name} ${product.name}`;
+      } else {
+        product.search_text = product.name;
         products.set(product.external_id, product);
       }
     }
@@ -572,6 +578,7 @@ export async function GET(request: Request) {
         products: products.map((product) => ({
           external_id: product.external_id,
           name: product.name,
+          search_text: product.search_text ?? product.name,
           category: product.category,
           image_url: product.image_url,
           price_cents: product.price_cents,
