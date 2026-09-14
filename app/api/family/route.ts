@@ -55,6 +55,7 @@ const CART_SERVICE_FEE_PREFIX = "cart_service_fee_";
 const OFFLINE_PURCHASE_PREFIX = "offline_purchase_";
 const CART_PAYMENT_METHOD_PREFIX = "cart_payment_method_";
 const AMOUNT_REQUEST_SENTINEL_CENTS = 2_147_483_647;
+const FAMILY_TIME_ZONE = "Africa/Casablanca";
 
 type ActionBody = {
   action?: string;
@@ -120,6 +121,32 @@ type ItemRow = {
 };
 
 const nowIso = () => new Date().toISOString();
+
+function calendarDateInTimeZone(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
+function calendarDateYearsAgo(dateKey: string, years: number) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const targetYear = year - years;
+  const lastDayOfMonth = new Date(Date.UTC(targetYear, month, 0)).getUTCDate();
+  return `${String(targetYear).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(Math.min(day, lastDayOfMonth)).padStart(2, "0")}`;
+}
+
+function validCalendarDate(dateKey: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) return false;
+  const [, year, month, day] = match.map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}
 
 function storedItemTotalCents(item: {
   requested_unit_price_cents: number;
@@ -944,15 +971,13 @@ export async function POST(request: Request) {
         if (!rawItems.length || rawItems.length > 50) throw new Error("Ajoutez entre 1 et 50 produits.");
 
         const purchasedDate = asText(body.purchasedDate);
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(purchasedDate)) throw new Error("La date d’achat est invalide.");
-        const completedAt = new Date(`${purchasedDate}T12:00:00.000Z`);
-        const todayEnd = new Date();
-        todayEnd.setUTCHours(23, 59, 59, 999);
-        const oldestAllowed = new Date();
-        oldestAllowed.setUTCFullYear(oldestAllowed.getUTCFullYear() - 2);
-        if (Number.isNaN(completedAt.getTime()) || completedAt > todayEnd || completedAt < oldestAllowed) {
+        if (!validCalendarDate(purchasedDate)) throw new Error("La date d’achat est invalide.");
+        const today = calendarDateInTimeZone(new Date(), FAMILY_TIME_ZONE);
+        const oldestAllowed = calendarDateYearsAgo(today, 2);
+        if (purchasedDate > today || purchasedDate < oldestAllowed) {
           throw new Error("Choisissez une date comprise dans les deux dernières années.");
         }
+        const completedAt = new Date(`${purchasedDate}T12:00:00.000Z`);
 
         const { data: member, error: memberError } = await db
           .from("family_users")
