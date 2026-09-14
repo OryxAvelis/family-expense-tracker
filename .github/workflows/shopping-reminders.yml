@@ -2,7 +2,7 @@ name: Shopping reminders
 
 on:
   schedule:
-    - cron: "17 9-21/3 * * *"
+    - cron: "17 */3 * * *"
       timezone: "Africa/Casablanca"
   workflow_dispatch:
 
