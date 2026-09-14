@@ -1972,11 +1972,11 @@ export function FamilyTracker({
         cart.member_id === memberId &&
         ["pending", "ready", "shopping"].includes(cart.status),
     ) ?? [];
-  const latestMemberResult =
+  const memberHistory =
     data?.carts
       .filter((cart) => cart.member_id === memberId && cart.status === "completed")
       .slice()
-      .reverse()[0] ?? null;
+      .reverse() ?? [];
 
   const currentMonth = new Date().toISOString().slice(0, 7);
   const currentMonthlyTotal =
@@ -2578,7 +2578,7 @@ export function FamilyTracker({
             ) : memberView === "carts" ? (
               <MemberCarts
                 carts={memberActive}
-                latestResult={latestMemberResult}
+                history={memberHistory}
                 itemsFor={itemsFor}
                 productName={productName}
                 itemRequestLabel={itemRequestLabel}
@@ -3310,7 +3310,7 @@ function MemberBalancesManager({
 
 function MemberCarts({
   carts,
-  latestResult,
+  history,
   itemsFor,
   productName,
   itemRequestLabel,
@@ -3323,7 +3323,7 @@ function MemberCarts({
   onCancel,
 }: {
   carts: Cart[];
-  latestResult: Cart | null;
+  history: Cart[];
   itemsFor: (cartId: number) => CartItem[];
   productName: (product: Pick<Product, "name_fr" | "name_ar" | "name_en">) => string;
   itemRequestLabel: (item: CartItem) => string;
@@ -3341,16 +3341,6 @@ function MemberCarts({
     shopping: "border-primary/25 bg-primary/10 text-primary",
     completed: "border-primary/25 bg-primary/10 text-primary",
   };
-  const latestBoughtTotal = latestResult
-    ? itemsFor(latestResult.id)
-        .filter((item) => item.purchase_status === "bought")
-        .reduce(
-          (sum, item) =>
-            sum + cartItemTotalCents(item),
-          0,
-        )
-    : 0;
-
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_0.75fr]">
       <div>
@@ -3425,49 +3415,63 @@ function MemberCarts({
       </div>
 
       <div>
-        <h2 className="mb-4 text-xl font-semibold">{t.result}</h2>
-        {latestResult ? (
-          <article className="rounded-3xl border border-primary/15 bg-primary/[0.045] p-5">
-            <div className="mb-4 flex items-center gap-3">
-              <span className="grid size-10 place-items-center rounded-2xl bg-primary/12 text-primary"><CircleCheck /></span>
-              <div>
-                <p className="flex flex-wrap items-center gap-2 font-semibold">Panier #{latestResult.id}{latestResult.offline_purchase && <Badge variant="outline" className="border-primary/25 text-primary">Achat enregistré</Badge>}</p>
-                <p className="text-xs text-muted-foreground">{statusText.completed}</p>
-              </div>
-            </div>
-            <div className="space-y-2">
-              {itemsFor(latestResult.id).map((item) => (
-                <div key={item.id} className="flex items-center gap-3 rounded-xl bg-muted/45 p-3">
-                  {item.purchase_status === "bought" ? <Check className="size-4 text-primary" /> : <X className="size-4 text-destructive" />}
-                  <span className="min-w-0 flex-1 truncate">{productName(item)}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {item.purchase_status === "bought" ? money(cartItemTotalCents(item)) : t.unbought}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <MissingProductsNote
-              note={latestResult.missing_products_note}
-              label={t.missingProducts}
-              className="mt-3"
-            />
-            <div className="mt-4 space-y-2 border-t border-primary/15 pt-4 text-sm">
-              <div className="flex items-center justify-between gap-3 text-muted-foreground">
-                <span>{t.serviceFee}</span>
-                <span>{money(latestResult.service_fee_cents)}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3 font-semibold">
-                <span>{t.totalWithService}</span>
-                <strong>{money(latestBoughtTotal + latestResult.service_fee_cents)}</strong>
-              </div>
-            </div>
-            <Button
-              className="mt-4 w-full rounded-xl"
-              onClick={() => onRepeat(latestResult)}
-            >
-              <Repeat2 /> {t.repeatOrder}
-            </Button>
-          </article>
+        <h2 className="mb-4 text-xl font-semibold">{t.history}</h2>
+        {history.length ? (
+          <div className="space-y-4">
+            {history.map((cart) => {
+              const boughtItems = itemsFor(cart.id).filter((item) => item.purchase_status === "bought");
+              const boughtTotal = boughtItems.reduce((sum, item) => sum + cartItemTotalCents(item), 0);
+
+              return (
+                <article key={cart.id} className="rounded-3xl border border-primary/15 bg-primary/[0.045] p-5">
+                  <div className="mb-4 flex items-center gap-3">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary"><CircleCheck /></span>
+                    <div className="min-w-0 flex-1">
+                      <p className="flex flex-wrap items-center gap-2 font-semibold">
+                        Panier #{cart.id}
+                        {cart.offline_purchase && <Badge variant="outline" className="border-primary/25 text-primary">Achat enregistré</Badge>}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(cart.completed_at ?? cart.submitted_at).toLocaleString("fr-MA", { dateStyle: "medium", timeStyle: "short" })}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {itemsFor(cart.id).map((item) => (
+                      <div key={item.id} className="flex items-center gap-3 rounded-xl bg-muted/45 p-3">
+                        {item.purchase_status === "bought" ? <Check className="size-4 shrink-0 text-primary" /> : <X className="size-4 shrink-0 text-destructive" />}
+                        <span className="min-w-0 flex-1 truncate">{productName(item)}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {item.purchase_status === "bought" ? money(cartItemTotalCents(item)) : t.unbought}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <MissingProductsNote
+                    note={cart.missing_products_note}
+                    label={t.missingProducts}
+                    className="mt-3"
+                  />
+                  <div className="mt-4 space-y-2 border-t border-primary/15 pt-4 text-sm">
+                    <div className="flex items-center justify-between gap-3 text-muted-foreground">
+                      <span>{t.serviceFee}</span>
+                      <span>{money(cart.service_fee_cents)}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 font-semibold">
+                      <span>{t.totalWithService}</span>
+                      <strong>{money(boughtTotal + cart.service_fee_cents)}</strong>
+                    </div>
+                  </div>
+                  <Button
+                    className="mt-4 w-full rounded-xl"
+                    onClick={() => onRepeat(cart)}
+                  >
+                    <Repeat2 /> {t.repeatOrder}
+                  </Button>
+                </article>
+              );
+            })}
+          </div>
         ) : (
           <div className="rounded-3xl border border-border bg-card/50 p-8 text-center text-sm text-muted-foreground">—</div>
         )}
