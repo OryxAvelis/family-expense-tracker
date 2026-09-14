@@ -103,6 +103,9 @@ export async function POST(request: Request) {
     if (payment.status !== "pending") {
       return Response.json({ error: "Cette demande a déjà été traitée." }, { status: 409 });
     }
+    if (payment.request_type === "trial") {
+      return Response.json({ error: "Aucun justificatif n’est nécessaire pour un essai gratuit." }, { status: 400 });
+    }
 
     const bytes = new Uint8Array(await proof.arrayBuffer());
     const type = proofType(bytes);

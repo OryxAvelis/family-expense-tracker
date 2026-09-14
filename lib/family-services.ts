@@ -38,6 +38,7 @@ export type SubscriptionPayment = {
   plan: PaidPlanId;
   amount_cents: number;
   status: "pending" | "confirmed" | "rejected";
+  request_type?: "payment" | "trial";
   created_at: string;
   confirmed_at: string | null;
   proof_key?: string | null;
@@ -85,6 +86,7 @@ export function parseServicesState(value?: string): ServicesState {
       payments: Array.isArray(raw.payments)
         ? raw.payments.slice(-500).map((payment) => ({
             ...payment,
+            request_type: payment.request_type === "trial" ? "trial" as const : "payment" as const,
             proof_key: typeof payment.proof_key === "string" ? payment.proof_key : null,
             proof_name: typeof payment.proof_name === "string" ? payment.proof_name : null,
           }))

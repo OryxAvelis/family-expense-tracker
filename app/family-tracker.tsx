@@ -137,6 +137,7 @@ type PlanPayment = {
   plan: "plus" | "pro";
   amount_cents: number;
   status: "pending" | "confirmed" | "rejected";
+  request_type?: "payment" | "trial";
   created_at: string;
   confirmed_at: string | null;
   proof_key?: string | null;
@@ -3624,13 +3625,13 @@ function AdminDashboard({
                       <div className="min-w-0">
                         <p className="truncate font-semibold">{payment.user_name}</p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          {payment.scope === "family" ? "Participation au forfait familial" : "Forfait personnel"} · <span className="font-bold uppercase">{payment.plan}</span>
+                          {payment.request_type === "trial" ? "Essai personnel gratuit · 7 jours" : payment.scope === "family" ? "Participation au forfait familial" : "Forfait personnel"} · <span className="font-bold uppercase">{payment.plan}</span>
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {new Date(payment.created_at).toLocaleString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", { dateStyle: "medium", timeStyle: "short" })}
                         </p>
                       </div>
-                      <strong className="shrink-0 text-lg text-primary">{money(payment.amount_cents)}</strong>
+                      <strong className="shrink-0 text-lg text-primary">{payment.request_type === "trial" ? "GRATUIT" : money(payment.amount_cents)}</strong>
                     </div>
                     {payment.proof_key && (
                       <a
@@ -3655,9 +3656,9 @@ function AdminDashboard({
                       <Button
                         className="rounded-xl"
                         disabled={busy}
-                        onClick={() => void actService({ action: "confirm_payment", paymentId: payment.id }, "Paiement confirmé et forfait activé.")}
+                        onClick={() => void actService({ action: "confirm_payment", paymentId: payment.id }, payment.request_type === "trial" ? "Essai approuvé et activé pour 7 jours." : "Paiement confirmé et forfait activé.")}
                       >
-                        <Check /> Confirmer
+                        <Check /> {payment.request_type === "trial" ? "Approuver" : "Confirmer"}
                       </Button>
                     </div>
                   </article>
@@ -3679,14 +3680,14 @@ function AdminDashboard({
                 {planPaymentHistory.length ? planPaymentHistory.map((payment) => (
                   <article key={payment.id} className="flex flex-col gap-2 rounded-xl bg-muted/40 p-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{payment.user_name} · {payment.plan.toUpperCase()}</p>
+                      <p className="truncate text-sm font-semibold">{payment.user_name} · {payment.request_type === "trial" ? "ESSAI PRO" : payment.plan.toUpperCase()}</p>
                       <p className="text-xs text-muted-foreground">
                         {payment.scope === "family" ? "Familial" : "Personnel"} · {new Date(payment.created_at).toLocaleDateString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA")}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
                       {payment.proof_key && <a href={`/api/services/proofs?paymentId=${encodeURIComponent(payment.id)}`} target="_blank" rel="noreferrer" aria-label={`Voir le justificatif de ${payment.user_name}`} className="rounded-lg p-2 text-primary hover:bg-primary/10"><ReceiptText className="size-4" /></a>}
-                      <strong className="text-sm">{money(payment.amount_cents)}</strong>
+                      <strong className="text-sm">{payment.request_type === "trial" ? "GRATUIT" : money(payment.amount_cents)}</strong>
                       <Badge variant={payment.status === "confirmed" ? "default" : "outline"} className={payment.status === "rejected" ? "border-destructive/30 text-destructive" : ""}>{payment.status === "confirmed" ? "Confirmé" : "Refusé"}</Badge>
                     </div>
                   </article>

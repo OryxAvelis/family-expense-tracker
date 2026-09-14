@@ -180,7 +180,10 @@ async function responseFor(viewer: { id: number; role: string }, state: Services
         ).slice().reverse().map((payment) => payment.user_id === viewer.id
           ? payment
           : { ...payment, proof_key: null, proof_name: null }),
-    votes: state.votes, trialAvailable: !state.trial_used_by.includes(viewer.id),
+    votes: state.votes,
+    trialAvailable: !state.trial_used_by.includes(viewer.id) && !state.payments.some((payment) =>
+      payment.user_id === viewer.id && payment.request_type === "trial" && payment.status === "pending"
+    ),
     insights: await buildInsights(plan), unlocked,
   };
 }
@@ -301,9 +304,12 @@ export async function POST(request: Request) {
       }
       case "start_trial": {
         if (state.trial_used_by.includes(viewer.id)) throw new Error("L’essai a déjà été utilisé.");
-        state.trial_used_by.push(viewer.id);
-        state.memberships.push({ id: crypto.randomUUID(), scope: "personal", member_id: viewer.id, plan: "pro", starts_at: now.toISOString(), ends_at: addDaysIso(7, now), source: "trial" });
-        unlocked = true;
+        if (state.payments.some((payment) => payment.user_id === viewer.id && payment.request_type === "trial" && payment.status === "pending")) {
+          throw new Error("Votre demande d’essai attend déjà l’approbation de l’administrateur.");
+        }
+        const paymentId = crypto.randomUUID();
+        state.payments.push({ id: paymentId, user_id: viewer.id, user_name: viewer.name, scope: "personal", plan: "pro", amount_cents: 0, status: "pending", request_type: "trial", created_at: now.toISOString(), confirmed_at: null });
+        planRequestNotification = { paymentId, memberName: viewer.name, scope: "personal", plan: "pro", amountCents: 0, requestType: "trial" };
         break;
       }
       case "confirm_payment": {
@@ -311,7 +317,12 @@ export async function POST(request: Request) {
         const payment = state.payments.find((item) => item.id === text(body.paymentId, 80));
         if (!payment || payment.status !== "pending") throw new Error("Paiement introuvable ou déjà traité.");
         payment.status = "confirmed"; payment.confirmed_at = now.toISOString();
-        if (payment.scope === "family") { state.family_fund_cents += payment.amount_cents; unlocked = maybeActivateFamilyPlan(state); }
+        if (payment.request_type === "trial") {
+          if (state.trial_used_by.includes(payment.user_id)) throw new Error("L’essai a déjà été utilisé.");
+          state.trial_used_by.push(payment.user_id);
+          state.memberships.push({ id: crypto.randomUUID(), scope: "personal", member_id: payment.user_id, plan: "pro", starts_at: now.toISOString(), ends_at: addDaysIso(7, now), source: "trial" });
+          unlocked = true;
+        } else if (payment.scope === "family") { state.family_fund_cents += payment.amount_cents; unlocked = maybeActivateFamilyPlan(state); }
         else {
           const existing = state.memberships.filter((item) => item.scope === "personal" && item.member_id === payment.user_id && item.plan === payment.plan).at(-1);
           const activeFamily = state.memberships.filter((item) => item.scope === "family" && new Date(item.ends_at) > now).at(-1);

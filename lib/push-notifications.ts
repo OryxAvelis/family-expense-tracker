@@ -194,17 +194,21 @@ export async function notifyAdminOfPlanRequest({
   scope,
   plan,
   amountCents,
+  requestType = "payment",
 }: {
   paymentId: string;
   memberName: string;
   scope: "family" | "personal";
   plan: "plus" | "pro";
   amountCents: number;
+  requestType?: "payment" | "trial";
 }) {
   const amount = new Intl.NumberFormat("fr-MA", { style: "currency", currency: "MAD" }).format(amountCents / 100);
   await notifyRole("admin", {
-    title: `Demande de forfait · ${memberName}`,
-    body: `${scope === "family" ? "Participation familiale" : "Forfait personnel"} ${plan.toUpperCase()} · ${amount}`,
+    title: `${requestType === "trial" ? "Demande d’essai" : "Demande de forfait"} · ${memberName}`,
+    body: requestType === "trial"
+      ? "Essai personnel PRO de 7 jours à approuver."
+      : `${scope === "family" ? "Participation familiale" : "Forfait personnel"} ${plan.toUpperCase()} · ${amount}`,
     url: "/admin",
     tag: `plan-request-${paymentId}`,
   });
