@@ -3359,7 +3359,13 @@ function MemberCarts({
           <Badge variant="outline" className="border-border">{carts.length}/3</Badge>
         </div>
         <div className="space-y-4">
-          {carts.length ? carts.map((cart) => (
+          {carts.length ? carts.map((cart) => {
+            const estimatedProductsTotal = itemsFor(cart.id).reduce(
+              (sum, item) => sum + cartItemTotalCents(item),
+              0,
+            );
+
+            return (
             <article key={cart.id} className="rounded-3xl border border-border bg-card p-5">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -3383,9 +3389,19 @@ function MemberCarts({
                 label={t.missingProducts}
                 className="mt-3"
               />
-              <div className="mt-3 flex items-center justify-between rounded-xl bg-primary/[0.055] px-3 py-2 text-sm">
-                <span className="text-muted-foreground">{t.serviceFee}</span>
-                <strong>{money(cart.service_fee_cents)}</strong>
+              <div className="mt-3 space-y-2 rounded-xl bg-primary/[0.055] px-3 py-3 text-sm">
+                <div className="flex items-center justify-between gap-3 text-muted-foreground">
+                  <span>{t.estimate}</span>
+                  <span>{money(estimatedProductsTotal)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 text-muted-foreground">
+                  <span>{t.serviceFee}</span>
+                  <span>{money(cart.service_fee_cents)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 border-t border-primary/15 pt-2 font-semibold">
+                  <span>{t.totalWithService}</span>
+                  <strong>{money(estimatedProductsTotal + cart.service_fee_cents)}</strong>
+                </div>
               </div>
               {cart.status !== "shopping" && (
                 <div className="mt-4 flex gap-2">
@@ -3398,7 +3414,8 @@ function MemberCarts({
                 </div>
               )}
             </article>
-          )) : (
+            );
+          }) : (
             <div className="rounded-3xl border border-dashed border-border bg-card/50 p-9 text-center text-muted-foreground">
               <ShoppingBasket className="mx-auto mb-3 size-8" />
               {t.emptyCart}
