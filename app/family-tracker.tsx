@@ -256,8 +256,10 @@ function editDistance(left: string, right: string) {
 }
 
 function termMatchesWord(term: string, word: string) {
-  if (word === term || word.startsWith(term) || term.startsWith(word)) return true;
-  if (word.includes(term) || term.includes(word)) return true;
+  if (word === term || word.startsWith(term)) return true;
+  if (word.length >= 3 && term.startsWith(word)) return true;
+  if (word.includes(term)) return true;
+  if (word.length >= 3 && term.includes(word)) return true;
   if (term.length < 4 || Math.abs(word.length - term.length) > 2) return false;
   return editDistance(term, word) <= (term.length >= 7 ? 2 : 1);
 }
