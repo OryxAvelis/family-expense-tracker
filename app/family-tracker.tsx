@@ -101,6 +101,7 @@ import { ProfileAvatar, ProfilePhotoEditor } from "@/app/profile-photo";
 import { AdminCartHistory } from "@/app/admin-cart-history";
 import { useFamilyTheme } from "@/hooks/use-family-theme";
 import type { FamilySessionUser } from "@/lib/family-auth";
+import { SERVICE_TEMPLATES } from "@/lib/service-catalog";
 
 type Language = "fr" | "ar" | "en";
 type Role = "member" | "admin" | "delivery";
@@ -3729,6 +3730,7 @@ function OfflinePurchaseDialog({
   money,
   parsePrice,
   act,
+  actService,
   busy,
 }: {
   data: AppData;
@@ -3736,6 +3738,7 @@ function OfflinePurchaseDialog({
   money: (cents: number) => string;
   parsePrice: (value: string) => number;
   act: (body: Record<string, unknown>, success: string) => Promise<boolean>;
+  actService: (body: Record<string, unknown>, success: string) => Promise<boolean>;
   busy: boolean;
 }) {
   const today = useMemo(
@@ -3751,6 +3754,12 @@ function OfflinePurchaseDialog({
   const [purchasedDate, setPurchasedDate] = useState(today);
   const [search, setSearch] = useState("");
   const [step, setStep] = useState<1 | 2 | 3>(2);
+  const [orderType, setOrderType] = useState<"products" | "services">("products");
+  const [serviceScope, setServiceScope] = useState<"family" | "personal">("family");
+  const [selectedServiceId, setSelectedServiceId] = useState("");
+  const [serviceTitle, setServiceTitle] = useState("");
+  const [serviceDescription, setServiceDescription] = useState("");
+  const [serviceReward, setServiceReward] = useState("2");
   const [showAllProducts, setShowAllProducts] = useState(false);
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [prices, setPrices] = useState<Record<number, string>>({});
@@ -3770,7 +3779,7 @@ function OfflinePurchaseDialog({
 
   useEffect(() => {
     const sequence = ++remoteSearchSequence.current;
-    if (!open || step !== 2 || normalizedSearch.length < 2) {
+    if (!open || step !== 2 || orderType !== "products" || normalizedSearch.length < 2) {
       return;
     }
 
@@ -3830,9 +3839,16 @@ function OfflinePurchaseDialog({
     }, 180);
 
     return () => window.clearTimeout(searchDelay);
-  }, [normalizedSearch, open, search, step]);
+  }, [normalizedSearch, open, orderType, search, step]);
 
   const selectedMember = members.find((member) => member.id === Number(memberId)) ?? null;
+  const selectedService = SERVICE_TEMPLATES.find((service) => service.id === selectedServiceId) ?? null;
+  const visibleServices = SERVICE_TEMPLATES.filter((service) => service.scope === serviceScope);
+  const serviceRewardCents = selectedService
+    ? selectedService.id.endsWith("_custom")
+      ? parsePrice(serviceReward)
+      : selectedService.price
+    : 0;
   const selectedWallet = data.memberWallets.find((wallet) => wallet.member_id === Number(memberId));
   const availableBalanceCents = walletScope === "family"
     ? data.familyWallet.balance_cents
@@ -3844,6 +3860,7 @@ function OfflinePurchaseDialog({
     ),
   ];
   const selected = availableProducts.filter((product) => (quantities[product.id] ?? 0) > 0);
+  const hasSelection = orderType === "products" ? selected.length > 0 : Boolean(selectedService);
   const visibleProducts = availableProducts
     .map((product) => ({
       product,
@@ -3984,6 +4001,12 @@ function OfflinePurchaseDialog({
     setPurchasedDate(today);
     setSearch("");
     setStep(2);
+    setOrderType("products");
+    setServiceScope("family");
+    setSelectedServiceId("");
+    setServiceTitle("");
+    setServiceDescription("");
+    setServiceReward("2");
     setShowAllProducts(false);
     setQuantities({});
     setPrices({});
@@ -4028,6 +4051,46 @@ function OfflinePurchaseDialog({
     }
   };
 
+  const chooseService = (service: (typeof SERVICE_TEMPLATES)[number]) => {
+    setSelectedServiceId(service.id);
+    setServiceTitle(service.title);
+    setServiceDescription(service.description);
+    setServiceReward((service.price / 100).toFixed(2));
+  };
+
+  const submitService = async () => {
+    if (!memberId || !selectedService) {
+      toast.error("Choisissez un membre et un service.");
+      return;
+    }
+    if (!serviceTitle.trim()) {
+      toast.error("Donnez un nom au service.");
+      return;
+    }
+    if (!Number.isInteger(serviceRewardCents) || serviceRewardCents < 200 || serviceRewardCents > 4_900) {
+      toast.error("Le prix du service doit être compris entre 2 et 49 DH.");
+      return;
+    }
+    const ok = await actService(
+      {
+        action: "create_task",
+        creatorMemberId: Number(memberId),
+        scope: selectedService.scope,
+        templateId: selectedService.id,
+        title: serviceTitle.trim(),
+        description: serviceDescription.trim(),
+        rewardCents: serviceRewardCents,
+        priority: "normal",
+        recurrence: "none",
+      },
+      `Service créé pour ${selectedMember?.name ?? "le membre"} et envoyé à Josef.`,
+    );
+    if (ok) {
+      setOpen(false);
+      reset();
+    }
+  };
+
   return (
     <Dialog
       open={open}
@@ -4044,7 +4107,7 @@ function OfflinePurchaseDialog({
           <DialogHeader className="pe-8 text-start">
             <DialogTitle className="text-2xl tracking-[-0.025em] sm:text-3xl">Commander pour un membre</DialogTitle>
             <DialogDescription className="mt-1 text-sm leading-6 sm:text-base">
-              Choisissez les produits pour le membre. Josef recevra la commande et confirmera les achats. Le solde sera débité à la fin.
+              Choisissez des produits ou un service pour le membre. Josef recevra la demande avec le bon nom.
             </DialogDescription>
           </DialogHeader>
 
@@ -4052,11 +4115,11 @@ function OfflinePurchaseDialog({
             <span className="absolute start-[16.66%] end-[16.66%] top-4 h-px bg-border" aria-hidden />
             {([
               [1, "Membre"],
-              [2, "Produits"],
+              [2, "Commande"],
               [3, "Vérification"],
             ] as const).map(([stepNumber, label]) => {
               const active = step === stepNumber;
-              const available = stepNumber !== 3 || selected.length > 0;
+              const available = stepNumber !== 3 || hasSelection;
               return (
                 <button
                   key={stepNumber}
@@ -4153,13 +4216,32 @@ function OfflinePurchaseDialog({
               </div>
               <div className="flex justify-end">
                 <Button type="button" disabled={!memberId} onClick={() => setStep(2)} className="h-11 rounded-xl px-5">
-                  Continuer vers les produits <ChevronRight />
+                  Continuer vers la commande <ChevronRight />
                 </Button>
               </div>
             </section>
           )}
 
           {step === 2 && (
+            <div className="mx-auto mt-5 grid max-w-md grid-cols-2 rounded-2xl bg-muted p-1">
+              <button
+                type="button"
+                onClick={() => setOrderType("products")}
+                className={`flex h-11 items-center justify-center gap-2 rounded-xl text-sm font-semibold transition ${orderType === "products" ? "bg-card text-primary shadow-sm" : "text-muted-foreground"}`}
+              >
+                <ShoppingBasket className="size-4" /> Produits
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrderType("services")}
+                className={`flex h-11 items-center justify-center gap-2 rounded-xl text-sm font-semibold transition ${orderType === "services" ? "bg-card text-primary shadow-sm" : "text-muted-foreground"}`}
+              >
+                <Sparkles className="size-4" /> Services
+              </button>
+            </div>
+          )}
+
+          {step === 2 && orderType === "products" && (
             <section className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(22rem,0.95fr)]">
               <div className="rounded-2xl bg-muted/35 p-3 sm:p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
@@ -4326,7 +4408,100 @@ function OfflinePurchaseDialog({
             </section>
           )}
 
-          {step === 3 && (
+          {step === 2 && orderType === "services" && (
+            <section className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(22rem,0.95fr)]">
+              <div className="rounded-2xl bg-muted/35 p-3 sm:p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="font-semibold sm:text-lg">Choisir un service</h3>
+                    <p className="text-xs text-muted-foreground">La demande sera créée au nom de {selectedMember?.name ?? "ce membre"}.</p>
+                  </div>
+                  <div className="grid grid-cols-2 rounded-xl bg-card p-1 text-xs font-semibold">
+                    <button type="button" onClick={() => setServiceScope("family")} className={`rounded-lg px-3 py-2 ${serviceScope === "family" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>Familial</button>
+                    <button type="button" onClick={() => setServiceScope("personal")} className={`rounded-lg px-3 py-2 ${serviceScope === "personal" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>Personnel</button>
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {visibleServices.map((service) => {
+                    const active = selectedServiceId === service.id;
+                    return (
+                      <button
+                        key={service.id}
+                        type="button"
+                        onClick={() => chooseService(service)}
+                        className={`flex min-h-40 flex-col rounded-2xl border p-3 text-start transition ${active ? "border-primary bg-primary/[0.08] ring-2 ring-primary/15" : "border-border bg-card hover:border-primary/40"}`}
+                      >
+                        <span className="text-3xl" aria-hidden>{service.emoji}</span>
+                        <span className="mt-3 line-clamp-2 text-sm font-semibold leading-5">{service.title}</span>
+                        <span className="mt-1 text-xs text-muted-foreground">{service.duration}</span>
+                        <span className="mt-auto pt-3 text-sm font-bold text-primary">{service.id.endsWith("_custom") ? "Dès 2,00 DH" : money(service.price)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold sm:text-lg">Service pour {selectedMember?.name ?? "ce membre"}</h3>
+                    <p className="text-xs text-muted-foreground">Josef verra le membre comme demandeur.</p>
+                  </div>
+                  {selectedService && (
+                    <Button type="button" size="sm" variant="ghost" className="rounded-xl text-muted-foreground hover:text-destructive" onClick={() => setSelectedServiceId("")}>
+                      <Trash2 className="size-4" /> Retirer
+                    </Button>
+                  )}
+                </div>
+                {selectedService ? (
+                  <div className="mt-4 space-y-4">
+                    <div className={`rounded-2xl bg-gradient-to-br p-4 ${selectedService.gradient}`}>
+                      <div className="flex items-start gap-3">
+                        <span className="text-4xl" aria-hidden>{selectedService.emoji}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-foreground">{selectedService.title}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{selectedService.duration} · {selectedService.scope === "family" ? "Service familial" : "Service personnel"}</p>
+                        </div>
+                        <strong className="text-primary">{money(serviceRewardCents)}</strong>
+                      </div>
+                    </div>
+                    <div>
+                      <Label htmlFor="admin-service-title">Nom du service</Label>
+                      <Input id="admin-service-title" value={serviceTitle} onChange={(event) => setServiceTitle(event.target.value)} maxLength={80} className="mt-1.5 h-11 rounded-xl" />
+                    </div>
+                    <div>
+                      <Label htmlFor="admin-service-description">Instructions pour Josef</Label>
+                      <Textarea id="admin-service-description" value={serviceDescription} onChange={(event) => setServiceDescription(event.target.value)} maxLength={400} rows={4} className="mt-1.5 rounded-xl" placeholder="Ajoutez les détails utiles…" />
+                    </div>
+                    {selectedService.id.endsWith("_custom") && (
+                      <div>
+                        <Label htmlFor="admin-service-reward">Prix du service (DH)</Label>
+                        <Input id="admin-service-reward" inputMode="decimal" value={serviceReward} onChange={(event) => setServiceReward(event.target.value)} className="mt-1.5 h-11 rounded-xl" />
+                        <p className="mt-1 text-xs text-muted-foreground">Entre 2 et 49 DH.</p>
+                      </div>
+                    )}
+                    <div className="rounded-2xl bg-primary/[0.06] p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm text-muted-foreground">Prix du service</span>
+                        <strong className="text-lg text-primary">{money(serviceRewardCents)}</strong>
+                      </div>
+                      <p className="mt-2 text-xs leading-5 text-muted-foreground">Aucun frais de livraison de 0,50 DH n’est ajouté à un service.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 grid min-h-72 place-items-center rounded-2xl border border-dashed border-border p-6 text-center">
+                    <div>
+                      <Sparkles className="mx-auto size-9 text-primary/55" />
+                      <p className="mt-3 text-sm font-medium">Aucun service sélectionné</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">Choisissez une carte pour voir les détails et ajouter des instructions.</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {step === 3 && orderType === "products" && (
             <section className="mx-auto mt-6 max-w-3xl">
               <div className="mb-4">
                 <h3 className="text-lg font-semibold">Vérifiez la commande</h3>
@@ -4362,21 +4537,52 @@ function OfflinePurchaseDialog({
               )}
             </section>
           )}
+
+          {step === 3 && orderType === "services" && selectedService && (
+            <section className="mx-auto mt-6 max-w-3xl">
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold">Vérifiez le service</h3>
+                <p className="mt-1 text-sm text-muted-foreground">La mission sera enregistrée au nom de {selectedMember?.name ?? "ce membre"} et apparaîtra chez Josef.</p>
+              </div>
+              <div className="overflow-hidden rounded-2xl border border-border">
+                <div className={`bg-gradient-to-br p-5 ${selectedService.gradient}`}>
+                  <div className="flex items-start gap-4">
+                    <span className="text-5xl" aria-hidden>{selectedService.emoji}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h4 className="text-lg font-bold text-foreground">{serviceTitle}</h4>
+                        <Badge variant="outline" className="bg-card/80">{selectedService.scope === "family" ? "Familial" : "Personnel"}</Badge>
+                      </div>
+                      <p className="mt-1 text-sm text-muted-foreground">{selectedService.duration}</p>
+                      {serviceDescription && <p className="mt-3 text-sm leading-6 text-foreground/80">{serviceDescription}</p>}
+                    </div>
+                    <strong className="text-lg text-primary">{money(serviceRewardCents)}</strong>
+                  </div>
+                </div>
+                <div className="grid gap-3 bg-card p-4 sm:grid-cols-3">
+                  <div><p className="text-xs text-muted-foreground">Demandé pour</p><p className="mt-1 font-semibold">{selectedMember?.name}</p></div>
+                  <div><p className="text-xs text-muted-foreground">Réalisé par</p><p className="mt-1 font-semibold">Josef</p></div>
+                  <div><p className="text-xs text-muted-foreground">Prix du service</p><p className="mt-1 font-bold text-primary">{money(serviceRewardCents)}</p></div>
+                </div>
+              </div>
+              <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground"><CircleCheck className="size-4 text-primary" /> Aucun frais de livraison n’est ajouté.</p>
+            </section>
+          )}
         </div>
 
         <DialogFooter className="mt-auto flex-row items-center justify-between gap-3 border-t border-border bg-card/95 px-4 py-4 backdrop-blur sm:px-7">
           <div className="min-w-0">
-            <p className="text-xs text-muted-foreground">Solde estimé après achat</p>
-            <p className="truncate text-lg font-bold text-primary sm:text-2xl">{money(remainingBalanceCents)}</p>
+            <p className="text-xs text-muted-foreground">{orderType === "products" ? "Solde estimé après achat" : "Prix du service"}</p>
+            <p className="truncate text-lg font-bold text-primary sm:text-2xl">{money(orderType === "products" ? remainingBalanceCents : serviceRewardCents)}</p>
           </div>
           {step === 2 ? (
-            <Button type="button" disabled={!memberId || !selected.length} onClick={() => setStep(3)} className="h-11 rounded-xl px-5">
-              Vérifier la commande <ChevronRight />
+            <Button type="button" disabled={!memberId || !hasSelection} onClick={() => setStep(3)} className="h-11 rounded-xl px-5">
+              Vérifier {orderType === "products" ? "la commande" : "le service"} <ChevronRight />
             </Button>
           ) : step === 3 ? (
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={() => setStep(2)} className="hidden h-11 rounded-xl sm:inline-flex">Modifier</Button>
-              <Button disabled={busy || !memberId || !selected.length} onClick={() => void submit()} className="h-11 rounded-xl px-5">
+              <Button disabled={busy || !memberId || !hasSelection} onClick={() => void (orderType === "products" ? submit() : submitService())} className="h-11 rounded-xl px-5">
                 {busy ? <Loader2 className="animate-spin" /> : <Check />} Envoyer à Josef
               </Button>
             </div>
@@ -4754,7 +4960,7 @@ function AdminDashboard({
           <p className="mb-2 text-sm font-semibold text-[#b76500] dark:text-[#ffb454]">{t.admin}</p>
           <h1 className="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">La maison, en un coup d’œil.</h1>
         </div>
-        <OfflinePurchaseDialog data={data} productName={productName} money={money} parsePrice={parsePrice} act={act} busy={busy} />
+        <OfflinePurchaseDialog data={data} productName={productName} money={money} parsePrice={parsePrice} act={act} actService={actService} busy={busy} />
       </div>
 
       <Tabs value={view} onValueChange={(value) => setView(value as AdminView)}>

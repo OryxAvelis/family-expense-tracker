@@ -13,6 +13,7 @@ import {
 } from "@/lib/family-services";
 import { addMemberWalletTransaction } from "@/lib/member-wallet";
 import { notifyAdminOfPlanRequest } from "@/lib/push-notifications";
+import { SERVICE_CATALOG } from "@/lib/service-catalog";
 import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
@@ -20,24 +21,6 @@ export const runtime = "nodejs";
 
 type Body = { action?: string; [key: string]: unknown };
 type FamilyUser = { id: number; name: string; initials: string; role: "admin" | "delivery" | "member" };
-const SERVICE_CATALOG: Record<string, { price_cents: number | null; scope: "family" | "personal" }> = {
-  laundry: { price_cents: 500, scope: "family" },
-  garbage: { price_cents: 200, scope: "family" },
-  gas: { price_cents: 500, scope: "family" },
-  tidy: { price_cents: 2000, scope: "family" },
-  dishes: { price_cents: 1000, scope: "family" },
-  shopping: { price_cents: 500, scope: "family" },
-  bathroom: { price_cents: 1500, scope: "family" },
-  kitchen: { price_cents: 1500, scope: "family" },
-  family_custom: { price_cents: null, scope: "family" },
-  clean: { price_cents: 1000, scope: "personal" },
-  website: { price_cents: 4900, scope: "personal" },
-  computer: { price_cents: 1500, scope: "personal" },
-  documents: { price_cents: 1000, scope: "personal" },
-  errand: { price_cents: 800, scope: "personal" },
-  homework: { price_cents: 1000, scope: "personal" },
-  personal_custom: { price_cents: null, scope: "personal" },
-};
 
 const text = (value: unknown, max = 160) => typeof value === "string" ? value.trim().slice(0, max) : "";
 const positiveInt = (value: unknown, label: string, max = 10_000_000) => {
@@ -216,8 +199,16 @@ export async function POST(request: Request) {
         if (!template) throw new Error("Service introuvable.");
         const scope = body.scope === "personal" ? "personal" : "family";
         if (scope !== template.scope) throw new Error("Type de service invalide.");
-        const plan = planForTaskScope(state, viewer.id, scope, now);
-        const usage = monthlyTaskUsageForScope(state, viewer.id, scope, now);
+        let creator: Pick<FamilyUser, "id" | "name"> = viewer;
+        if (body.creatorMemberId !== undefined) {
+          if (viewer.role !== "admin") throw new Error("Seul l’administrateur peut commander pour un membre.");
+          const creatorMemberId = positiveInt(body.creatorMemberId, "Membre");
+          const member = users.find((user) => user.id === creatorMemberId && user.role === "member");
+          if (!member) throw new Error("Membre introuvable.");
+          creator = member;
+        }
+        const plan = planForTaskScope(state, creator.id, scope, now);
+        const usage = monthlyTaskUsageForScope(state, creator.id, scope, now);
         const limit = PLAN_RULES[plan].monthly_tasks;
         if (limit !== null && usage >= limit) throw new Error(`Limite mensuelle atteinte (${limit} services).`);
         const assignee = users.find((user) => user.role === "delivery");
@@ -234,7 +225,7 @@ export async function POST(request: Request) {
         }
         state.tasks.push({
           id: crypto.randomUUID(), title, description: text(body.description, 400), template_id: templateId, scope,
-          creator_id: viewer.id, creator_name: viewer.name, assignee_id: assignee.id, assignee_name: assignee.name,
+          creator_id: creator.id, creator_name: creator.name, assignee_id: assignee.id, assignee_name: assignee.name,
           reward_cents: rewardCents, priority: body.priority === "urgent" ? "urgent" : "normal",
           deadline, recurrence, status: "pending", created_at: now.toISOString(), started_at: null, completed_at: null,
         });
