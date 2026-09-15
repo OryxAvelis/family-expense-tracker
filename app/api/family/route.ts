@@ -1244,6 +1244,67 @@ export async function POST(request: Request) {
         break;
       }
 
+      case "migrate_member_wallet_to_family": {
+        requireRole(viewer.role, "admin");
+        const memberId = asPositiveInt(body.memberId, "memberId");
+        const { data: member, error: memberError } = await db
+          .from("family_users")
+          .select("id, name")
+          .eq("id", memberId)
+          .eq("role", "member")
+          .eq("active", true)
+          .maybeSingle();
+        throwIfSupabaseError(memberError);
+        if (!member) throw new Error("Membre introuvable.");
+
+        const personalKey = memberWalletMetaKey(memberId);
+        const { data: walletRows, error: walletError } = await db
+          .from("app_meta")
+          .select("key, value")
+          .in("key", [personalKey, FAMILY_WALLET_META_KEY]);
+        throwIfSupabaseError(walletError);
+        const walletMetadata = new Map((walletRows ?? []).map((entry) => [String(entry.key), String(entry.value)]));
+        const personalTransactions = parseMemberWallet(walletMetadata.get(personalKey));
+        const movable = personalTransactions.filter((entry) => entry.type === "deposit" || entry.type === "order");
+        if (!movable.length) throw new Error("Aucun historique personnel à migrer.");
+
+        const familyTransactions = parseFamilyWallet(walletMetadata.get(FAMILY_WALLET_META_KEY));
+        const familyTransactionIds = new Set(familyTransactions.map((entry) => entry.id));
+        const converted = movable
+          .map((entry) => entry.type === "order"
+            ? {
+                id: entry.id,
+                type: "order" as const,
+                amount_cents: entry.amount_cents,
+                cart_id: entry.cart_id,
+                created_at: entry.created_at,
+                actor_name: entry.actor_name,
+              }
+            : {
+                id: `member-${memberId}-${entry.id}`,
+                type: "contribution" as const,
+                amount_cents: entry.amount_cents,
+                cart_id: null,
+                contributor_id: memberId,
+                contributor_name: member.name,
+                created_at: entry.created_at,
+                actor_name: entry.actor_name,
+              })
+          .filter((entry) => !familyTransactionIds.has(entry.id));
+        const movedIds = new Set(movable.map((entry) => entry.id));
+        const remainingPersonal = personalTransactions.filter((entry) => !movedIds.has(entry.id));
+        const cartScopeRows = movable
+          .filter((entry) => entry.type === "order" && entry.cart_id)
+          .map((entry) => ({ key: `${CART_WALLET_SCOPE_PREFIX}${entry.cart_id}`, value: "family" }));
+        const { error: migrationError } = await db.from("app_meta").upsert([
+          { key: personalKey, value: JSON.stringify(remainingPersonal.slice(-300)) },
+          { key: FAMILY_WALLET_META_KEY, value: JSON.stringify([...familyTransactions, ...converted].slice(-500)) },
+          ...cartScopeRows,
+        ], { onConflict: "key" });
+        throwIfSupabaseError(migrationError);
+        break;
+      }
+
       case "mark_order_paid_directly": {
         if (viewer.role !== "admin" && viewer.role !== "delivery") {
           throw new Error("Action non autorisée pour ce rôle.");

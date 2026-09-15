@@ -175,8 +175,12 @@ async function run() {
   assert.equal(transferred.memberWallets[0].balance_cents, personalBalanceBeforeFamilyOrder - 5000);
   const familyHistory = await (await history.GET(new Request('http://localhost/api/family/history'))).json();
   assert.equal(familyHistory.carts.find(cart => cart.id === familyCart.id).wallet_scope, 'family');
+  const migrated = await post({ action: 'migrate_member_wallet_to_family', memberId: 3 });
+  assert.equal(migrated.memberWallets[0].balance_cents, 0);
+  assert.equal(migrated.familyWallet.balance_cents, 33050);
+  assert.equal(tables.app_meta.find(entry => entry.key === `cart_wallet_scope_${cartId}`).value, 'family');
   viewer = { id: 4, role: 'member', name: 'Other' };
   assert.equal((await (await api.GET(new Request('http://localhost/api/family'))).json()).carts.length, 0);
-  console.log('PASS: assisted orders, fees, amount purchases, history, shared wallet debit, direct payment reversal, personal-to-family transfer, and member isolation.');
+  console.log('PASS: assisted orders, fees, amount purchases, history, shared wallet debit, direct payment reversal, transfers, full wallet migration, and member isolation.');
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });
