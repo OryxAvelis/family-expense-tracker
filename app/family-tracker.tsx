@@ -1482,7 +1482,7 @@ export function FamilyTracker({
 
   const itemRequestLabel = (item: CartItem) =>
     isAmountItem(item)
-      ? `${t.forAmount} ${money(item.quantity_hundredths)} · ≈ ${amountQuantityLabel(item.quantity_hundredths, item.catalog_unit_price_cents, item.unit, item.package_size)}`
+      ? `${t.forAmount} ${money(item.quantity_hundredths)}${item.unit !== "pièce" || measuredPackageSize(item.package_size) ? ` · ≈ ${amountQuantityLabel(item.quantity_hundredths, item.catalog_unit_price_cents, item.unit, item.package_size)}` : ""}`
       : quantityLabel(item.quantity_hundredths, item.unit, item.package_size);
 
   const itemsFor = (cartId: number) => data?.items.filter((item) => item.cart_id === cartId) ?? [];
@@ -3513,6 +3513,7 @@ function OfflinePurchaseDialog({
   const [showAllProducts, setShowAllProducts] = useState(false);
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [prices, setPrices] = useState<Record<number, string>>({});
+  const [amounts, setAmounts] = useState<Record<number, string>>({});
 
   const selectedMember = members.find((member) => member.id === Number(memberId)) ?? null;
   const selectedWallet = data.memberWallets.find((wallet) => wallet.member_id === Number(memberId));
@@ -3539,6 +3540,10 @@ function OfflinePurchaseDialog({
     .slice(0, search.trim() || showAllProducts ? 18 : 6)
     .map(({ product }) => product);
   const totalCents = selected.reduce((total, product) => {
+    if (amounts[product.id] !== undefined) {
+      const amount = parsePrice(amounts[product.id]);
+      return total + (Number.isFinite(amount) && amount > 0 ? amount : 0);
+    }
     const price = parsePrice(prices[product.id] ?? "");
     return total + (Number.isFinite(price) ? Math.round(price * quantities[product.id] / 100) : 0);
   }, 0);
@@ -3554,8 +3559,10 @@ function OfflinePurchaseDialog({
   const productStep = (product: Product) => product.unit === "pièce" || product.package_size ? 100 : 50;
   const changeQuantity = (product: Product, direction: 1 | -1) => {
     const step = productStep(product);
+    setAmounts((current) => { const next = { ...current }; delete next[product.id]; return next; });
     setQuantities((current) => {
-      const next = Math.max(0, (current[product.id] ?? 0) + direction * step);
+      const previousQuantity = amounts[product.id] !== undefined ? 0 : (current[product.id] ?? 0);
+      const next = Math.max(0, previousQuantity + direction * step);
       const updated = { ...current };
       if (next) updated[product.id] = next;
       else delete updated[product.id];
@@ -3569,6 +3576,11 @@ function OfflinePurchaseDialog({
     }
   };
 
+  const buyByAmount = (product: Product) => {
+    setQuantities((current) => ({ ...current, [product.id]: 100 }));
+    setAmounts((current) => ({ ...current, [product.id]: current[product.id] ?? "5" }));
+  };
+
   const reset = () => {
     setMemberId("");
     setPurchasedDate(today);
@@ -3577,11 +3589,13 @@ function OfflinePurchaseDialog({
     setShowAllProducts(false);
     setQuantities({});
     setPrices({});
+    setAmounts({});
   };
 
   const clearProducts = () => {
     setQuantities({});
     setPrices({});
+    setAmounts({});
   };
 
   const submit = async () => {
@@ -3593,9 +3607,12 @@ function OfflinePurchaseDialog({
       productId: product.id,
       quantityHundredths: quantities[product.id],
       actualUnitPriceCents: parsePrice(prices[product.id] ?? ""),
+      ...(amounts[product.id] !== undefined ? { amountCents: parsePrice(amounts[product.id]) } : {}),
     }));
-    if (items.some((item) => !Number.isInteger(item.actualUnitPriceCents) || item.actualUnitPriceCents <= 0)) {
-      toast.error("Vérifiez le prix de chaque produit.");
+    if (items.some((item) => item.amountCents !== undefined
+      ? !Number.isInteger(item.amountCents) || item.amountCents < 50 || item.amountCents > 10_000_000
+      : !Number.isInteger(item.actualUnitPriceCents) || item.actualUnitPriceCents <= 0)) {
+      toast.error("Vérifiez les prix et les montants (minimum 0,50 DH).");
       return;
     }
     const ok = await act(
@@ -3757,6 +3774,9 @@ function OfflinePurchaseDialog({
                         <Button type="button" size="sm" variant="outline" className="mt-2 w-full rounded-xl border-primary/25 text-primary" onClick={() => changeQuantity(product, 1)}>
                           <Plus className="size-4" /> Ajouter
                         </Button>
+                        <Button type="button" size="sm" variant="ghost" className="mt-1 w-full rounded-xl text-primary" onClick={() => buyByAmount(product)}>
+                          Par montant (DH)
+                        </Button>
                       </div>
                     </article>
                   ))}
@@ -3782,14 +3802,23 @@ function OfflinePurchaseDialog({
                   {selected.length ? selected.map((product) => {
                     const quantity = quantities[product.id];
                     const parsedPrice = parsePrice(prices[product.id] ?? "");
-                    const lineTotal = Number.isFinite(parsedPrice) ? Math.round(parsedPrice * quantity / 100) : 0;
+                    const amountMode = amounts[product.id] !== undefined;
+                    const amount = amountMode ? parsePrice(amounts[product.id]) : 0;
+                    const lineTotal = amountMode ? (Number.isFinite(amount) ? amount : 0) : Number.isFinite(parsedPrice) ? Math.round(parsedPrice * quantity / 100) : 0;
                     return (
                       <div key={product.id} className="grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-center gap-2 border-b border-border/70 py-3 last:border-0">
                         <ProductImage position={product.image_position} name={productName(product)} imageUrl={product.image_url} className="size-11 rounded-xl" />
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold">{productName(product)}</p>
-                          <p className="text-xs text-muted-foreground">{product.package_size || `1 ${product.unit}`} · {money(lineTotal)}</p>
+                          <p className="text-xs text-muted-foreground">{amountMode ? "Pour ce montant" : product.package_size || `1 ${product.unit}`} · {money(lineTotal)}</p>
                           <div className="mt-2 flex flex-wrap items-center gap-2">
+                            {amountMode ? <>
+                              <div className="w-full">
+                                <Label htmlFor={`admin-amount-${product.id}`} className="text-xs">Montant à acheter (DH)</Label>
+                                <Input id={`admin-amount-${product.id}`} inputMode="decimal" value={amounts[product.id]} onChange={(event) => setAmounts((current) => ({ ...current, [product.id]: event.target.value }))} className="mt-1 h-10 rounded-xl" aria-invalid={!Number.isInteger(amount) || amount < 50 || amount > 10_000_000} />
+                              </div>
+                              <Button type="button" size="sm" variant="ghost" onClick={() => changeQuantity(product, 1)}>Par quantité</Button>
+                            </> : <>
                             <div className="flex items-center rounded-xl bg-muted">
                               <Button type="button" size="icon" variant="ghost" className="size-8 rounded-xl" aria-label={`Réduire ${productName(product)}`} onClick={() => changeQuantity(product, -1)}><span aria-hidden>−</span></Button>
                               <strong className="min-w-10 text-center text-xs">{quantity / 100}</strong>
@@ -3799,11 +3828,13 @@ function OfflinePurchaseDialog({
                               <Input inputMode="decimal" value={prices[product.id] ?? ""} onChange={(event) => setPrices((current) => ({ ...current, [product.id]: event.target.value }))} aria-label={`Prix unitaire de ${productName(product)}`} className="h-8 rounded-xl pe-8 text-xs" />
                               <span className="absolute end-2.5 top-2 text-[10px] font-bold text-muted-foreground">DH</span>
                             </div>
+                            </>}
                           </div>
                         </div>
                         <Button type="button" size="icon" variant="ghost" className="size-9 rounded-xl text-muted-foreground hover:text-destructive" aria-label={`Retirer ${productName(product)}`} onClick={() => {
                           setQuantities((current) => { const updated = { ...current }; delete updated[product.id]; return updated; });
                           setPrices((current) => { const updated = { ...current }; delete updated[product.id]; return updated; });
+                          setAmounts((current) => { const updated = { ...current }; delete updated[product.id]; return updated; });
                         }}><Trash2 className="size-4" /></Button>
                       </div>
                     );
@@ -3848,13 +3879,15 @@ function OfflinePurchaseDialog({
                 {selected.map((product) => {
                   const quantity = quantities[product.id];
                   const parsedPrice = parsePrice(prices[product.id] ?? "");
-                  const lineTotal = Number.isFinite(parsedPrice) ? Math.round(parsedPrice * quantity / 100) : 0;
+                  const amountMode = amounts[product.id] !== undefined;
+                  const amount = amountMode ? parsePrice(amounts[product.id]) : 0;
+                  const lineTotal = amountMode ? (Number.isFinite(amount) ? amount : 0) : Number.isFinite(parsedPrice) ? Math.round(parsedPrice * quantity / 100) : 0;
                   return (
                     <div key={product.id} className="flex items-center gap-3 border-b border-border p-3 last:border-0">
                       <ProductImage position={product.image_position} name={productName(product)} imageUrl={product.image_url} className="size-12 rounded-xl" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-semibold">{productName(product)}</p>
-                        <p className="text-xs text-muted-foreground">{quantity / 100} × {money(parsedPrice || 0)}</p>
+                        <p className="text-xs text-muted-foreground">{amountMode ? `Pour ${money(lineTotal)}` : `${quantity / 100} × ${money(parsedPrice || 0)}`}</p>
                       </div>
                       <strong className="text-sm">{money(lineTotal)}</strong>
                     </div>

@@ -122,7 +122,36 @@ async function run() {
   assert.equal(proCompleted.memberWallets[0].balance_cents, 19050);
   assert.equal(proCompleted.deliveryWallet.earnedCents, 50);
   viewer = { id: 1, role: 'admin', name: 'Admin' };
-  for (let id = 3; id <= 105; id++) tables.carts.push({ id, member_id: 3, status: id === 105 ? 'cancelled' : 'completed', created_at: new Date().toISOString(), submitted_at: new Date().toISOString(), completed_at: new Date().toISOString() });
+  tables.app_meta.find(entry => entry.key === 'family_services_state_v1').value = '{}';
+  tables.products.push({ id: 2, name_fr: 'Lentilles', name_en: 'Lentils', name_ar: 'عدس', unit: 'pièce', unit_price_cents: 4600, purchase_count: 0, active: true });
+  for (const invalidAmount of [0, -500, 49, 500.5, 10000001, null, 'not-a-number']) {
+    const response = await api.POST(new Request('http://localhost/api/family', { method: 'POST', body: JSON.stringify({ ...body, items: [{ productId: 2, amountCents: invalidAmount }] }) }));
+    assert.equal(response.status, 400);
+    assert.equal(tables.carts.length, 2);
+  }
+  const amountOrder = await post({ ...body, items: [...body.items, { productId: 2, amountCents: 500 }] });
+  const amountCart = tables.carts.at(-1);
+  const lentils = tables.cart_items.find(item => item.cart_id === amountCart.id && item.product_id === 2);
+  assert.equal(lentils.quantity_hundredths, 500);
+  assert.equal(lentils.actual_unit_price_cents, 500);
+  assert.equal(lentils.requested_unit_price_cents, 2147483647);
+  assert.equal(amountOrder.memberWallets[0].balance_cents, 19050);
+  viewer = { id: 3, role: 'member', name: 'Mohamed' };
+  await post({ action: 'update_cart', cartId: amountCart.id, items: [...body.items, { productId: 2, quantityHundredths: 100, amountCents: 500 }] });
+  viewer = { id: 2, role: 'delivery', name: 'Josef' };
+  for (const item of tables.cart_items.filter(item => item.cart_id === amountCart.id)) {
+    await post({ action: 'update_item', itemId: item.id, purchaseStatus: 'bought', actualUnitPriceCents: item.product_id === 2 ? 500 : 150 });
+  }
+  const amountCompleted = await post({ action: 'finish_cart', cartId: amountCart.id });
+  assert.equal(amountCompleted.memberWallets[0].balance_cents, 18050);
+  assert.equal(amountCompleted.deliveryWallet.earnedCents, 100);
+  assert.equal(tables.products.find(product => product.id === 2).unit_price_cents, 4600);
+  viewer = { id: 1, role: 'admin', name: 'Admin' };
+  const amountHistory = await (await history.GET(new Request('http://localhost/api/family/history'))).json();
+  const savedLentils = amountHistory.carts.find(cart => cart.id === amountCart.id).cart_items.find(item => item.product_id === 2);
+  assert.equal(savedLentils.actual_unit_price_cents, 500);
+  assert.equal(savedLentils.requested_unit_price_cents, 2147483647);
+  for (let id = 4; id <= 105; id++) tables.carts.push({ id, member_id: 3, status: id === 105 ? 'cancelled' : 'completed', created_at: new Date().toISOString(), submitted_at: new Date().toISOString(), completed_at: new Date().toISOString() });
   const archive = await (await history.GET(new Request('http://localhost/api/family/history?page=1'))).json();
   assert.equal(archive.total, 105); assert.equal(archive.carts.length, 20);
   assert.equal((await (await history.GET(new Request('http://localhost/api/family/history?page=6'))).json()).carts.length, 5);
@@ -130,6 +159,6 @@ async function run() {
   assert.equal((await (await history.GET(new Request('http://localhost/api/family/history?memberId=4'))).json()).total, 0);
   viewer = { id: 4, role: 'member', name: 'Other' };
   assert.equal((await (await api.GET(new Request('http://localhost/api/family'))).json()).carts.length, 0);
-  console.log('PASS: admin authorization, pending order, delivery visibility, notification, deferred wallet debit, completion/retry, Free/Pro fees, old-form compatibility, history pagination beyond 80 carts, filters, and member isolation.');
+  console.log('PASS: admin authorization, pending order, delivery visibility, notification, deferred wallet debit, completion/retry, Free/Pro fees, old-form compatibility, 5 DH lentils + quantity mix, invalid amounts, member edit, preserved catalogue price, history pagination beyond 80 carts, filters, and member isolation.');
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

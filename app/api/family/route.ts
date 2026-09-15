@@ -755,13 +755,17 @@ export async function POST(request: Request) {
         if (!items.length && !missingProductsNote) throw new Error("Le panier est vide.");
         const { data: cart, error: cartError } = await db
           .from("carts")
-          .select("id")
+          .select("id, cart_items(product_id, requested_unit_price_cents)")
           .eq("id", cartId)
           .eq("member_id", viewer.id)
           .in("status", ["pending", "ready"])
           .maybeSingle();
         throwIfSupabaseError(cartError);
         if (!cart) throw new Error("Ce panier ne peut plus être modifié.");
+        const existingAmountProductIds = new Set(
+          cart.cart_items.filter((item) => item.requested_unit_price_cents === AMOUNT_REQUEST_SENTINEL_CENTS)
+            .map((item) => Number(item.product_id)),
+        );
 
         const orderById = new Map<number, { quantityHundredths: number; amountCents: number | null }>();
         for (const raw of items) {
@@ -793,7 +797,7 @@ export async function POST(request: Request) {
           for (const product of productRows) {
             const order = orderById.get(Number(product.id));
             if (order?.amountCents !== null && order?.amountCents !== undefined) {
-              if (!canPurchaseByAmount(product)) {
+              if (!canPurchaseByAmount(product) && !existingAmountProductIds.has(Number(product.id))) {
                 throw new Error("Ce produit ne peut pas être acheté par montant.");
               }
             }
@@ -1008,16 +1012,20 @@ export async function POST(request: Request) {
         throwIfSupabaseError(memberError);
         if (!member) throw new Error("Membre introuvable.");
 
-        const itemByProduct = new Map<number, { quantityHundredths: number; actualUnitPriceCents: number }>();
+        const itemByProduct = new Map<number, { quantityHundredths: number; actualUnitPriceCents: number; amountCents: number | null }>();
         for (const rawItem of rawItems) {
           const item = rawItem as Record<string, unknown>;
           const productId = asPositiveInt(item.productId, "productId");
-          const quantityHundredths = asPositiveInt(item.quantityHundredths, "quantityHundredths");
-          const actualUnitPriceCents = asPositiveInt(item.actualUnitPriceCents, "actualUnitPriceCents");
+          const amountCents = item.amountCents === undefined ? null : asPositiveInt(item.amountCents, "amountCents");
+          if (amountCents !== null && (amountCents < 50 || amountCents > 10_000_000)) {
+            throw new Error("Le montant demandé est invalide (minimum 0,50 DH).");
+          }
+          const quantityHundredths = amountCents === null ? asPositiveInt(item.quantityHundredths, "quantityHundredths") : 100;
+          const actualUnitPriceCents = amountCents ?? asPositiveInt(item.actualUnitPriceCents, "actualUnitPriceCents");
           if (quantityHundredths > 100_000 || actualUnitPriceCents > 10_000_000) {
             throw new Error("Une quantité ou un prix est trop élevé.");
           }
-          itemByProduct.set(productId, { quantityHundredths, actualUnitPriceCents });
+          itemByProduct.set(productId, { quantityHundredths, actualUnitPriceCents, amountCents });
         }
 
         const productIds = [...itemByProduct.keys()];
@@ -1053,8 +1061,8 @@ export async function POST(request: Request) {
           return {
             cart_id: cartId,
             product_id: product.id,
-            quantity_hundredths: item.quantityHundredths,
-            requested_unit_price_cents: item.actualUnitPriceCents,
+            quantity_hundredths: item.amountCents ?? item.quantityHundredths,
+            requested_unit_price_cents: item.amountCents === null ? item.actualUnitPriceCents : AMOUNT_REQUEST_SENTINEL_CENTS,
             actual_unit_price_cents: item.actualUnitPriceCents,
             purchase_status: "requested",
           };
