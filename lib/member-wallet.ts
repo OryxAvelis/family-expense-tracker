@@ -4,7 +4,7 @@ const MEMBER_WALLET_PREFIX = "member_wallet_";
 
 export type MemberWalletTransaction = {
   id: string;
-  type: "deposit" | "order" | "task";
+  type: "deposit" | "order" | "task" | "transfer";
   amount_cents: number;
   cart_id: number | null;
   task_id?: string | null;
@@ -27,7 +27,13 @@ export function parseMemberWallet(value: string | undefined) {
       .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
       .map((entry) => ({
         id: cleanText(entry.id),
-        type: entry.type === "order" ? "order" as const : entry.type === "task" ? "task" as const : "deposit" as const,
+        type: entry.type === "order"
+          ? "order" as const
+          : entry.type === "task"
+            ? "task" as const
+            : entry.type === "transfer"
+              ? "transfer" as const
+              : "deposit" as const,
         amount_cents: Number(entry.amount_cents),
         cart_id: Number.isInteger(Number(entry.cart_id)) && Number(entry.cart_id) > 0 ? Number(entry.cart_id) : null,
         task_id: cleanText(entry.task_id) || null,

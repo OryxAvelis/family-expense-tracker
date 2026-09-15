@@ -23,7 +23,12 @@ export async function GET(request: Request) {
     if (status && ["pending", "ready", "shopping", "completed", "cancelled"].includes(status)) query = query.eq("status", status);
     const { data, error, count } = await query.order("created_at", { ascending: false }).order("id", { ascending: false }).range((page - 1) * 20, page * 20 - 1);
     throwIfSupabaseError(error);
-    const keys = (data ?? []).flatMap((cart) => [`cart_service_fee_${cart.id}`, `offline_purchase_${cart.id}`, `cart_created_by_${cart.id}`]);
+    const keys = (data ?? []).flatMap((cart) => [
+      `cart_service_fee_${cart.id}`,
+      `offline_purchase_${cart.id}`,
+      `cart_created_by_${cart.id}`,
+      `cart_wallet_scope_${cart.id}`,
+    ]);
     const { data: meta, error: metaError } = await db.from("app_meta").select("key, value").in("key", [SERVICES_META_KEY, ...keys]);
     throwIfSupabaseError(metaError);
     const metadata = new Map((meta ?? []).map((entry) => [entry.key, entry.value]));
@@ -32,6 +37,7 @@ export async function GET(request: Request) {
       ...cart,
       created_by: metadata.get(`cart_created_by_${cart.id}`) ?? null,
       offline_purchase: metadata.get(`offline_purchase_${cart.id}`) === "1",
+      wallet_scope: metadata.get(`cart_wallet_scope_${cart.id}`) === "family" ? "family" : "personal",
       service_fee_cents: cart.status === "cancelled" ? 0 : cart.status === "completed"
         ? Number(metadata.get(`cart_service_fee_${cart.id}`) ?? 50)
         : serviceFeeForPlan(effectivePlan(plans, Number(cart.member_id))),

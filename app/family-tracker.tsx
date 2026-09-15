@@ -323,6 +323,7 @@ type Cart = {
   missing_products_note: string;
   service_fee_cents: number;
   offline_purchase?: boolean;
+  wallet_scope: "family" | "personal";
 };
 
 type CartItem = {
@@ -390,12 +391,30 @@ type DeliveryWallet = {
 
 type MemberWalletTransaction = {
   id: string;
-  type: "deposit" | "order" | "task";
+  type: "deposit" | "order" | "task" | "transfer";
   amount_cents: number;
   cart_id: number | null;
   task_id?: string | null;
   created_at: string;
   actor_name: string;
+};
+
+type FamilyWalletTransaction = {
+  id: string;
+  type: "contribution" | "order";
+  amount_cents: number;
+  cart_id: number | null;
+  contributor_id?: number | null;
+  contributor_name?: string | null;
+  created_at: string;
+  actor_name: string;
+};
+
+type FamilyWallet = {
+  balance_cents: number;
+  credited_cents: number;
+  spent_cents: number;
+  transactions: FamilyWalletTransaction[];
 };
 
 type MemberWallet = {
@@ -421,6 +440,7 @@ type AppData = {
   favoriteProductIds: number[];
   deliveryWallet: DeliveryWallet;
   memberWallets: MemberWallet[];
+  familyWallet: FamilyWallet;
   memberServiceFees: Array<{ member_id: number; service_fee_cents: number }>;
   pushPublicKey: string | null;
 };
@@ -1110,6 +1130,7 @@ export function FamilyTracker({
   const [amountDh, setAmountDh] = useState("");
   const [missingProductsNote, setMissingProductsNote] = useState("");
   const [editingCartId, setEditingCartId] = useState<number | null>(null);
+  const [draftWalletScope, setDraftWalletScope] = useState<"family" | "personal">("family");
   const [deliveryPrices, setDeliveryPrices] = useState<Record<number, string>>({});
   const [productPrices, setProductPrices] = useState<Record<number, string>>({});
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -1792,6 +1813,7 @@ export function FamilyTracker({
             memberId: currentUser.id,
             items: staged,
             missingProductsNote,
+            walletScope: draftWalletScope,
           }),
         });
         const payload = (await response.json()) as AppData & { error?: string };
@@ -1812,7 +1834,7 @@ export function FamilyTracker({
     });
 
     return () => lifecycle.abort();
-  }, [applyData, currentUser.id, data, draft, missingProductsNote, productName, role]);
+  }, [applyData, currentUser.id, data, draft, draftWalletScope, missingProductsNote, productName, role]);
 
   const addToCart = (product: Product) => {
     setDraftAmounts((current) => {
@@ -1896,6 +1918,7 @@ export function FamilyTracker({
       memberId: currentUser.id,
       ...(editingCartId ? { cartId: editingCartId } : {}),
       missingProductsNote,
+      walletScope: draftWalletScope,
       items: draftProducts.map(({ product, quantity }) => ({
         productId: product.id,
         quantityHundredths: quantity,
@@ -1923,6 +1946,7 @@ export function FamilyTracker({
     ])));
     setDraftAmounts(Object.fromEntries(cartItems.filter(isAmountItem).map((item) => [item.product_id, item.quantity_hundredths])));
     setMissingProductsNote(cart.missing_products_note);
+    setDraftWalletScope(cart.wallet_scope);
     setEditingCartId(cart.id);
     setCartOpen(true);
   };
@@ -1945,6 +1969,7 @@ export function FamilyTracker({
     setDraftAmounts(Object.fromEntries(repeatedItems.filter(isAmountItem).map((item) => [item.product_id, item.quantity_hundredths])));
     setMissingProductsNote(cart.missing_products_note);
     setEditingCartId(null);
+    setDraftWalletScope("family");
     setCartOpen(true);
     setMemberView("catalog");
     toast.success(t.orderRepeated);
@@ -2601,6 +2626,7 @@ export function FamilyTracker({
               <MemberSettings
                 currentUser={currentUser}
                 wallet={data.memberWallets.find((entry) => entry.member_id === currentUser.id) ?? null}
+                familyWallet={data.familyWallet}
                 money={money}
                 language={language}
                 setLanguage={updateLanguage}
@@ -2666,6 +2692,7 @@ export function FamilyTracker({
             profileImageVersion={profileImageVersion}
             wallet={data.deliveryWallet}
             memberWallets={data.memberWallets}
+            familyWallet={data.familyWallet}
             monthlyBudgetCents={monthlyBudgetCents}
             currentMonthlyTotal={currentMonthlyTotal}
             pushPublicKey={data.pushPublicKey}
@@ -2874,6 +2901,29 @@ export function FamilyTracker({
             </div>
           </div>
           <SheetFooter className="border-t border-border p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+            <div className="mb-3">
+              <p className="mb-2 text-sm font-semibold">
+                {language === "ar" ? "مصدر الدفع" : language === "en" ? "Payment source" : "Source de paiement"}
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDraftWalletScope("family")}
+                  className={`rounded-xl border p-2.5 text-start transition-colors ${draftWalletScope === "family" ? "border-primary bg-primary/10 text-primary" : "border-border bg-background"}`}
+                >
+                  <span className="block text-xs font-semibold">{language === "ar" ? "محفظة العائلة" : language === "en" ? "Family wallet" : "Cagnotte familiale"}</span>
+                  <strong className="mt-1 block text-sm tabular-nums">{money(data.familyWallet.balance_cents)}</strong>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDraftWalletScope("personal")}
+                  className={`rounded-xl border p-2.5 text-start transition-colors ${draftWalletScope === "personal" ? "border-primary bg-primary/10 text-primary" : "border-border bg-background"}`}
+                >
+                  <span className="block text-xs font-semibold">{language === "ar" ? "محفظتي" : language === "en" ? "My wallet" : "Mon portefeuille"}</span>
+                  <strong className="mt-1 block text-sm tabular-nums">{money(data.memberWallets.find((wallet) => wallet.member_id === currentUser.id)?.balance_cents ?? 0)}</strong>
+                </button>
+              </div>
+            </div>
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm text-muted-foreground">{t.estimate}</span>
               <span className="font-medium">{money(draftTotal)}</span>
@@ -2907,6 +2957,7 @@ type CopySet = (typeof words)[Language];
 function MemberSettings({
   currentUser,
   wallet,
+  familyWallet,
   money,
   language,
   setLanguage,
@@ -2920,6 +2971,7 @@ function MemberSettings({
 }: {
   currentUser: FamilySessionUser;
   wallet: MemberWallet | null;
+  familyWallet: FamilyWallet;
   money: (cents: number) => string;
   language: Language;
   setLanguage: (language: Language) => void;
@@ -3045,6 +3097,13 @@ function MemberSettings({
                 <p className="mt-1 font-bold">−{money(wallet?.spent_cents ?? 0)}</p>
               </div>
             </div>
+            <div className="mt-3 flex items-center gap-3 rounded-2xl border border-primary/20 bg-primary/[0.07] p-3">
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/12 text-primary"><PiggyBank className="size-5" /></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-muted-foreground">{language === "ar" ? "محفظة العائلة المشتركة" : language === "en" ? "Shared Family Wallet" : "Cagnotte familiale partagée"}</p>
+                <p className="mt-0.5 text-lg font-bold text-primary">{money(familyWallet.balance_cents)}</p>
+              </div>
+            </div>
           </div>
           <div className="rounded-2xl border border-border/75 bg-card/80 p-4">
             <h2 className="font-semibold">{t.balanceHistory}</h2>
@@ -3056,7 +3115,7 @@ function MemberSettings({
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">
-                      {entry.type === "deposit" ? t.deposit : entry.type === "task" ? "Récompense de mission" : `${t.orderDebit} #${entry.cart_id}`}
+                      {entry.type === "deposit" ? t.deposit : entry.type === "task" ? "Récompense de mission" : entry.type === "transfer" ? "Transfert vers la cagnotte familiale" : `${t.orderDebit} #${entry.cart_id}`}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {new Date(entry.created_at).toLocaleDateString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", { dateStyle: "medium" })}
@@ -3208,6 +3267,7 @@ function MemberSettings({
 
 function MemberBalancesManager({
   wallets,
+  familyWallet,
   money,
   act,
   busy,
@@ -3216,6 +3276,7 @@ function MemberBalancesManager({
   actorRole,
 }: {
   wallets: MemberWallet[];
+  familyWallet: FamilyWallet;
   money: (cents: number) => string;
   act: (body: Record<string, unknown>, success: string) => Promise<boolean>;
   busy: boolean;
@@ -3224,6 +3285,8 @@ function MemberBalancesManager({
   actorRole: "admin" | "delivery";
 }) {
   const [amounts, setAmounts] = useState<Record<number, string>>({});
+  const [familyAmount, setFamilyAmount] = useState("");
+  const [familyMemberId, setFamilyMemberId] = useState(() => wallets[0] ? String(wallets[0].member_id) : "");
 
   const addFunds = async (event: FormEvent, memberId: number) => {
     event.preventDefault();
@@ -3240,6 +3303,20 @@ function MemberBalancesManager({
     if (ok) setAmounts((current) => ({ ...current, [memberId]: "" }));
   };
 
+  const changeFamilyFunds = async (event: FormEvent, action: "add_family_funds" | "transfer_member_funds_to_family") => {
+    event.preventDefault();
+    const amountCents = Math.round(Number(familyAmount.replace(",", ".")) * 100);
+    if (!familyMemberId || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
+      toast.error(t.invalidPrice);
+      return;
+    }
+    const ok = await act(
+      { action, actorRole, memberId: Number(familyMemberId), amountCents },
+      action === "add_family_funds" ? "Contribution ajoutée à la cagnotte familiale." : "Solde transféré vers la cagnotte familiale.",
+    );
+    if (ok) setFamilyAmount("");
+  };
+
   return (
     <section className="rounded-3xl border border-primary/20 bg-primary/[0.035] p-4 sm:p-5">
       <div className="mb-4 flex items-start gap-3">
@@ -3251,6 +3328,70 @@ function MemberBalancesManager({
           <p className="mt-1 text-sm leading-6 text-muted-foreground">{t.memberBalancesHelp}</p>
         </div>
       </div>
+
+      <article className="mb-5 overflow-hidden rounded-3xl border border-primary/25 bg-card">
+        <div className="flex flex-col gap-4 bg-gradient-to-br from-primary/12 via-primary/[0.06] to-transparent p-4 sm:flex-row sm:items-center sm:p-5">
+          <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary text-primary-foreground">
+            <PiggyBank className="size-6" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-lg font-bold">{language === "ar" ? "محفظة العائلة" : language === "en" ? "Family Wallet" : "Cagnotte familiale"}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {language === "ar" ? "رصيد مشترك لمشتريات جميع أفراد العائلة." : language === "en" ? "One shared balance for purchases made for any family member." : "Un solde commun pour les achats de tous les membres."}
+            </p>
+          </div>
+          <div className="sm:text-end">
+            <p className="text-xs text-muted-foreground">{t.availableBalance}</p>
+            <strong className="text-2xl text-primary tabular-nums">{money(familyWallet.balance_cents)}</strong>
+          </div>
+        </div>
+
+        {actorRole === "admin" && (
+          <form className="grid gap-3 border-t border-border p-4 sm:grid-cols-[minmax(10rem,1fr)_minmax(9rem,0.8fr)_auto_auto] sm:items-end sm:p-5" onSubmit={(event) => void changeFamilyFunds(event, "add_family_funds")}>
+            <div>
+              <Label className="mb-1.5 block text-xs">Membre contributeur</Label>
+              <Select value={familyMemberId} onValueChange={setFamilyMemberId}>
+                <SelectTrigger className="h-10 rounded-xl"><SelectValue placeholder="Membre" /></SelectTrigger>
+                <SelectContent>{wallets.map((wallet) => <SelectItem key={wallet.member_id} value={String(wallet.member_id)}>{wallet.member_name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="family-wallet-amount" className="mb-1.5 block text-xs">Montant</Label>
+              <div className="relative">
+                <Input id="family-wallet-amount" inputMode="decimal" value={familyAmount} onChange={(event) => setFamilyAmount(event.target.value)} placeholder="200.00" className="h-10 rounded-xl pe-11" />
+                <span className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DH</span>
+              </div>
+            </div>
+            <Button type="submit" className="h-10 rounded-xl" disabled={busy || !familyAmount.trim() || !familyMemberId}>
+              <Plus className="size-4" /> Argent reçu
+            </Button>
+            <Button type="button" variant="outline" className="h-10 rounded-xl" disabled={busy || !familyAmount.trim() || !familyMemberId} onClick={(event) => void changeFamilyFunds(event, "transfer_member_funds_to_family")}>
+              <WalletCards className="size-4" /> Transférer du personnel
+            </Button>
+          </form>
+        )}
+
+        <div className="grid grid-cols-2 gap-3 border-t border-border px-4 py-3 text-sm sm:px-5">
+          <span className="text-muted-foreground">Contributions <strong className="ms-1 text-foreground">{money(familyWallet.credited_cents)}</strong></span>
+          <span className="text-end text-muted-foreground">Dépenses <strong className="ms-1 text-foreground">{money(familyWallet.spent_cents)}</strong></span>
+        </div>
+        {familyWallet.transactions.length > 0 && (
+          <div className="border-t border-border px-4 py-2 sm:px-5">
+            {familyWallet.transactions.slice(0, 6).map((transaction) => (
+              <div key={transaction.id} className="flex items-center justify-between gap-3 border-b border-border/60 py-2.5 text-xs last:border-0">
+                <span className="min-w-0 truncate text-muted-foreground">
+                  {transaction.type === "contribution"
+                    ? `${transaction.contributor_name ?? "Famille"} · contribution`
+                    : `Commande #${transaction.cart_id}`}
+                </span>
+                <strong className={transaction.amount_cents > 0 ? "text-primary" : "text-destructive"}>
+                  {transaction.amount_cents > 0 ? "+" : "−"}{money(Math.abs(transaction.amount_cents))}
+                </strong>
+              </div>
+            ))}
+          </div>
+        )}
+      </article>
 
       <div className="grid gap-3 lg:grid-cols-2">
         {wallets.map((wallet) => (
@@ -3296,6 +3437,8 @@ function MemberBalancesManager({
                     ? t.deposit
                     : wallet.transactions[0].type === "task"
                       ? "Récompense de mission"
+                      : wallet.transactions[0].type === "transfer"
+                        ? "Transfert vers la cagnotte familiale"
                       : `${t.orderDebit} #${wallet.transactions[0].cart_id}`} · {new Date(wallet.transactions[0].created_at).toLocaleDateString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", { dateStyle: "medium" })}
                 </span>
                 <strong className={wallet.transactions[0].amount_cents > 0 ? "text-primary" : "text-destructive"}>
@@ -3361,7 +3504,13 @@ function MemberCarts({
             <article key={cart.id} className="rounded-3xl border border-border bg-card p-5">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="flex flex-wrap items-center gap-2 font-semibold">Panier #{cart.id}{cart.offline_purchase && <Badge variant="outline" className="border-primary/25 text-primary">Achat enregistré</Badge>}</p>
+                  <p className="flex flex-wrap items-center gap-2 font-semibold">
+                    Panier #{cart.id}
+                    {cart.offline_purchase && <Badge variant="outline" className="border-primary/25 text-primary">Achat enregistré</Badge>}
+                    <Badge variant="outline" className="border-border text-muted-foreground">
+                      {cart.wallet_scope === "family" ? "Cagnotte familiale" : "Portefeuille personnel"}
+                    </Badge>
+                  </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {new Date(cart.submitted_at).toLocaleString("fr-MA", { dateStyle: "medium", timeStyle: "short" })}
                   </p>
@@ -3514,10 +3663,13 @@ function OfflinePurchaseDialog({
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [prices, setPrices] = useState<Record<number, string>>({});
   const [amounts, setAmounts] = useState<Record<number, string>>({});
+  const [walletScope, setWalletScope] = useState<"family" | "personal">("family");
 
   const selectedMember = members.find((member) => member.id === Number(memberId)) ?? null;
   const selectedWallet = data.memberWallets.find((wallet) => wallet.member_id === Number(memberId));
-  const availableBalanceCents = selectedWallet?.balance_cents ?? 0;
+  const availableBalanceCents = walletScope === "family"
+    ? data.familyWallet.balance_cents
+    : selectedWallet?.balance_cents ?? 0;
   const selected = data.products.filter((product) => (quantities[product.id] ?? 0) > 0);
   const visibleProducts = data.products
     .map((product) => ({
@@ -3590,6 +3742,7 @@ function OfflinePurchaseDialog({
     setQuantities({});
     setPrices({});
     setAmounts({});
+    setWalletScope("family");
   };
 
   const clearProducts = () => {
@@ -3616,7 +3769,7 @@ function OfflinePurchaseDialog({
       return;
     }
     const ok = await act(
-      { action: "create_member_order", memberId: Number(memberId), purchasedDate, items },
+      { action: "create_member_order", memberId: Number(memberId), purchasedDate, walletScope, items },
       "Commande créée pour le membre et envoyée à Josef.",
     );
     if (ok) {
@@ -3684,7 +3837,7 @@ function OfflinePurchaseDialog({
               <div className="flex items-center gap-3 border-t border-border/70 pt-3 sm:border-s sm:border-t-0 sm:ps-5 sm:pt-0">
                 <span className="grid size-10 place-items-center rounded-xl bg-primary/12 text-primary"><WalletCards className="size-5" /></span>
                 <div>
-                  <p className="text-xs text-muted-foreground">Solde disponible</p>
+                  <p className="text-xs text-muted-foreground">{walletScope === "family" ? "Cagnotte familiale" : "Solde personnel"}</p>
                   <p className="text-xl font-bold text-primary">{money(availableBalanceCents)}</p>
                 </div>
               </div>
@@ -3700,7 +3853,7 @@ function OfflinePurchaseDialog({
             <section className="mx-auto mt-6 max-w-3xl space-y-5">
               <div>
                 <h3 className="text-lg font-semibold">Pour quel membre est cet achat ?</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Le solde prépayé sera utilisé s’il est disponible. Le reste peut être payé directement.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Choisissez le membre puis la source qui financera la commande.</p>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 {members.map((member) => {
@@ -3722,6 +3875,27 @@ function OfflinePurchaseDialog({
                     </button>
                   );
                 })}
+              </div>
+              <div>
+                <Label className="mb-2 block">Source de paiement</Label>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setWalletScope("family")}
+                    className={`rounded-2xl border p-4 text-start transition-colors ${walletScope === "family" ? "border-primary bg-primary/[0.07]" : "border-border hover:border-primary/40"}`}
+                  >
+                    <span className="block font-semibold">Cagnotte familiale</span>
+                    <span className="mt-1 block text-sm text-muted-foreground">{money(data.familyWallet.balance_cents)} disponibles pour toute la famille</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWalletScope("personal")}
+                    className={`rounded-2xl border p-4 text-start transition-colors ${walletScope === "personal" ? "border-primary bg-primary/[0.07]" : "border-border hover:border-primary/40"}`}
+                  >
+                    <span className="block font-semibold">Portefeuille personnel</span>
+                    <span className="mt-1 block text-sm text-muted-foreground">{money(selectedWallet?.balance_cents ?? 0)} disponibles pour {selectedMember?.name ?? "ce membre"}</span>
+                  </button>
+                </div>
               </div>
               <div className="grid gap-2 sm:max-w-xs">
                 <Label htmlFor="offline-purchase-date">Date de l’achat</Label>
@@ -3895,7 +4069,7 @@ function OfflinePurchaseDialog({
                 })}
               </div>
               <div className="mt-4 grid gap-3 rounded-2xl bg-primary/[0.06] p-4 sm:grid-cols-4">
-                <div><p className="text-xs text-muted-foreground">Solde du membre</p><p className="mt-1 text-lg font-bold">{money(availableBalanceCents)}</p></div>
+                <div><p className="text-xs text-muted-foreground">{walletScope === "family" ? "Cagnotte familiale" : "Solde du membre"}</p><p className="mt-1 text-lg font-bold">{money(availableBalanceCents)}</p></div>
                 <div><p className="text-xs text-muted-foreground">Total estimé avec livraison</p><p className="mt-1 text-lg font-bold">{money(totalWithServiceCents)}</p><p className="text-xs text-muted-foreground">dont {money(memberServiceFeeCents)} de livraison</p></div>
                 <div><p className="text-xs text-muted-foreground">Débit prévu à la fin</p><p className="mt-1 text-lg font-bold">− {money(walletDebitCents)}</p></div>
                 <div><p className="text-xs text-muted-foreground">Solde estimé après achat</p><p className="mt-1 text-xl font-bold text-primary">{money(remainingBalanceCents)}</p></div>
@@ -4548,6 +4722,7 @@ function AdminDashboard({
         <TabsContent value="balances">
           <MemberBalancesManager
             wallets={data.memberWallets}
+            familyWallet={data.familyWallet}
             money={money}
             act={act}
             busy={busy}
@@ -5059,6 +5234,7 @@ function DeliveryDashboard({
   profileImageVersion,
   wallet,
   memberWallets,
+  familyWallet,
   monthlyBudgetCents,
   currentMonthlyTotal,
   pushPublicKey,
@@ -5081,6 +5257,7 @@ function DeliveryDashboard({
   profileImageVersion: number;
   wallet: DeliveryWallet;
   memberWallets: MemberWallet[];
+  familyWallet: FamilyWallet;
   monthlyBudgetCents: number;
   currentMonthlyTotal: number;
   pushPublicKey: string | null;
@@ -5324,6 +5501,7 @@ function DeliveryDashboard({
       {view === "balances" ? (
         <MemberBalancesManager
           wallets={memberWallets}
+          familyWallet={familyWallet}
           money={money}
           act={act}
           busy={busy}
@@ -5347,18 +5525,23 @@ function DeliveryDashboard({
                     <p className="mt-1 text-xs text-muted-foreground">{new Date(selectedCart.submitted_at).toLocaleString(language === "ar" ? "ar-MA" : language === "en" ? "en-MA" : "fr-MA", { dateStyle: "medium", timeStyle: "short" })}</p>
                   </div>
                 </div>
-                <Badge
-                  className={
-                    selectedCart.priority === "urgent"
-                      ? "bg-[#ffb454] text-[#211609]"
-                      : selectedCart.priority === "normal"
-                        ? "bg-primary/12 text-primary"
-                        : "bg-blue-500/12 text-blue-700 dark:text-blue-300"
-                  }
-                >
-                  {selectedCart.priority === "urgent" ? <AlertTriangle /> : <Clock3 />}
-                  {selectedCart.priority === "urgent" ? t.urgent : selectedCart.priority === "normal" ? t.normal : t.newOrder}
-                </Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className="border-border">
+                    <WalletCards /> {selectedCart.wallet_scope === "family" ? "Cagnotte familiale" : "Portefeuille personnel"}
+                  </Badge>
+                  <Badge
+                    className={
+                      selectedCart.priority === "urgent"
+                        ? "bg-[#ffb454] text-[#211609]"
+                        : selectedCart.priority === "normal"
+                          ? "bg-primary/12 text-primary"
+                          : "bg-blue-500/12 text-blue-700 dark:text-blue-300"
+                    }
+                  >
+                    {selectedCart.priority === "urgent" ? <AlertTriangle /> : <Clock3 />}
+                    {selectedCart.priority === "urgent" ? t.urgent : selectedCart.priority === "normal" ? t.normal : t.newOrder}
+                  </Badge>
+                </div>
               </div>
 
               <MissingProductsNote

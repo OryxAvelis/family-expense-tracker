@@ -157,8 +157,26 @@ async function run() {
   assert.equal((await (await history.GET(new Request('http://localhost/api/family/history?page=6'))).json()).carts.length, 5);
   assert.equal((await (await history.GET(new Request('http://localhost/api/family/history?status=cancelled'))).json()).total, 1);
   assert.equal((await (await history.GET(new Request('http://localhost/api/family/history?memberId=4'))).json()).total, 0);
+  await post({ action: 'add_family_funds', memberId: 3, amountCents: 10000 });
+  const personalBeforeFamilyOrder = JSON.parse(tables.app_meta.find(entry => entry.key === 'member_wallet_3').value);
+  const personalBalanceBeforeFamilyOrder = personalBeforeFamilyOrder.reduce((sum, entry) => sum + entry.amount_cents, 0);
+  await post({ ...body, walletScope: 'family' });
+  const familyCart = tables.carts.at(-1);
+  viewer = { id: 2, role: 'delivery', name: 'Josef' };
+  await post({ action: 'update_item', itemId: tables.cart_items.at(-1).id, purchaseStatus: 'bought', actualUnitPriceCents: 150 });
+  const familyCompleted = await post({ action: 'finish_cart', cartId: familyCart.id });
+  assert.equal(familyCompleted.familyWallet.balance_cents, 9500);
+  assert.equal(familyCompleted.memberWallets[0].balance_cents, personalBalanceBeforeFamilyOrder);
+  viewer = { id: 1, role: 'admin', name: 'Admin' };
+  const directlyPaid = await post({ action: 'mark_order_paid_directly', cartId: familyCart.id });
+  assert.equal(directlyPaid.familyWallet.balance_cents, 10000);
+  const transferred = await post({ action: 'transfer_member_funds_to_family', memberId: 3, amountCents: 5000 });
+  assert.equal(transferred.familyWallet.balance_cents, 15000);
+  assert.equal(transferred.memberWallets[0].balance_cents, personalBalanceBeforeFamilyOrder - 5000);
+  const familyHistory = await (await history.GET(new Request('http://localhost/api/family/history'))).json();
+  assert.equal(familyHistory.carts.find(cart => cart.id === familyCart.id).wallet_scope, 'family');
   viewer = { id: 4, role: 'member', name: 'Other' };
   assert.equal((await (await api.GET(new Request('http://localhost/api/family'))).json()).carts.length, 0);
-  console.log('PASS: admin authorization, pending order, delivery visibility, notification, deferred wallet debit, completion/retry, Free/Pro fees, old-form compatibility, 5 DH lentils + quantity mix, invalid amounts, member edit, preserved catalogue price, history pagination beyond 80 carts, filters, and member isolation.');
+  console.log('PASS: assisted orders, fees, amount purchases, history, shared wallet debit, direct payment reversal, personal-to-family transfer, and member isolation.');
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

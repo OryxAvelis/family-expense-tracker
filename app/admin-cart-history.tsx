@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 
 type Product = { name_fr: string; name_ar: string; name_en: string; unit: string; package_size: string | null };
 type Item = { id: number; quantity_hundredths: number; requested_unit_price_cents: number; actual_unit_price_cents: number; purchase_status: string; products: Product | Product[] };
-type HistoryCart = { id: number; member_id: number; status: string; created_at: string; completed_at: string | null; missing_products_note: string; created_by: string | null; offline_purchase: boolean; service_fee_cents: number; family_users: { name: string } | { name: string }[]; cart_items: Item[] };
+type HistoryCart = { id: number; member_id: number; status: string; created_at: string; completed_at: string | null; missing_products_note: string; created_by: string | null; offline_purchase: boolean; wallet_scope: "family" | "personal"; service_fee_cents: number; family_users: { name: string } | { name: string }[]; cart_items: Item[] };
 const copy = {
   fr: { title: "Historique des paniers", all: "Tous les membres", statuses: "Tous les statuts", pending: "En attente", ready: "Priorité définie", shopping: "Achat en cours", completed: "Terminé", cancelled: "Annulé", products: "Produits", delivery: "Livraison", total: "Total", estimate: "Total estimé", empty: "Aucun panier trouvé.", retry: "Réessayer", previous: "Précédent", next: "Suivant", by: "Créé par", recorded: "Achat enregistré par l’admin", member: "Commande du membre", bought: "Acheté", unbought: "Non acheté", requested: "Demandé", date: "Créé le", finished: "Terminé le", loading: "Chargement…" },
   en: { title: "Cart history", all: "All members", statuses: "All statuses", pending: "Pending", ready: "Priority assigned", shopping: "Shopping", completed: "Completed", cancelled: "Cancelled", products: "Products", delivery: "Delivery", total: "Total", estimate: "Estimated total", empty: "No carts found.", retry: "Retry", previous: "Previous", next: "Next", by: "Created by", recorded: "Purchase recorded by admin", member: "Member order", bought: "Bought", unbought: "Not bought", requested: "Requested", date: "Created", finished: "Completed", loading: "Loading…" },
@@ -69,7 +69,10 @@ export function AdminCartHistory({ language, members, money }: { language: "fr" 
             <span className="block text-xs text-muted-foreground">{t.date}: {date(cart.created_at)}{cart.completed_at && ` · ${t.finished}: ${date(cart.completed_at)}`}</span>
             <span className="block text-sm">{complete ? t.total : t.estimate}: <strong>{money(subtotal + cart.service_fee_cents)}</strong></span>
           </summary>
-          <p className="my-3 text-xs text-muted-foreground">{cart.created_by ? `${t.by}: ${cart.created_by}` : cart.offline_purchase ? t.recorded : t.member}</p>
+          <p className="my-3 text-xs text-muted-foreground">
+            {cart.created_by ? `${t.by}: ${cart.created_by}` : cart.offline_purchase ? t.recorded : t.member}
+            {` · ${cart.wallet_scope === "family" ? (language === "ar" ? "محفظة العائلة" : language === "en" ? "Family Wallet" : "Cagnotte familiale") : (language === "ar" ? "محفظة شخصية" : language === "en" ? "Personal wallet" : "Portefeuille personnel")}`}
+          </p>
           <ul className="space-y-2">{cart.cart_items.map((item) => {
             const product = joined(item.products);
             const amount = item.requested_unit_price_cents === 2147483647;
