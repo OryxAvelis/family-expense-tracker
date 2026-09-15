@@ -101,10 +101,9 @@ function queryVariants(query: string) {
 
   for (const group of SEARCH_ALIAS_GROUPS) {
     if (group.some((term) => words.has(normalized(term)))) {
-      for (const term of group) {
-        variants.add(term);
-        if (variants.size >= 4) return [...variants];
-      }
+      // The Bringo index is French. Add the canonical French term only when
+      // the member searched in English or Arabic, avoiding duplicate store hits.
+      variants.add(group[0]);
     }
   }
   return [...variants];
@@ -240,6 +239,7 @@ async function searchBringo(query: string) {
     queryVariants(query).map((variant) => fetchJson(searchUrl(variant))),
   );
   const products = new Map<string, BringoCatalogProduct>();
+  const productNames = new Set<string>();
 
   for (const response of responses) {
     if (response.status !== "fulfilled") continue;
@@ -248,11 +248,14 @@ async function searchBringo(query: string) {
     for (const result of results) {
       const product = toCatalogProduct(result);
       if (!product) continue;
+      const nameKey = normalized(product.name).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+      if (productNames.has(nameKey)) continue;
       const existing = products.get(product.external_id);
       if (existing) {
         existing.search_text = `${existing.search_text} ${product.search_text}`;
       } else {
         products.set(product.external_id, product);
+        productNames.add(nameKey);
       }
     }
   }
