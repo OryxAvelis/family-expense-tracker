@@ -13,6 +13,7 @@ import {
   ClipboardCheck,
   Clock3,
   Crown,
+  ExternalLink,
   Heart,
   ImagePlus,
   Languages,
@@ -182,6 +183,75 @@ type MyMarketProduct = {
   package_size: string | null;
   store: string;
 };
+
+const BRINGO_CATEGORIES = [
+  {
+    id: "market",
+    icon: "🥬",
+    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/mon-marche-7",
+    label: { fr: "Mon Marché", ar: "السوق الطازج", en: "Fresh market" },
+  },
+  {
+    id: "dairy",
+    icon: "🥛",
+    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/produits-laitiers-oeufs-8",
+    label: { fr: "Produits laitiers & œufs", ar: "الألبان والبيض", en: "Dairy & eggs" },
+  },
+  {
+    id: "grocery",
+    icon: "🛒",
+    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/epicerie-4",
+    label: { fr: "Épicerie", ar: "البقالة", en: "Groceries" },
+  },
+  {
+    id: "bakery",
+    icon: "🥖",
+    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/boulangerie-patisserie",
+    label: { fr: "Boulangerie & pâtisserie", ar: "المخبوزات والحلويات", en: "Bakery & pastry" },
+  },
+  {
+    id: "snacks",
+    icon: "🍪",
+    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/cereales-biscuits-confiseries-1",
+    label: { fr: "Céréales & biscuits", ar: "الحبوب والبسكويت", en: "Cereals & biscuits" },
+  },
+  {
+    id: "drinks",
+    icon: "🧃",
+    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/eaux-boissons-12",
+    label: { fr: "Eaux & boissons", ar: "المياه والمشروبات", en: "Water & drinks" },
+  },
+  {
+    id: "frozen",
+    icon: "🧊",
+    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/glaces-surgele-4",
+    label: { fr: "Glaces & surgelés", ar: "المثلجات والمجمدات", en: "Ice cream & frozen" },
+  },
+  {
+    id: "deli",
+    icon: "🥪",
+    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/charcuterie-1",
+    label: { fr: "Charcuterie", ar: "اللحوم الباردة", en: "Deli" },
+  },
+  {
+    id: "beauty",
+    icon: "🧴",
+    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/hygiene-beaute-12",
+    label: { fr: "Hygiène & beauté", ar: "النظافة والجمال", en: "Health & beauty" },
+  },
+  {
+    id: "cleaning",
+    icon: "🧽",
+    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/entretien-nettoyage-14",
+    label: { fr: "Entretien & nettoyage", ar: "التنظيف والعناية بالمنزل", en: "Home cleaning" },
+  },
+  {
+    id: "kitchen",
+    icon: "🍳",
+    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/tout-pour-votre-cuisine-3",
+    label: { fr: "Tout pour la cuisine", ar: "مستلزمات المطبخ", en: "Kitchen essentials" },
+  },
+] as const;
 
 const PRODUCT_SEARCH_ALIASES = [
   ["lait", "milk", "حليب", "halib"],
@@ -594,6 +664,10 @@ const words = {
     myMarketLoading: "Chargement du catalogue MyMarket…",
     myMarketSearching: "Recherche dans les trois langues…",
     myMarketAdded: "Produit MyMarket ajouté au panier.",
+    bringoCatalog: "Carrefour sur Bringo",
+    bringoCatalogHint: "Consultez les prix et disponibilités actuels directement sur Bringo.",
+    bringoExternal: "Site externe",
+    openBringoCategory: "Ouvrir la catégorie Bringo",
     promotion: "Promo",
     loadMore: "Afficher plus",
     noProducts: "Aucun produit trouvé.",
@@ -773,6 +847,10 @@ const words = {
     myMarketLoading: "جارٍ تحميل منتجات MyMarket…",
     myMarketSearching: "جارٍ البحث باللغات الثلاث…",
     myMarketAdded: "تمت إضافة منتج MyMarket إلى السلة.",
+    bringoCatalog: "كارفور على Bringo",
+    bringoCatalogHint: "اطّلع على الأسعار والتوفر الحالي مباشرة على Bringo.",
+    bringoExternal: "موقع خارجي",
+    openBringoCategory: "فتح فئة Bringo",
     promotion: "تخفيض",
     loadMore: "عرض المزيد",
     noProducts: "لم يتم العثور على أي منتج.",
@@ -952,6 +1030,10 @@ const words = {
     myMarketLoading: "Loading the MyMarket catalog…",
     myMarketSearching: "Searching in all three languages…",
     myMarketAdded: "MyMarket product added to the cart.",
+    bringoCatalog: "Carrefour on Bringo",
+    bringoCatalogHint: "Check current prices and availability directly on Bringo.",
+    bringoExternal: "External site",
+    openBringoCategory: "Open Bringo category",
     promotion: "Promo",
     loadMore: "Show more",
     noProducts: "No products found.",
@@ -2477,6 +2559,55 @@ export function FamilyTracker({
                     {t.favorites}
                   </Button>
                 </div>
+
+                <section
+                  aria-labelledby="bringo-catalogue-title"
+                  className="mb-8 overflow-hidden rounded-[1.75rem] border border-[#1f5d8f]/20 bg-[linear-gradient(135deg,rgba(31,93,143,0.10),rgba(255,255,255,0.72)_48%,rgba(196,42,47,0.08))] p-4 shadow-[0_18px_55px_rgba(18,58,91,0.08)] dark:bg-[linear-gradient(135deg,rgba(31,93,143,0.20),rgba(12,31,40,0.88)_48%,rgba(196,42,47,0.12))] sm:p-5"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <span
+                        aria-hidden="true"
+                        className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[#1f5d8f] text-lg font-black text-white shadow-sm"
+                      >
+                        B
+                      </span>
+                      <div className="min-w-0">
+                        <h2 id="bringo-catalogue-title" className="text-lg font-semibold tracking-tight sm:text-xl">
+                          {t.bringoCatalog}
+                        </h2>
+                        <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
+                          {t.bringoCatalogHint}
+                        </p>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="border-[#1f5d8f]/25 bg-card/70 text-[#1f5d8f] dark:text-[#80bde8]">
+                      <ExternalLink className="size-3.5" />
+                      {t.bringoExternal}
+                    </Badge>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+                    {BRINGO_CATEGORIES.map((bringoCategory) => (
+                      <a
+                        key={bringoCategory.id}
+                        href={bringoCategory.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={`${t.openBringoCategory}: ${bringoCategory.label[language]}`}
+                        className="group flex min-h-24 min-w-0 flex-col justify-between rounded-2xl border border-border/80 bg-card/85 p-3 text-start shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#1f5d8f]/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1f5d8f]/45"
+                      >
+                        <span className="flex items-start justify-between gap-2">
+                          <span aria-hidden="true" className="text-2xl leading-none">{bringoCategory.icon}</span>
+                          <ExternalLink className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-[#1f5d8f]" />
+                        </span>
+                        <span className="mt-3 line-clamp-2 text-sm font-semibold leading-5">
+                          {bringoCategory.label[language]}
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                </section>
 
                 <div className="mb-4 flex items-end justify-between gap-4">
                   <div>
