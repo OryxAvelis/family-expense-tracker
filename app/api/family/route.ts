@@ -174,7 +174,7 @@ function canPurchaseByAmount(
   if (product.unit_price_cents <= 0) return false;
   if (product.unit !== "pièce" && !product.package_size) return true;
   return (
-    product.external_source === "mymarket" &&
+    (product.external_source === "mymarket" || product.external_source === "bringo") &&
     /^(\d+(?:[.,]\d+)?)\s*(?:kg|g|l|cl|ml)$/i.test(product.package_size?.trim() ?? "")
   );
 }

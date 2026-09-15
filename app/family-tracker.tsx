@@ -13,7 +13,6 @@ import {
   ClipboardCheck,
   Clock3,
   Crown,
-  ExternalLink,
   Heart,
   ImagePlus,
   Languages,
@@ -172,7 +171,7 @@ type ProductFormDraft = {
   price: string;
 };
 
-type MyMarketProduct = {
+type RemoteCatalogProduct = {
   external_id: string;
   name: string;
   search_text?: string;
@@ -182,76 +181,8 @@ type MyMarketProduct = {
   crossed_price_cents: number | null;
   package_size: string | null;
   store: string;
+  source: "mymarket" | "bringo";
 };
-
-const BRINGO_CATEGORIES = [
-  {
-    id: "market",
-    icon: "🥬",
-    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/mon-marche-7",
-    label: { fr: "Mon Marché", ar: "السوق الطازج", en: "Fresh market" },
-  },
-  {
-    id: "dairy",
-    icon: "🥛",
-    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/produits-laitiers-oeufs-8",
-    label: { fr: "Produits laitiers & œufs", ar: "الألبان والبيض", en: "Dairy & eggs" },
-  },
-  {
-    id: "grocery",
-    icon: "🛒",
-    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/epicerie-4",
-    label: { fr: "Épicerie", ar: "البقالة", en: "Groceries" },
-  },
-  {
-    id: "bakery",
-    icon: "🥖",
-    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/boulangerie-patisserie",
-    label: { fr: "Boulangerie & pâtisserie", ar: "المخبوزات والحلويات", en: "Bakery & pastry" },
-  },
-  {
-    id: "snacks",
-    icon: "🍪",
-    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/cereales-biscuits-confiseries-1",
-    label: { fr: "Céréales & biscuits", ar: "الحبوب والبسكويت", en: "Cereals & biscuits" },
-  },
-  {
-    id: "drinks",
-    icon: "🧃",
-    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/eaux-boissons-12",
-    label: { fr: "Eaux & boissons", ar: "المياه والمشروبات", en: "Water & drinks" },
-  },
-  {
-    id: "frozen",
-    icon: "🧊",
-    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/glaces-surgele-4",
-    label: { fr: "Glaces & surgelés", ar: "المثلجات والمجمدات", en: "Ice cream & frozen" },
-  },
-  {
-    id: "deli",
-    icon: "🥪",
-    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/charcuterie-1",
-    label: { fr: "Charcuterie", ar: "اللحوم الباردة", en: "Deli" },
-  },
-  {
-    id: "beauty",
-    icon: "🧴",
-    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/hygiene-beaute-12",
-    label: { fr: "Hygiène & beauté", ar: "النظافة والجمال", en: "Health & beauty" },
-  },
-  {
-    id: "cleaning",
-    icon: "🧽",
-    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/entretien-nettoyage-14",
-    label: { fr: "Entretien & nettoyage", ar: "التنظيف والعناية بالمنزل", en: "Home cleaning" },
-  },
-  {
-    id: "kitchen",
-    icon: "🍳",
-    href: "https://www.bringo.ma/fr_MA/stores/carrefour-supermarket/tout-pour-votre-cuisine-3",
-    label: { fr: "Tout pour la cuisine", ar: "مستلزمات المطبخ", en: "Kitchen essentials" },
-  },
-] as const;
 
 const PRODUCT_SEARCH_ALIASES = [
   ["lait", "milk", "حليب", "halib"],
@@ -656,18 +587,14 @@ const words = {
     scannedAdded: "Produit scanné ajouté au panier.",
     familyCatalog: "Catalogue maison",
     unifiedCatalog: "Tous les produits",
-    unifiedCatalogHint: "Le catalogue familial et MyMarket réunis dans une seule recherche.",
+    unifiedCatalogHint: "Le catalogue familial, MyMarket et Carrefour réunis dans une seule recherche.",
     searchSuggestions: "Suggestions de recherche",
     myMarketCatalog: "Catalogue MyMarket",
     myMarketHint: "Prix MyMarket en ligne — Josef confirme le prix réel.",
     myMarketRules: "Tous les rayons sauf Animaux",
     myMarketLoading: "Chargement du catalogue MyMarket…",
-    myMarketSearching: "Recherche dans les trois langues…",
-    myMarketAdded: "Produit MyMarket ajouté au panier.",
-    bringoCatalog: "Carrefour sur Bringo",
-    bringoCatalogHint: "Consultez les prix et disponibilités actuels directement sur Bringo.",
-    bringoExternal: "Site externe",
-    openBringoCategory: "Ouvrir la catégorie Bringo",
+    myMarketSearching: "Recherche dans MyMarket et Carrefour…",
+    myMarketAdded: "Produit ajouté au panier.",
     promotion: "Promo",
     loadMore: "Afficher plus",
     noProducts: "Aucun produit trouvé.",
@@ -839,18 +766,14 @@ const words = {
     scannedAdded: "تمت إضافة المنتج إلى السلة.",
     familyCatalog: "منتجات البيت",
     unifiedCatalog: "جميع المنتجات",
-    unifiedCatalogHint: "منتجات البيت وMyMarket في بحث واحد.",
+    unifiedCatalogHint: "منتجات البيت وMyMarket وكارفور في بحث واحد.",
     searchSuggestions: "اقتراحات البحث",
     myMarketCatalog: "منتجات MyMarket",
     myMarketHint: "ثمن MyMarket على الإنترنت — جوزيف يؤكد الثمن الحقيقي.",
     myMarketRules: "كل الأقسام ما عدا الحيوانات",
     myMarketLoading: "جارٍ تحميل منتجات MyMarket…",
-    myMarketSearching: "جارٍ البحث باللغات الثلاث…",
-    myMarketAdded: "تمت إضافة منتج MyMarket إلى السلة.",
-    bringoCatalog: "كارفور على Bringo",
-    bringoCatalogHint: "اطّلع على الأسعار والتوفر الحالي مباشرة على Bringo.",
-    bringoExternal: "موقع خارجي",
-    openBringoCategory: "فتح فئة Bringo",
+    myMarketSearching: "جارٍ البحث في MyMarket وكارفور…",
+    myMarketAdded: "تمت إضافة المنتج إلى السلة.",
     promotion: "تخفيض",
     loadMore: "عرض المزيد",
     noProducts: "لم يتم العثور على أي منتج.",
@@ -1022,18 +945,14 @@ const words = {
     scannedAdded: "Scanned product added to the cart.",
     familyCatalog: "House catalog",
     unifiedCatalog: "All products",
-    unifiedCatalogHint: "The family catalog and MyMarket combined in one search.",
+    unifiedCatalogHint: "The family, MyMarket, and Carrefour catalogs combined in one search.",
     searchSuggestions: "Search suggestions",
     myMarketCatalog: "MyMarket catalog",
     myMarketHint: "Online MyMarket price — Josef confirms the real price.",
     myMarketRules: "All departments except Animals",
     myMarketLoading: "Loading the MyMarket catalog…",
-    myMarketSearching: "Searching in all three languages…",
-    myMarketAdded: "MyMarket product added to the cart.",
-    bringoCatalog: "Carrefour on Bringo",
-    bringoCatalogHint: "Check current prices and availability directly on Bringo.",
-    bringoExternal: "External site",
-    openBringoCategory: "Open Bringo category",
+    myMarketSearching: "Searching MyMarket and Carrefour…",
+    myMarketAdded: "Product added to the cart.",
     promotion: "Promo",
     loadMore: "Show more",
     noProducts: "No products found.",
@@ -1106,7 +1025,9 @@ function ProductImage({
       const parsed = new URL(imageUrl);
       const isCarrefourStorage =
         parsed.hostname === "storage.googleapis.com" &&
-        parsed.pathname.startsWith("/crftobringo-sharing-ma-prelive/");
+        (parsed.pathname.startsWith("/crftobringo-sharing-ma-prelive/") ||
+          parsed.pathname.startsWith("/sales-img-ma-live/") ||
+          parsed.pathname.startsWith("/bringoimg/"));
       const isCarrefourHost =
         parsed.hostname === "backend.carrefour.ma" ||
         parsed.hostname === "assets.carrefour.ma" ||
@@ -1224,7 +1145,7 @@ export function FamilyTracker({
   const [myMarketBusyId, setMyMarketBusyId] = useState<string | null>(null);
   const [myMarketRemoteSearch, setMyMarketRemoteSearch] = useState<{
     query: string;
-    products: MyMarketProduct[];
+    products: RemoteCatalogProduct[];
   }>({ query: "", products: [] });
   const [myMarketSearchingQuery, setMyMarketSearchingQuery] = useState("");
   const myMarketSearchSequence = useRef(0);
@@ -1307,28 +1228,48 @@ export function FamilyTracker({
       setMyMarketError("");
       try {
         const parameters = new URLSearchParams({ lang: language, q: query });
-        const response = await fetch(`/api/products/mymarket?${parameters.toString()}`, {
-          cache: "no-store",
-        });
-        const payload = (await response.json()) as {
-          products?: MyMarketProduct[];
-          error?: string;
-        };
-        if (response.status === 401) {
+        const sources = [
+          { source: "mymarket" as const, endpoint: "/api/products/mymarket" },
+          { source: "bringo" as const, endpoint: "/api/products/bringo" },
+        ];
+        const responses = await Promise.all(
+          sources.map(async ({ source, endpoint }) => {
+            const response = await fetch(`${endpoint}?${parameters.toString()}`, {
+              cache: "no-store",
+            });
+            const payload = (await response.json()) as {
+              products?: Omit<RemoteCatalogProduct, "source">[];
+              error?: string;
+            };
+            return { source, response, payload };
+          }),
+        );
+        if (responses.some(({ response }) => response.status === 401)) {
           window.location.replace("/connexion");
           return;
         }
-        if (!response.ok || !Array.isArray(payload.products)) {
-          throw new Error(payload.error || "Recherche MyMarket indisponible.");
+        const successful = responses.filter(
+          ({ response, payload }) => response.ok && Array.isArray(payload.products),
+        );
+        if (!successful.length) {
+          throw new Error(
+            responses.find(({ payload }) => payload.error)?.payload.error ||
+              "Recherche catalogue indisponible.",
+          );
         }
         if (myMarketSearchSequence.current === sequence) {
-          setMyMarketRemoteSearch({ query: normalizedQuery, products: payload.products });
+          setMyMarketRemoteSearch({
+            query: normalizedQuery,
+            products: successful.flatMap(({ source, payload }) =>
+              (payload.products ?? []).map((product) => ({ ...product, source })),
+            ),
+          });
         }
       } catch (error) {
         if (myMarketSearchSequence.current === sequence) {
           setMyMarketRemoteSearch({ query: normalizedQuery, products: [] });
           setMyMarketError(
-            error instanceof Error ? error.message : "Recherche MyMarket indisponible.",
+            error instanceof Error ? error.message : "Recherche catalogue indisponible.",
           );
         }
       } finally {
@@ -1466,10 +1407,11 @@ export function FamilyTracker({
   );
 
   const addMyMarketProduct = useCallback(
-    async (source: MyMarketProduct, mode: "quantity" | "amount" = "quantity") => {
+    async (source: RemoteCatalogProduct, mode: "quantity" | "amount" = "quantity") => {
       try {
-        setMyMarketBusyId(source.external_id);
-        const response = await fetch("/api/products/mymarket", {
+        const busyKey = `${source.source}:${source.external_id}`;
+        setMyMarketBusyId(busyKey);
+        const response = await fetch(`/api/products/${source.source}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ externalId: source.external_id }),
@@ -1480,7 +1422,7 @@ export function FamilyTracker({
           return;
         }
         if (!response.ok || !payload.product) {
-          throw new Error(payload.error || "Import MyMarket impossible.");
+          throw new Error(payload.error || "Import du produit impossible.");
         }
 
         const product = payload.product;
@@ -1516,7 +1458,7 @@ export function FamilyTracker({
         });
         toast.success(t.myMarketAdded);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Import MyMarket impossible.");
+        toast.error(error instanceof Error ? error.message : "Import du produit impossible.");
       } finally {
         setMyMarketBusyId(null);
       }
@@ -1626,8 +1568,8 @@ export function FamilyTracker({
     }
     const importedIds = new Set(
       data.products
-        .filter((product) => product.external_source === "mymarket" && product.external_id)
-        .map((product) => product.external_id),
+        .filter((product) => product.external_source && product.external_id)
+        .map((product) => `${product.external_source}:${product.external_id}`),
     );
     const localNames = new Set(data.products.map((product) => normalizeProductSearch(productName(product))));
     return myMarketRemoteSearch.products
@@ -1643,7 +1585,7 @@ export function FamilyTracker({
       }))
       .filter(({ product, score }) =>
         !showFavorites &&
-        !importedIds.has(product.external_id) &&
+        !importedIds.has(`${product.source}:${product.external_id}`) &&
         !localNames.has(normalizeProductSearch(product.name)) &&
         (category === "all" || product.category === category) &&
         score > 0,
@@ -1660,7 +1602,7 @@ export function FamilyTracker({
       imageUrl: string | null;
       packageSize: string | null;
       priceCents: number;
-      source: "family" | "mymarket";
+      source: "family" | "mymarket" | "bringo";
     }>;
     const local = filteredProducts.slice(0, 8).map((product) => ({
       key: `family-${product.id}`,
@@ -1679,12 +1621,12 @@ export function FamilyTracker({
       ]),
     }));
     const remote = filteredMyMarketProducts.slice(0, 8).map((product) => ({
-      key: `mymarket-${product.external_id}`,
+      key: `${product.source}-${product.external_id}`,
       name: product.name,
       imageUrl: product.image_url,
       packageSize: product.package_size,
       priceCents: product.price_cents,
-      source: "mymarket" as const,
+      source: product.source,
       score: productSearchScore(query, [
         product.name,
         product.search_text,
@@ -1957,12 +1899,12 @@ export function FamilyTracker({
   };
 
   const changeQuantity = (product: Product, direction: 1 | -1) => {
-    const isMyMarketMeasuredProduct =
-      product.external_source === "mymarket" &&
+    const isRemoteMeasuredProduct =
+      (product.external_source === "mymarket" || product.external_source === "bringo") &&
       (product.unit === "kg" ||
         product.unit === "L" ||
         /(?:kg|l)\s*$/i.test(product.package_size ?? ""));
-    const step = isMyMarketMeasuredProduct
+    const step = isRemoteMeasuredProduct
       ? 50
       : product.package_size || product.unit === "pièce"
         ? 100
@@ -2509,8 +2451,12 @@ export function FamilyTracker({
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-sm font-semibold">{suggestion.name}</span>
                               <span className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                                <span className={suggestion.source === "mymarket" ? "text-primary" : ""}>
-                                  {suggestion.source === "mymarket" ? "MyMarket" : t.familyCatalog}
+                                <span className={suggestion.source !== "family" ? "text-primary" : ""}>
+                                  {suggestion.source === "family"
+                                    ? t.familyCatalog
+                                    : suggestion.source === "bringo"
+                                      ? "Carrefour · Bringo"
+                                      : "MyMarket"}
                                 </span>
                                 {suggestion.packageSize && <span className="truncate">· {suggestion.packageSize}</span>}
                               </span>
@@ -2559,55 +2505,6 @@ export function FamilyTracker({
                     {t.favorites}
                   </Button>
                 </div>
-
-                <section
-                  aria-labelledby="bringo-catalogue-title"
-                  className="mb-8 overflow-hidden rounded-[1.75rem] border border-[#1f5d8f]/20 bg-card/80 p-4 shadow-[0_18px_55px_rgba(18,58,91,0.08)] sm:p-5"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <span
-                        aria-hidden="true"
-                        className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[#1f5d8f] text-lg font-black text-white shadow-sm"
-                      >
-                        B
-                      </span>
-                      <div className="min-w-0">
-                        <h2 id="bringo-catalogue-title" className="text-lg font-semibold tracking-tight sm:text-xl">
-                          {t.bringoCatalog}
-                        </h2>
-                        <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
-                          {t.bringoCatalogHint}
-                        </p>
-                      </div>
-                    </div>
-                    <Badge variant="outline" className="border-[#1f5d8f]/25 bg-card/70 text-[#1f5d8f] dark:text-[#80bde8]">
-                      <ExternalLink className="size-3.5" />
-                      {t.bringoExternal}
-                    </Badge>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-                    {BRINGO_CATEGORIES.map((bringoCategory) => (
-                      <a
-                        key={bringoCategory.id}
-                        href={bringoCategory.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label={`${t.openBringoCategory}: ${bringoCategory.label[language]}`}
-                        className="group flex min-h-24 min-w-0 flex-col justify-between rounded-2xl border border-border/80 bg-card/85 p-3 text-start shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#1f5d8f]/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1f5d8f]/45"
-                      >
-                        <span className="flex items-start justify-between gap-2">
-                          <span aria-hidden="true" className="text-2xl leading-none">{bringoCategory.icon}</span>
-                          <ExternalLink className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-[#1f5d8f]" />
-                        </span>
-                        <span className="mt-3 line-clamp-2 text-sm font-semibold leading-5">
-                          {bringoCategory.label[language]}
-                        </span>
-                      </a>
-                    ))}
-                  </div>
-                </section>
 
                 <div className="mb-4 flex items-end justify-between gap-4">
                   <div>
@@ -2661,7 +2558,8 @@ export function FamilyTracker({
                               <div className="flex shrink-0 items-center gap-1.5">
                                 {product.unit_price_cents > 0 &&
                                   ((product.unit !== "pièce" && !product.package_size) ||
-                                    (product.external_source === "mymarket" &&
+                                    ((product.external_source === "mymarket" ||
+                                      product.external_source === "bringo") &&
                                       measuredPackageSize(product.package_size))) && (
                                   <Button
                                     size="icon-sm"
@@ -2689,7 +2587,7 @@ export function FamilyTracker({
                       ))}
                       {filteredMyMarketProducts.map((product) => (
                         <article
-                          key={product.external_id}
+                          key={`${product.source}:${product.external_id}`}
                           className="group flex min-w-0 flex-col overflow-hidden rounded-[1.35rem] border border-border bg-card shadow-[0_18px_50px_rgba(0,0,0,0.10)] dark:shadow-[0_18px_50px_rgba(0,0,0,0.15)]"
                         >
                           <div className="relative overflow-hidden">
@@ -2734,12 +2632,12 @@ export function FamilyTracker({
                                     size="icon-sm"
                                     variant="outline"
                                     className="rounded-xl border-primary/25 text-primary"
-                                    disabled={myMarketBusyId === product.external_id}
+                                    disabled={myMarketBusyId === `${product.source}:${product.external_id}`}
                                     onClick={() => void addMyMarketProduct(product, "amount")}
                                     aria-label={`${t.buyByAmount}: ${product.name}`}
                                     title={t.buyByAmount}
                                   >
-                                    {myMarketBusyId === product.external_id ? (
+                                    {myMarketBusyId === `${product.source}:${product.external_id}` ? (
                                       <Loader2 className="animate-spin" />
                                     ) : (
                                       <WalletCards />
@@ -2749,11 +2647,11 @@ export function FamilyTracker({
                                 <Button
                                   size="icon-sm"
                                   className="rounded-xl"
-                                  disabled={myMarketBusyId === product.external_id}
+                                  disabled={myMarketBusyId === `${product.source}:${product.external_id}`}
                                   onClick={() => void addMyMarketProduct(product)}
                                   aria-label={`${t.addProduct}: ${product.name}`}
                                 >
-                                  {myMarketBusyId === product.external_id ? (
+                                  {myMarketBusyId === `${product.source}:${product.external_id}` ? (
                                     <Loader2 className="animate-spin" />
                                   ) : (
                                     <Plus />
