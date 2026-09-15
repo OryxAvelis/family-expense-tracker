@@ -3756,14 +3756,95 @@ function OfflinePurchaseDialog({
   const [prices, setPrices] = useState<Record<number, string>>({});
   const [amounts, setAmounts] = useState<Record<number, string>>({});
   const [walletScope, setWalletScope] = useState<"family" | "personal">("family");
+  const [importedProducts, setImportedProducts] = useState<Product[]>([]);
+  const [remoteProducts, setRemoteProducts] = useState<RemoteCatalogProduct[]>([]);
+  const [remoteQuery, setRemoteQuery] = useState("");
+  const [remoteSearchingQuery, setRemoteSearchingQuery] = useState("");
+  const [remoteError, setRemoteError] = useState("");
+  const [remoteBusyKey, setRemoteBusyKey] = useState<string | null>(null);
+  const remoteSearchSequence = useRef(0);
+
+  const normalizedSearch = normalizeProductSearch(search);
+  const remoteSearching =
+    normalizedSearch.length >= 2 && remoteSearchingQuery === normalizedSearch;
+
+  useEffect(() => {
+    const sequence = ++remoteSearchSequence.current;
+    if (!open || step !== 2 || normalizedSearch.length < 2) {
+      return;
+    }
+
+    const searchDelay = window.setTimeout(async () => {
+      setRemoteSearchingQuery(normalizedSearch);
+      setRemoteError("");
+      try {
+        const parameters = new URLSearchParams({ lang: "fr", q: search.trim() });
+        const sources = [
+          { source: "mymarket" as const, endpoint: "/api/products/mymarket" },
+          { source: "bringo" as const, endpoint: "/api/products/bringo" },
+        ];
+        const responses = await Promise.all(
+          sources.map(async ({ source, endpoint }) => {
+            const response = await fetch(`${endpoint}?${parameters.toString()}`, {
+              cache: "no-store",
+            });
+            const payload = (await response.json()) as {
+              products?: Omit<RemoteCatalogProduct, "source">[];
+              error?: string;
+            };
+            return { source, response, payload };
+          }),
+        );
+        if (responses.some(({ response }) => response.status === 401)) {
+          window.location.replace("/connexion");
+          return;
+        }
+        const successful = responses.filter(
+          ({ response, payload }) => response.ok && Array.isArray(payload.products),
+        );
+        if (!successful.length) {
+          throw new Error(
+            responses.find(({ payload }) => payload.error)?.payload.error ||
+              "Recherche catalogue indisponible.",
+          );
+        }
+        if (remoteSearchSequence.current === sequence) {
+          setRemoteProducts(
+            successful.flatMap(({ source, payload }) =>
+              (payload.products ?? []).map((product) => ({ ...product, source })),
+            ),
+          );
+          setRemoteQuery(normalizedSearch);
+        }
+      } catch (error) {
+        if (remoteSearchSequence.current === sequence) {
+          setRemoteProducts([]);
+          setRemoteQuery(normalizedSearch);
+          setRemoteError(
+            error instanceof Error ? error.message : "Recherche catalogue indisponible.",
+          );
+        }
+      } finally {
+        if (remoteSearchSequence.current === sequence) setRemoteSearchingQuery("");
+      }
+    }, 180);
+
+    return () => window.clearTimeout(searchDelay);
+  }, [normalizedSearch, open, search, step]);
 
   const selectedMember = members.find((member) => member.id === Number(memberId)) ?? null;
   const selectedWallet = data.memberWallets.find((wallet) => wallet.member_id === Number(memberId));
   const availableBalanceCents = walletScope === "family"
     ? data.familyWallet.balance_cents
     : selectedWallet?.balance_cents ?? 0;
-  const selected = data.products.filter((product) => (quantities[product.id] ?? 0) > 0);
-  const visibleProducts = data.products
+  const availableProducts = [
+    ...importedProducts,
+    ...data.products.filter(
+      (product) => !importedProducts.some((imported) => imported.id === product.id),
+    ),
+  ];
+  const selected = availableProducts.filter((product) => (quantities[product.id] ?? 0) > 0);
+  const visibleProducts = availableProducts
     .map((product) => ({
       product,
       score: productSearchScore(search, [
@@ -3783,6 +3864,31 @@ function OfflinePurchaseDialog({
     )
     .slice(0, search.trim() || showAllProducts ? 18 : 6)
     .map(({ product }) => product);
+  const visibleRemoteProducts = remoteQuery === normalizedSearch
+    ? remoteProducts
+        .map((product) => ({
+          product,
+          score: productSearchScore(search, [
+            product.name,
+            product.search_text,
+            product.package_size,
+            product.store,
+            CATEGORY_SEARCH_TERMS[product.category],
+          ]),
+        }))
+        .filter(({ product, score }) =>
+          score > 0 &&
+          !availableProducts.some(
+            (local) =>
+              (local.external_source === product.source &&
+                local.external_id === product.external_id) ||
+              normalizeProductSearch(productName(local)) === normalizeProductSearch(product.name),
+          ),
+        )
+        .sort((left, right) => right.score - left.score)
+        .slice(0, 18)
+        .map(({ product }) => product)
+    : [];
   const totalCents = selected.reduce((total, product) => {
     if (amounts[product.id] !== undefined) {
       const amount = parsePrice(amounts[product.id]);
@@ -3825,6 +3931,54 @@ function OfflinePurchaseDialog({
     setAmounts((current) => ({ ...current, [product.id]: current[product.id] ?? "5" }));
   };
 
+  const addRemoteProduct = async (
+    source: RemoteCatalogProduct,
+    mode: "quantity" | "amount" = "quantity",
+  ) => {
+    const busyKey = `${source.source}:${source.external_id}`;
+    try {
+      setRemoteBusyKey(busyKey);
+      const response = await fetch(`/api/products/${source.source}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ externalId: source.external_id }),
+      });
+      const payload = (await response.json()) as { product?: Product; error?: string };
+      if (response.status === 401) {
+        window.location.replace("/connexion");
+        return;
+      }
+      if (!response.ok || !payload.product) {
+        throw new Error(payload.error || "Import du produit impossible.");
+      }
+
+      const product = { ...payload.product, has_orders: payload.product.has_orders ?? 0 };
+      setImportedProducts((current) => [
+        product,
+        ...current.filter((entry) => entry.id !== product.id),
+      ]);
+      setPrices((current) => ({
+        ...current,
+        [product.id]: (product.unit_price_cents / 100).toFixed(2),
+      }));
+      setQuantities((current) => ({
+        ...current,
+        [product.id]: mode === "amount" ? 100 : (current[product.id] ?? 0) + 100,
+      }));
+      setAmounts((current) => {
+        const updated = { ...current };
+        if (mode === "amount") updated[product.id] = updated[product.id] ?? "5";
+        else delete updated[product.id];
+        return updated;
+      });
+      toast.success(`${productName(product)} ajouté au panier.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Import du produit impossible.");
+    } finally {
+      setRemoteBusyKey(null);
+    }
+  };
+
   const reset = () => {
     setMemberId("");
     setPurchasedDate(today);
@@ -3835,6 +3989,10 @@ function OfflinePurchaseDialog({
     setPrices({});
     setAmounts({});
     setWalletScope("family");
+    setImportedProducts([]);
+    setRemoteProducts([]);
+    setRemoteQuery("");
+    setRemoteError("");
   };
 
   const clearProducts = () => {
@@ -4007,7 +4165,7 @@ function OfflinePurchaseDialog({
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
                     <h3 className="font-semibold sm:text-lg">Rechercher un produit</h3>
-                    <p className="text-xs text-muted-foreground">Ajout rapide depuis le catalogue familial</p>
+                    <p className="text-xs text-muted-foreground">Catalogue familial, MyMarket et Carrefour dans une seule recherche</p>
                   </div>
                   {!search && data.products.length > 6 && (
                     <Button type="button" size="sm" variant="outline" className="rounded-full bg-card" onClick={() => setShowAllProducts((current) => !current)}>
@@ -4027,7 +4185,7 @@ function OfflinePurchaseDialog({
                 </div>
                 <div className="mt-4 flex items-center justify-between">
                   <p className="text-sm font-semibold">{search ? "Résultats" : "Produits fréquents"}</p>
-                  <Badge variant="outline" className="bg-card text-muted-foreground">{visibleProducts.length}</Badge>
+                  <Badge variant="outline" className="bg-card text-muted-foreground">{visibleProducts.length + visibleRemoteProducts.length}</Badge>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {visibleProducts.map((product) => (
@@ -4046,8 +4204,41 @@ function OfflinePurchaseDialog({
                       </div>
                     </article>
                   ))}
-                  {!visibleProducts.length && (
+                  {visibleRemoteProducts.map((product) => {
+                    const productKey = `${product.source}:${product.external_id}`;
+                    const productBusy = remoteBusyKey === productKey;
+                    return (
+                      <article key={productKey} className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card">
+                        <ProductImage position="0% 0%" name={product.name} imageUrl={product.image_url} className="aspect-[1.35]" />
+                        <div className="flex flex-1 flex-col p-2.5">
+                          <p className="line-clamp-2 text-sm font-semibold leading-5">{product.name}</p>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            <span className="text-xs text-muted-foreground">{product.package_size || "1 pièce"}</span>
+                            <Badge variant="outline" className="h-5 border-primary/20 bg-primary/5 px-1.5 text-[10px] text-primary">
+                              {product.store}
+                            </Badge>
+                          </div>
+                          <p className="mt-2 text-sm font-bold">{money(product.price_cents)}</p>
+                          <Button type="button" size="sm" variant="outline" disabled={productBusy} className="mt-2 w-full rounded-xl border-primary/25 text-primary" onClick={() => void addRemoteProduct(product)}>
+                            {productBusy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />} Ajouter
+                          </Button>
+                          <Button type="button" size="sm" variant="ghost" disabled={productBusy} className="mt-1 w-full rounded-xl text-primary" onClick={() => void addRemoteProduct(product, "amount")}>
+                            Par montant (DH)
+                          </Button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                  {remoteSearching && (
+                    <div className="col-span-2 flex items-center justify-center gap-2 rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground sm:col-span-3">
+                      <Loader2 className="size-4 animate-spin text-primary" /> Recherche dans MyMarket et Carrefour…
+                    </div>
+                  )}
+                  {!visibleProducts.length && !visibleRemoteProducts.length && !remoteSearching && (
                     <p className="col-span-2 rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground sm:col-span-3">Aucun produit trouvé.</p>
+                  )}
+                  {remoteError && remoteQuery === normalizedSearch && (
+                    <p className="col-span-2 rounded-2xl border border-destructive/25 bg-destructive/5 p-3 text-center text-xs text-destructive sm:col-span-3">{remoteError}</p>
                   )}
                 </div>
               </div>

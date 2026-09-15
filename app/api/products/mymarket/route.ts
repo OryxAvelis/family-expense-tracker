@@ -552,10 +552,10 @@ async function localizedProductName(handle: string, language: Language, fallback
 async function requireMember(request: Request) {
   const viewer = await getRequestFamilyUser(request);
   if (!viewer) return { response: Response.json({ error: "Connexion requise." }, { status: 401 }) };
-  if (viewer.role !== "member") {
+  if (viewer.role !== "member" && viewer.role !== "admin") {
     return {
       response: Response.json(
-        { error: "Le catalogue MyMarket est réservé aux membres." },
+        { error: "Le catalogue MyMarket est réservé à la famille." },
         { status: 403 },
       ),
     };
