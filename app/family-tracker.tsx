@@ -101,6 +101,7 @@ import { ProfileAvatar, ProfilePhotoEditor } from "@/app/profile-photo";
 import { AdminCartHistory } from "@/app/admin-cart-history";
 import { useFamilyTheme } from "@/hooks/use-family-theme";
 import type { FamilySessionUser } from "@/lib/family-auth";
+import type { ServiceTask } from "@/lib/family-services";
 import { SERVICE_TEMPLATES } from "@/lib/service-catalog";
 
 type Language = "fr" | "ar" | "en";
@@ -1118,6 +1119,7 @@ export function FamilyTracker({
   const [data, setData] = useState<AppData | null>(null);
   const [pendingPlanPayments, setPendingPlanPayments] = useState<PlanPayment[]>([]);
   const [planPaymentHistory, setPlanPaymentHistory] = useState<PlanPayment[]>([]);
+  const [serviceTasks, setServiceTasks] = useState<ServiceTask[]>([]);
   const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState(false);
   const [language, setLanguage] = useState<Language>("fr");
@@ -1187,7 +1189,9 @@ export function FamilyTracker({
       setLoadError("");
       const [response, servicesResponse] = await Promise.all([
         fetch("/api/family", { cache: "no-store" }),
-        role === "admin" ? fetch("/api/services", { cache: "no-store" }) : Promise.resolve(null),
+        role === "admin" || role === "delivery"
+          ? fetch("/api/services", { cache: "no-store" })
+          : Promise.resolve(null),
       ]);
       const payload = (await response.json()) as AppData & { error?: string };
       if (response.status === 401) {
@@ -1196,13 +1200,14 @@ export function FamilyTracker({
       }
       if (!response.ok) throw new Error(payload.error || "Impossible de charger les données.");
       if (servicesResponse) {
-        const servicesPayload = (await servicesResponse.json()) as { payments?: PlanPayment[]; error?: string };
+        const servicesPayload = (await servicesResponse.json()) as { payments?: PlanPayment[]; tasks?: ServiceTask[]; error?: string };
         if (servicesResponse.status === 401) {
           window.location.replace("/connexion");
           return;
         }
         if (!servicesResponse.ok) throw new Error(servicesPayload.error || "Impossible de charger les demandes de forfait.");
         const payments = servicesPayload.payments ?? [];
+        setServiceTasks(servicesPayload.tasks ?? []);
         setPendingPlanPayments(payments.filter((payment) => payment.status === "pending"));
         setPlanPaymentHistory(payments.filter((payment) => payment.status !== "pending"));
       }
@@ -1347,15 +1352,17 @@ export function FamilyTracker({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-      const payload = (await response.json()) as { payments?: PlanPayment[]; error?: string };
+      const payload = (await response.json()) as { payments?: PlanPayment[]; tasks?: ServiceTask[]; error?: string };
       if (response.status === 401) {
         window.location.replace("/connexion");
         return false;
       }
       if (!response.ok) throw new Error(payload.error || "Action impossible.");
       const payments = payload.payments ?? [];
+      setServiceTasks(payload.tasks ?? []);
       setPendingPlanPayments(payments.filter((payment) => payment.status === "pending"));
       setPlanPaymentHistory(payments.filter((payment) => payment.status !== "pending"));
+      if (role === "delivery") await loadData();
       toast.success(success);
       return true;
     } catch (error) {
@@ -2789,6 +2796,8 @@ export function FamilyTracker({
             monthlyBudgetCents={monthlyBudgetCents}
             currentMonthlyTotal={currentMonthlyTotal}
             pushPublicKey={data.pushPublicKey}
+            serviceTasks={serviceTasks.filter((task) => task.assignee_id === currentUser.id)}
+            actService={actService}
           />
         )}
       </div>
@@ -5731,6 +5740,8 @@ function DeliveryDashboard({
   monthlyBudgetCents,
   currentMonthlyTotal,
   pushPublicKey,
+  serviceTasks,
+  actService,
 }: {
   queue: Cart[];
   history: Cart[];
@@ -5754,6 +5765,8 @@ function DeliveryDashboard({
   monthlyBudgetCents: number;
   currentMonthlyTotal: number;
   pushPublicKey: string | null;
+  serviceTasks: ServiceTask[];
+  actService: (body: Record<string, unknown>, success: string) => Promise<boolean>;
 }) {
   const [selectedCartId, setSelectedCartId] = useState<number | null>(null);
   const [pushState, setPushState] = useState<
@@ -5778,6 +5791,12 @@ function DeliveryDashboard({
         sum + cartItemTotalCents(item),
       0,
     );
+  const activeServiceTasks = serviceTasks.filter((task) => task.status === "pending" || task.status === "in_progress");
+  const completedServiceTasks = serviceTasks.filter((task) => task.status === "completed");
+  const serviceStatusLabel = (task: ServiceTask) => {
+    if (task.status === "in_progress") return language === "ar" ? "قيد الإنجاز" : language === "en" ? "In progress" : "En cours";
+    return language === "ar" ? "للقيام" : language === "en" ? "To do" : "À faire";
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -5991,6 +6010,46 @@ function DeliveryDashboard({
         </article>
       </div>}
 
+      {view === "queue" && activeServiceTasks.length > 0 && (
+        <section className="mb-5 rounded-[2rem] border border-primary/20 bg-primary/[0.035] p-4 sm:p-6">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="flex items-center gap-2 text-lg font-semibold"><Sparkles className="size-5 text-primary" /> Missions de service</h2>
+              <p className="mt-1 text-xs text-muted-foreground">Demandes familiales et personnelles envoyées à Josef.</p>
+            </div>
+            <Badge variant="outline" className="border-primary/20 bg-card text-primary">{activeServiceTasks.length} active{activeServiceTasks.length === 1 ? "" : "s"}</Badge>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {activeServiceTasks.map((task) => (
+              <article key={task.id} className="rounded-2xl border border-border bg-card p-4">
+                <div className="flex items-start gap-3">
+                  <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary"><ClipboardCheck className="size-5" /></span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold">{task.title}</h3>
+                      <Badge className={task.status === "in_progress" ? "bg-[#ffb454] text-[#211609]" : "bg-primary/12 text-primary"}>{serviceStatusLabel(task)}</Badge>
+                    </div>
+                    <p className="mt-1 text-sm font-medium text-primary">Pour {task.creator_name} · {money(task.reward_cents)}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{task.scope === "family" ? "Service familial" : "Service personnel"} · {new Date(task.created_at).toLocaleString(language === "ar" ? "ar-MA" : language === "en" ? "en-MA" : "fr-MA", { dateStyle: "medium", timeStyle: "short" })}</p>
+                    {task.description && <p className="mt-3 whitespace-pre-wrap rounded-xl bg-muted/55 p-3 text-sm leading-6">{task.description}</p>}
+                  </div>
+                </div>
+                <div className="mt-4 flex justify-end gap-2 border-t border-border pt-3">
+                  {task.status === "pending" && (
+                    <Button type="button" variant="outline" className="rounded-xl" disabled={busy} onClick={() => void actService({ action: "update_task_status", taskId: task.id, status: "in_progress" }, "Service commencé.")}>
+                      <Clock3 className="size-4" /> Commencer
+                    </Button>
+                  )}
+                  <Button type="button" className="rounded-xl" disabled={busy} onClick={() => void actService({ action: "update_task_status", taskId: task.id, status: "completed" }, "Service terminé et enregistré.")}>
+                    {busy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />} Terminer
+                  </Button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       {view === "balances" ? (
         <MemberBalancesManager
           wallets={memberWallets}
@@ -6144,13 +6203,27 @@ function DeliveryDashboard({
               </div>
             </aside>
           </div>
-        ) : (
+        ) : activeServiceTasks.length ? null : (
           <div className="rounded-[2rem] border border-dashed border-primary/20 bg-primary/[0.035] p-12 text-center">
             <CircleCheck className="mx-auto mb-4 size-10 text-primary" /><p className="font-semibold">{t.noQueue}</p>
           </div>
         )
       ) : (
         <div className="space-y-3">
+          {completedServiceTasks.map((task) => (
+            <article key={task.id} className="rounded-2xl border border-border bg-card p-4">
+              <div className="flex flex-wrap items-center gap-4">
+                <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary"><Sparkles className="size-5" /></span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">{task.creator_name} · {task.title}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{task.completed_at ? new Date(task.completed_at).toLocaleDateString(language === "ar" ? "ar-MA" : language === "en" ? "en-MA" : "fr-MA", { dateStyle: "medium" }) : ""}</p>
+                  {task.description && <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{task.description}</p>}
+                </div>
+                <Badge variant="outline" className="border-primary/20 text-primary">Service terminé</Badge>
+                <strong>+{money(task.reward_cents)}</strong>
+              </div>
+            </article>
+          ))}
           {history.map((cart) => {
             const boughtItems = itemsFor(cart.id).filter((item) => item.purchase_status === "bought");
             const purchasedTotal = boughtItems.reduce((sum, item) => sum + cartItemTotalCents(item), 0);
@@ -6171,6 +6244,11 @@ function DeliveryDashboard({
               </article>
             );
           })}
+          {!completedServiceTasks.length && !history.length && (
+            <div className="rounded-[2rem] border border-dashed border-primary/20 bg-primary/[0.035] p-12 text-center">
+              <CircleCheck className="mx-auto mb-4 size-10 text-primary" /><p className="font-semibold">Aucun historique pour le moment.</p>
+            </div>
+          )}
         </div>
       )}
     </section>
