@@ -2342,7 +2342,7 @@ export function FamilyTracker({
                   <p className="mt-2 text-sm text-muted-foreground sm:text-base">{t.settingsDescription}</p>
                 )}
               </div>
-              <div className="flex h-11 items-center gap-2 rounded-xl border border-border bg-card/70 px-4 text-sm font-medium">
+              <div className="flex h-11 items-center gap-2 rounded-xl border border-border bg-card/70 px-4 text-sm font-medium lg:hidden">
                 <ProfileAvatar
                   user={currentUser}
                   version={profileImageVersion}
