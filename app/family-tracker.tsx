@@ -2562,7 +2562,7 @@ export function FamilyTracker({
 
                 <section
                   aria-labelledby="bringo-catalogue-title"
-                  className="mb-8 overflow-hidden rounded-[1.75rem] border border-[#1f5d8f]/20 bg-[linear-gradient(135deg,rgba(31,93,143,0.10),rgba(255,255,255,0.72)_48%,rgba(196,42,47,0.08))] p-4 shadow-[0_18px_55px_rgba(18,58,91,0.08)] dark:bg-[linear-gradient(135deg,rgba(31,93,143,0.20),rgba(12,31,40,0.88)_48%,rgba(196,42,47,0.12))] sm:p-5"
+                  className="mb-8 overflow-hidden rounded-[1.75rem] border border-[#1f5d8f]/20 bg-card/80 p-4 shadow-[0_18px_55px_rgba(18,58,91,0.08)] sm:p-5"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="flex min-w-0 items-start gap-3">
