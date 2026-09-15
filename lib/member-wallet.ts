@@ -103,3 +103,21 @@ export async function removeMemberWalletTransaction(memberId: number, transactio
   throwIfSupabaseError(error);
   return true;
 }
+
+export async function updateMemberWalletOrderAmount(memberId: number, cartId: number, amountCents: number) {
+  const db = getSupabaseAdmin();
+  const key = memberWalletMetaKey(memberId);
+  const { data, error: readError } = await db.from("app_meta").select("value").eq("key", key).maybeSingle();
+  throwIfSupabaseError(readError);
+  const transactions = parseMemberWallet(data?.value);
+  const transactionId = `order-${cartId}`;
+  const index = transactions.findIndex((entry) => entry.id === transactionId);
+  if (index < 0) return false;
+  transactions[index] = { ...transactions[index], amount_cents: -Math.abs(amountCents) };
+  const { error } = await db.from("app_meta").upsert(
+    { key, value: JSON.stringify(transactions.slice(-300)) },
+    { onConflict: "key" },
+  );
+  throwIfSupabaseError(error);
+  return true;
+}

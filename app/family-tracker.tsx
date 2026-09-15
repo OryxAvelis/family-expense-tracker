@@ -420,6 +420,7 @@ type AppData = {
   favoriteProductIds: number[];
   deliveryWallet: DeliveryWallet;
   memberWallets: MemberWallet[];
+  memberServiceFees: Array<{ member_id: number; service_fee_cents: number }>;
   pushPublicKey: string | null;
 };
 
@@ -3540,9 +3541,13 @@ function OfflinePurchaseDialog({
     const price = parsePrice(prices[product.id] ?? "");
     return total + (Number.isFinite(price) ? Math.round(price * quantities[product.id] / 100) : 0);
   }, 0);
+  const memberServiceFeeCents = data.memberServiceFees.find(
+    (entry) => entry.member_id === Number(memberId),
+  )?.service_fee_cents ?? 50;
+  const totalWithServiceCents = totalCents + memberServiceFeeCents;
   const spendableBalanceCents = Math.max(availableBalanceCents, 0);
-  const walletDebitCents = Math.min(totalCents, spendableBalanceCents);
-  const directPaymentCents = Math.max(totalCents - walletDebitCents, 0);
+  const walletDebitCents = Math.min(totalWithServiceCents, spendableBalanceCents);
+  const directPaymentCents = Math.max(totalWithServiceCents - walletDebitCents, 0);
   const remainingBalanceCents = spendableBalanceCents - walletDebitCents;
 
   const productStep = (product: Product) => product.unit === "pièce" || product.package_size ? 100 : 50;
@@ -3594,7 +3599,7 @@ function OfflinePurchaseDialog({
     }
     const ok = await act(
       { action: "record_offline_purchase", memberId: Number(memberId), purchasedDate, items },
-      "Achat ajouté au compte du membre, sans frais de livraison.",
+      "Achat ajouté au compte du membre avec les frais de livraison.",
     );
     if (ok) {
       setOpen(false);
@@ -3618,7 +3623,7 @@ function OfflinePurchaseDialog({
           <DialogHeader className="pe-8 text-start">
             <DialogTitle className="text-2xl tracking-[-0.025em] sm:text-3xl">Achat pour un membre</DialogTitle>
             <DialogDescription className="mt-1 text-sm leading-6 sm:text-base">
-              Ajoutez les produits achetés au compte d’un membre. Aucun frais de livraison ne sera appliqué.
+              Ajoutez les produits achetés au compte d’un membre. Les frais de son forfait seront appliqués.
             </DialogDescription>
           </DialogHeader>
 
@@ -3817,8 +3822,15 @@ function OfflinePurchaseDialog({
                     <Input id="offline-purchase-date-compact" type="date" max={today} value={purchasedDate} onChange={(event) => setPurchasedDate(event.target.value)} className="mt-1 h-10 rounded-xl" />
                   </div>
                   <div className="rounded-xl bg-primary/[0.06] px-3 py-2">
-                    <p className="text-xs text-muted-foreground">Total du panier</p>
-                    <p className="text-xl font-bold">{money(totalCents)}</p>
+                    <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <span>Produits</span><span>{money(totalCents)}</span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <span>Livraison</span><span>{money(memberServiceFeeCents)}</span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-3 border-t border-primary/15 pt-2">
+                      <span className="text-xs font-semibold">Total</span><strong>{money(totalWithServiceCents)}</strong>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3850,7 +3862,7 @@ function OfflinePurchaseDialog({
               </div>
               <div className="mt-4 grid gap-3 rounded-2xl bg-primary/[0.06] p-4 sm:grid-cols-4">
                 <div><p className="text-xs text-muted-foreground">Solde du membre</p><p className="mt-1 text-lg font-bold">{money(availableBalanceCents)}</p></div>
-                <div><p className="text-xs text-muted-foreground">Total de l’achat</p><p className="mt-1 text-lg font-bold">{money(totalCents)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Total avec livraison</p><p className="mt-1 text-lg font-bold">{money(totalWithServiceCents)}</p><p className="text-xs text-muted-foreground">dont {money(memberServiceFeeCents)} de livraison</p></div>
                 <div><p className="text-xs text-muted-foreground">Déduit du solde</p><p className="mt-1 text-lg font-bold">− {money(walletDebitCents)}</p></div>
                 <div><p className="text-xs text-muted-foreground">Solde après achat</p><p className="mt-1 text-xl font-bold text-primary">{money(remainingBalanceCents)}</p></div>
               </div>

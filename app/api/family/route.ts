@@ -18,6 +18,7 @@ import {
   parseMemberWallet,
   removeMemberWalletTransaction,
   summarizeMemberWallet,
+  updateMemberWalletOrderAmount,
 } from "@/lib/member-wallet";
 
 export const dynamic = "force-dynamic";
@@ -388,6 +389,12 @@ async function readState(viewer: FamilySessionUser) {
         transactions: wallet.transactions.slice().reverse(),
       };
     });
+  const memberServiceFees = users
+    .filter((user) => user.role === "member")
+    .map((user) => ({
+      member_id: user.id,
+      service_fee_cents: serviceFeeForPlan(effectivePlan(servicesState, user.id)),
+    }));
   const products = ((productsResult.data ?? []) as unknown as ProductRow[]).map(
     ({ cart_items, ...product }) => ({ ...product, has_orders: Number(Boolean(cart_items?.length)) }),
   );
@@ -420,7 +427,7 @@ async function readState(viewer: FamilySessionUser) {
   const visibleCarts = viewer.role === "member"
     ? carts.filter((cart) => cart.member_id === viewer.id)
     : viewer.role === "delivery"
-      ? carts.filter((cart) => !cart.offline_purchase)
+      ? carts.filter((cart) => !cart.offline_purchase || cart.status === "completed")
       : carts;
   const visibleCartIds = visibleCarts.map((cart) => cart.id);
 
@@ -519,9 +526,7 @@ async function readState(viewer: FamilySessionUser) {
         .in("member_id", activeMemberIds)
         .limit(1000);
       throwIfSupabaseError(error);
-      completedOrderRows = ((data ?? []) as Array<{ id: number; completed_at: string | null }>).filter(
-        (cart) => metadata.get(`${OFFLINE_PURCHASE_PREFIX}${cart.id}`) !== "1",
-      );
+      completedOrderRows = (data ?? []) as Array<{ id: number; completed_at: string | null }>;
     }
     const completedOrders = completedOrderRows.length;
     const orderEarnedCents = completedOrderRows.reduce((sum, cart) => {
@@ -573,6 +578,7 @@ async function readState(viewer: FamilySessionUser) {
     favoriteProductIds,
     deliveryWallet,
     memberWallets,
+    memberServiceFees,
     pushPublicKey: getPushPublicKey(),
   };
 }
@@ -1045,6 +1051,15 @@ export async function POST(request: Request) {
           0,
         );
 
+        const { data: serviceMeta, error: serviceMetaError } = await db
+          .from("app_meta")
+          .select("value")
+          .eq("key", SERVICES_META_KEY)
+          .maybeSingle();
+        throwIfSupabaseError(serviceMetaError);
+        const memberPlan = effectivePlan(parseServicesState(serviceMeta?.value), memberId);
+        const chargedServiceFeeCents = serviceFeeForPlan(memberPlan);
+
         const { error: itemError } = await db.from("cart_items").insert(rows);
         if (itemError) {
           await db.from("carts").delete().eq("id", cartId);
@@ -1052,14 +1067,14 @@ export async function POST(request: Request) {
         }
         try {
           const { error: metaError } = await db.from("app_meta").upsert([
-            { key: `${CART_SERVICE_FEE_PREFIX}${cartId}`, value: "0" },
+            { key: `${CART_SERVICE_FEE_PREFIX}${cartId}`, value: String(chargedServiceFeeCents) },
             { key: `${OFFLINE_PURCHASE_PREFIX}${cartId}`, value: "1" },
           ], { onConflict: "key" });
           throwIfSupabaseError(metaError);
           await addMemberWalletTransaction(memberId, {
             id: `order-${cartId}`,
             type: "order",
-            amount_cents: -totalCents,
+            amount_cents: -(totalCents + chargedServiceFeeCents),
             cart_id: cartId,
             created_at: timestamp,
             actor_name: viewer.name,
@@ -1134,6 +1149,52 @@ export async function POST(request: Request) {
         break;
       }
 
+      case "recalculate_order_service_fee": {
+        requireRole(viewer.role, "admin");
+        const cartId = asPositiveInt(body.cartId, "cartId");
+        const { data: cart, error: cartError } = await db
+          .from("carts")
+          .select("id, member_id, status, cart_items(quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status)")
+          .eq("id", cartId)
+          .eq("status", "completed")
+          .maybeSingle();
+        throwIfSupabaseError(cartError);
+        if (!cart) throw new Error("Commande terminée introuvable.");
+
+        const { data: metadataRows, error: metadataError } = await db
+          .from("app_meta")
+          .select("key, value")
+          .in("key", [SERVICES_META_KEY, `${CART_PAYMENT_METHOD_PREFIX}${cartId}`]);
+        throwIfSupabaseError(metadataError);
+        const metadata = new Map((metadataRows ?? []).map((entry) => [String(entry.key), String(entry.value)]));
+        const memberId = Number(cart.member_id);
+        const memberPlan = effectivePlan(parseServicesState(metadata.get(SERVICES_META_KEY)), memberId);
+        const chargedServiceFeeCents = serviceFeeForPlan(memberPlan);
+        const purchasedTotalCents = (cart.cart_items as Array<{
+          quantity_hundredths: number;
+          requested_unit_price_cents: number;
+          actual_unit_price_cents: number;
+          purchase_status: string;
+        }>).filter((item) => item.purchase_status === "bought").reduce(
+          (total, item) => total + storedItemTotalCents(item),
+          0,
+        );
+
+        const { error: feeError } = await db.from("app_meta").upsert(
+          { key: `${CART_SERVICE_FEE_PREFIX}${cartId}`, value: String(chargedServiceFeeCents) },
+          { onConflict: "key" },
+        );
+        throwIfSupabaseError(feeError);
+        if (metadata.get(`${CART_PAYMENT_METHOD_PREFIX}${cartId}`) !== "direct") {
+          await updateMemberWalletOrderAmount(
+            memberId,
+            cartId,
+            purchasedTotalCents + chargedServiceFeeCents,
+          );
+        }
+        break;
+      }
+
       case "toggle_favorite": {
         requireRole(viewer.role, "member");
         const productId = asPositiveInt(body.productId, "productId");
@@ -1205,10 +1266,7 @@ export async function POST(request: Request) {
           .select("key, value");
         throwIfSupabaseError(metaReadError);
         const metadata = new Map((accountingMeta ?? []).map((entry) => [String(entry.key), String(entry.value)]));
-        const completedOrderIds = completedCartIds.filter(
-          (cartId) => metadata.get(`${OFFLINE_PURCHASE_PREFIX}${cartId}`) !== "1",
-        );
-        const orderEarningsCents = completedOrderIds.reduce((sum, cartId) => {
+        const orderEarningsCents = completedCartIds.reduce((sum, cartId) => {
           const storedFee = metadata.get(`${CART_SERVICE_FEE_PREFIX}${cartId}`);
           return sum + (storedFee === undefined ? DELIVERY_SERVICE_FEE_CENTS : metaInteger(storedFee));
         }, 0);
