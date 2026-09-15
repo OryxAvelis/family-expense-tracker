@@ -99,6 +99,7 @@ import {
 } from "@/app/barcode-scanner-dialog";
 import { AdminAnalyticsCharts } from "@/app/admin-analytics-charts";
 import { ProfileAvatar, ProfilePhotoEditor } from "@/app/profile-photo";
+import { AdminCartHistory } from "@/app/admin-cart-history";
 import { useFamilyTheme } from "@/hooks/use-family-theme";
 import type { FamilySessionUser } from "@/lib/family-auth";
 
@@ -3598,8 +3599,8 @@ function OfflinePurchaseDialog({
       return;
     }
     const ok = await act(
-      { action: "record_offline_purchase", memberId: Number(memberId), purchasedDate, items },
-      "Achat ajouté au compte du membre avec les frais de livraison.",
+      { action: "create_member_order", memberId: Number(memberId), purchasedDate, items },
+      "Commande créée pour le membre et envoyée à Josef.",
     );
     if (ok) {
       setOpen(false);
@@ -3616,14 +3617,14 @@ function OfflinePurchaseDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button className="w-full rounded-xl sm:w-auto"><ShoppingCart /> Achat pour un membre</Button>
+        <Button className="w-full rounded-xl sm:w-auto"><ShoppingCart /> Commander pour un membre</Button>
       </DialogTrigger>
       <DialogContent className="flex max-h-[calc(100dvh-1rem)] max-w-6xl flex-col gap-0 overflow-hidden rounded-[1.75rem] border-border bg-card p-0 sm:max-h-[calc(100dvh-2rem)] sm:max-w-6xl">
         <div className="scrollbar-thin overflow-y-auto px-4 pb-4 pt-5 sm:px-7 sm:pb-6 sm:pt-7">
           <DialogHeader className="pe-8 text-start">
-            <DialogTitle className="text-2xl tracking-[-0.025em] sm:text-3xl">Achat pour un membre</DialogTitle>
+            <DialogTitle className="text-2xl tracking-[-0.025em] sm:text-3xl">Commander pour un membre</DialogTitle>
             <DialogDescription className="mt-1 text-sm leading-6 sm:text-base">
-              Ajoutez les produits achetés au compte d’un membre. Les frais de son forfait seront appliqués.
+              Choisissez les produits pour le membre. Josef recevra la commande et confirmera les achats. Le solde sera débité à la fin.
             </DialogDescription>
           </DialogHeader>
 
@@ -3811,14 +3812,14 @@ function OfflinePurchaseDialog({
                       <div>
                         <ShoppingBasket className="mx-auto size-8 text-primary/55" />
                         <p className="mt-3 text-sm font-medium">Le panier est vide</p>
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">Ajoutez les produits achetés depuis la liste.</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">Ajoutez les produits à commander depuis la liste.</p>
                       </div>
                     </div>
                   )}
                 </div>
                 <div className="mt-auto grid gap-2 border-t border-border pt-4 sm:grid-cols-2">
                   <div>
-                    <Label htmlFor="offline-purchase-date-compact" className="text-xs text-muted-foreground">Date de l’achat</Label>
+                    <Label htmlFor="offline-purchase-date-compact" className="text-xs text-muted-foreground">Date de la demande</Label>
                     <Input id="offline-purchase-date-compact" type="date" max={today} value={purchasedDate} onChange={(event) => setPurchasedDate(event.target.value)} className="mt-1 h-10 rounded-xl" />
                   </div>
                   <div className="rounded-xl bg-primary/[0.06] px-3 py-2">
@@ -3840,8 +3841,8 @@ function OfflinePurchaseDialog({
           {step === 3 && (
             <section className="mx-auto mt-6 max-w-3xl">
               <div className="mb-4">
-                <h3 className="text-lg font-semibold">Vérifiez l’achat</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Confirmez le membre, les produits, les quantités et les prix réels.</p>
+                <h3 className="text-lg font-semibold">Vérifiez la commande</h3>
+                <p className="mt-1 text-sm text-muted-foreground">Confirmez le membre, les produits et les quantités. Josef vérifiera les prix pendant les achats.</p>
               </div>
               <div className="overflow-hidden rounded-2xl border border-border">
                 {selected.map((product) => {
@@ -3862,9 +3863,9 @@ function OfflinePurchaseDialog({
               </div>
               <div className="mt-4 grid gap-3 rounded-2xl bg-primary/[0.06] p-4 sm:grid-cols-4">
                 <div><p className="text-xs text-muted-foreground">Solde du membre</p><p className="mt-1 text-lg font-bold">{money(availableBalanceCents)}</p></div>
-                <div><p className="text-xs text-muted-foreground">Total avec livraison</p><p className="mt-1 text-lg font-bold">{money(totalWithServiceCents)}</p><p className="text-xs text-muted-foreground">dont {money(memberServiceFeeCents)} de livraison</p></div>
-                <div><p className="text-xs text-muted-foreground">Déduit du solde</p><p className="mt-1 text-lg font-bold">− {money(walletDebitCents)}</p></div>
-                <div><p className="text-xs text-muted-foreground">Solde après achat</p><p className="mt-1 text-xl font-bold text-primary">{money(remainingBalanceCents)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Total estimé avec livraison</p><p className="mt-1 text-lg font-bold">{money(totalWithServiceCents)}</p><p className="text-xs text-muted-foreground">dont {money(memberServiceFeeCents)} de livraison</p></div>
+                <div><p className="text-xs text-muted-foreground">Débit prévu à la fin</p><p className="mt-1 text-lg font-bold">− {money(walletDebitCents)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Solde estimé après achat</p><p className="mt-1 text-xl font-bold text-primary">{money(remainingBalanceCents)}</p></div>
               </div>
               {directPaymentCents > 0 && (
                 <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground"><CircleCheck className="size-4 text-primary" /> {money(directPaymentCents)} sera payé directement. Aucun solde négatif ne sera créé.</p>
@@ -3875,18 +3876,18 @@ function OfflinePurchaseDialog({
 
         <DialogFooter className="mt-auto flex-row items-center justify-between gap-3 border-t border-border bg-card/95 px-4 py-4 backdrop-blur sm:px-7">
           <div className="min-w-0">
-            <p className="text-xs text-muted-foreground">{step === 3 ? "Solde après achat" : "Reste"}</p>
+            <p className="text-xs text-muted-foreground">Solde estimé après achat</p>
             <p className="truncate text-lg font-bold text-primary sm:text-2xl">{money(remainingBalanceCents)}</p>
           </div>
           {step === 2 ? (
             <Button type="button" disabled={!memberId || !selected.length} onClick={() => setStep(3)} className="h-11 rounded-xl px-5">
-              Vérifier l’achat <ChevronRight />
+              Vérifier la commande <ChevronRight />
             </Button>
           ) : step === 3 ? (
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={() => setStep(2)} className="hidden h-11 rounded-xl sm:inline-flex">Modifier</Button>
               <Button disabled={busy || !memberId || !selected.length} onClick={() => void submit()} className="h-11 rounded-xl px-5">
-                {busy ? <Loader2 className="animate-spin" /> : <Check />} Enregistrer l’achat
+                {busy ? <Loader2 className="animate-spin" /> : <Check />} Envoyer à Josef
               </Button>
             </div>
           ) : (
@@ -4272,6 +4273,7 @@ function AdminDashboard({
           </TabsTrigger>
           <TabsTrigger value="products" className="h-9 rounded-xl px-4"><PackagePlus /> {t.products}</TabsTrigger>
           <TabsTrigger value="balances" className="h-9 rounded-xl px-4"><WalletCards /> {t.balances}</TabsTrigger>
+          <TabsTrigger value="history" className="h-9 rounded-xl px-4"><ListChecks /> {t.history}</TabsTrigger>
           <TabsTrigger value="analytics" className="h-9 rounded-xl px-4"><BarChart3 /> {t.analytics}</TabsTrigger>
         </TabsList>
 
@@ -4504,6 +4506,10 @@ function AdminDashboard({
               </div>
             )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="history">
+          <AdminCartHistory language={language} members={data.users.filter((user) => user.role === "member")} money={money} />
         </TabsContent>
 
         <TabsContent value="balances">

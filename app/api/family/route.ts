@@ -318,6 +318,21 @@ function cartOrder(
 async function readState(viewer: FamilySessionUser) {
   const db = getSupabaseAdmin();
 
+  const readCarts = async () => {
+    const rows: CartRow[] = [];
+    for (let offset = 0; ; offset += 500) {
+      let query = db.from("carts").select(
+        "id, member_id, status, priority, created_at, submitted_at, approved_at, completed_at, missing_products_note, family_users!inner(name, initials, active)",
+      ).eq("family_users.active", true).neq("status", "cancelled").order("id");
+      if (viewer.role === "member") query = query.eq("member_id", viewer.id);
+      const { data, error } = await query.range(offset, offset + 499);
+      throwIfSupabaseError(error);
+      rows.push(...((data ?? []) as unknown as CartRow[]));
+      if ((data?.length ?? 0) < 500) break;
+    }
+    return { data: rows, error: null };
+  };
+
   const [usersResult, productsResult, cartsResult, metadataResult] = await Promise.all([
     db.from("family_users").select("id, name, username, role, initials").eq("active", true).order("id"),
     db
@@ -328,14 +343,7 @@ async function readState(viewer: FamilySessionUser) {
       .eq("active", true)
       .order("purchase_count", { ascending: false })
       .order("name_fr"),
-    db
-      .from("carts")
-      .select(
-        "id, member_id, status, priority, created_at, submitted_at, approved_at, completed_at, missing_products_note, family_users!inner(name, initials, active)",
-      )
-      .eq("family_users.active", true)
-      .neq("status", "cancelled")
-      .limit(200),
+    readCarts(),
     db.from("app_meta").select("key, value"),
   ]);
   throwIfSupabaseError(usersResult.error);
@@ -421,27 +429,32 @@ async function readState(viewer: FamilySessionUser) {
           : serviceFeeForPlan(effectivePlan(servicesState, Number(cart.member_id))),
       };
     })
-    .sort(cartOrder)
-    .slice(0, 80);
+    .sort(cartOrder);
 
   const visibleCarts = viewer.role === "member"
     ? carts.filter((cart) => cart.member_id === viewer.id)
-    : viewer.role === "delivery"
-      ? carts.filter((cart) => !cart.offline_purchase || cart.status === "completed")
-      : carts;
+    : carts;
   const visibleCartIds = visibleCarts.map((cart) => cart.id);
 
   let items: Array<Record<string, unknown>> = [];
   if (visibleCartIds.length) {
-    const { data, error } = await db
-      .from("cart_items")
-      .select(
-        "id, cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status, products!inner(name_fr, name_ar, name_en, unit, unit_price_cents, image_position, image_url, package_size)",
-      )
-      .in("cart_id", visibleCartIds)
-      .order("id");
-    throwIfSupabaseError(error);
-    items = ((data ?? []) as unknown as ItemRow[]).map((item) => {
+    const allItems: ItemRow[] = [];
+    for (let batch = 0; batch < visibleCartIds.length; batch += 100) {
+      for (let offset = 0; ; offset += 500) {
+        const { data, error } = await db
+          .from("cart_items")
+          .select(
+            "id, cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status, products!inner(name_fr, name_ar, name_en, unit, unit_price_cents, image_position, image_url, package_size)",
+          )
+          .in("cart_id", visibleCartIds.slice(batch, batch + 100))
+          .order("id")
+          .range(offset, offset + 499);
+        throwIfSupabaseError(error);
+        allItems.push(...((data ?? []) as unknown as ItemRow[]));
+        if ((data?.length ?? 0) < 500) break;
+      }
+    }
+    items = allItems.map((item) => {
       const product = joined(item.products);
       return {
         id: Number(item.id),
@@ -970,6 +983,7 @@ export async function POST(request: Request) {
         break;
       }
 
+      case "create_member_order":
       case "record_offline_purchase": {
         requireRole(viewer.role, "admin");
         const memberId = asPositiveInt(body.memberId, "memberId");
@@ -983,11 +997,10 @@ export async function POST(request: Request) {
         if (purchasedDate > today || purchasedDate < oldestAllowed) {
           throw new Error("Choisissez une date comprise dans les deux dernières années.");
         }
-        const completedAt = new Date(`${purchasedDate}T12:00:00.000Z`);
 
         const { data: member, error: memberError } = await db
           .from("family_users")
-          .select("id")
+          .select("id, name")
           .eq("id", memberId)
           .eq("role", "member")
           .eq("active", true)
@@ -1016,18 +1029,18 @@ export async function POST(request: Request) {
         throwIfSupabaseError(productsError);
         if (!products || products.length !== productIds.length) throw new Error("Un produit est indisponible.");
 
-        const timestamp = completedAt.toISOString();
+        const timestamp = nowIso();
         const { data: created, error: cartError } = await db
           .from("carts")
           .insert({
             member_id: memberId,
-            status: "completed",
-            priority: "normal",
+            status: "pending",
+            priority: null,
             missing_products_note: "",
             created_at: timestamp,
             submitted_at: timestamp,
-            approved_at: timestamp,
-            completed_at: timestamp,
+            approved_at: null,
+            completed_at: null,
           })
           .select("id")
           .single();
@@ -1041,24 +1054,11 @@ export async function POST(request: Request) {
             cart_id: cartId,
             product_id: product.id,
             quantity_hundredths: item.quantityHundredths,
-            requested_unit_price_cents: product.unit_price_cents,
+            requested_unit_price_cents: item.actualUnitPriceCents,
             actual_unit_price_cents: item.actualUnitPriceCents,
-            purchase_status: "bought",
+            purchase_status: "requested",
           };
         });
-        const totalCents = rows.reduce(
-          (total, item) => total + Math.round((item.actual_unit_price_cents * item.quantity_hundredths) / 100),
-          0,
-        );
-
-        const { data: serviceMeta, error: serviceMetaError } = await db
-          .from("app_meta")
-          .select("value")
-          .eq("key", SERVICES_META_KEY)
-          .maybeSingle();
-        throwIfSupabaseError(serviceMetaError);
-        const memberPlan = effectivePlan(parseServicesState(serviceMeta?.value), memberId);
-        const chargedServiceFeeCents = serviceFeeForPlan(memberPlan);
 
         const { error: itemError } = await db.from("cart_items").insert(rows);
         if (itemError) {
@@ -1067,27 +1067,20 @@ export async function POST(request: Request) {
         }
         try {
           const { error: metaError } = await db.from("app_meta").upsert([
-            { key: `${CART_SERVICE_FEE_PREFIX}${cartId}`, value: String(chargedServiceFeeCents) },
-            { key: `${OFFLINE_PURCHASE_PREFIX}${cartId}`, value: "1" },
+            { key: `cart_created_by_${cartId}`, value: viewer.name },
+            { key: `cart_requested_date_${cartId}`, value: purchasedDate },
           ], { onConflict: "key" });
           throwIfSupabaseError(metaError);
-          await addMemberWalletTransaction(memberId, {
-            id: `order-${cartId}`,
-            type: "order",
-            amount_cents: -(totalCents + chargedServiceFeeCents),
-            cart_id: cartId,
-            created_at: timestamp,
-            actor_name: viewer.name,
-          });
         } catch (error) {
           await db.from("cart_items").delete().eq("cart_id", cartId);
           await db.from("carts").delete().eq("id", cartId);
           await db.from("app_meta").delete().in("key", [
-            `${CART_SERVICE_FEE_PREFIX}${cartId}`,
-            `${OFFLINE_PURCHASE_PREFIX}${cartId}`,
+            `cart_created_by_${cartId}`,
+            `cart_requested_date_${cartId}`,
           ]);
           throw error;
         }
+        await notifyDeliveryOfNewOrder({ cartId, memberName: member.name, itemCount: rows.length, hasMissingProducts: false });
         break;
       }
 
