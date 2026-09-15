@@ -36,7 +36,6 @@ import {
   Sparkles,
   Sun,
   Trash2,
-  UserCog,
   UserCheck,
   UserPlus,
   WalletCards,
@@ -108,6 +107,7 @@ type Role = "member" | "admin" | "delivery";
 type CartStatus = "pending" | "ready" | "shopping" | "completed";
 type Priority = "urgent" | "normal" | null;
 type PurchaseStatus = "requested" | "bought" | "unbought";
+type AdminView = "requests" | "history" | "balances" | "products" | "analytics";
 
 const MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024;
 const PRODUCT_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -1119,6 +1119,7 @@ export function FamilyTracker({
   const [language, setLanguage] = useState<Language>("fr");
   const [memberId] = useState(currentUser.id);
   const [memberView, setMemberView] = useState<"catalog" | "carts" | "settings">("catalog");
+  const [adminView, setAdminView] = useState<AdminView>("requests");
   const [deliveryView, setDeliveryView] = useState<"queue" | "history" | "balances">("queue");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
@@ -2070,69 +2071,129 @@ export function FamilyTracker({
     <main className="min-h-screen bg-background text-foreground">
       <Toaster theme={theme} position="top-center" richColors />
 
-      <aside className="fixed inset-y-0 start-0 z-30 hidden w-24 flex-col items-center border-e border-sidebar-border bg-sidebar/95 py-7 text-sidebar-foreground backdrop-blur-xl lg:flex">
-        <div className="relative size-11 overflow-hidden rounded-2xl shadow-[0_10px_30px_rgba(64,224,177,0.2)]">
-          <Image src="/icons/icon-192.png" alt={t.brand} fill sizes="44px" className="object-cover" priority />
+      <aside className="fixed inset-y-0 start-0 z-30 hidden w-64 flex-col border-e border-sidebar-border bg-sidebar px-3.5 py-4 text-sidebar-foreground lg:flex">
+        <div className="flex h-16 items-center gap-3 rounded-2xl border border-sidebar-border bg-sidebar-accent/55 px-3">
+          <div className="relative size-11 shrink-0 overflow-hidden rounded-xl shadow-[0_8px_24px_rgba(64,224,177,0.16)]">
+            <Image src="/icons/icon-192.png" alt={t.brand} fill sizes="44px" className="object-cover" priority />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-bold tracking-[-0.01em]">{t.brand}</p>
+            <p className="mt-0.5 truncate text-xs text-sidebar-foreground/60">{roleNames[role][language]}</p>
+          </div>
         </div>
-        <div className="mt-12 flex flex-1 flex-col items-center gap-3">
+
+        <nav className="mt-6 flex min-h-0 flex-1 flex-col" aria-label={language === "ar" ? "التنقل الرئيسي" : language === "en" ? "Main navigation" : "Navigation principale"}>
+          <p className="px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-sidebar-foreground/45">
+            {language === "ar" ? "القائمة" : language === "en" ? "Menu" : "Menu"}
+          </p>
+          <div className="mt-2 space-y-1">
+            {role === "member" && (
+              <>
+                {([
+                  ["catalog", t.catalog, ShoppingBasket],
+                  ["carts", t.carts, ListChecks],
+                ] as const).map(([view, label, Icon]) => {
+                  const active = memberView === view;
+                  return (
+                    <button
+                      key={view}
+                      type="button"
+                      onClick={() => setMemberView(view)}
+                      aria-current={active ? "page" : undefined}
+                      className={`group flex h-12 w-full items-center gap-3 rounded-xl px-2.5 text-start text-sm font-semibold transition ${active ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-[0_8px_24px_rgba(64,224,177,0.16)]" : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"}`}
+                    >
+                      <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${active ? "bg-sidebar-primary-foreground/10" : "bg-sidebar-accent group-hover:bg-sidebar-border"}`}><Icon className="size-[1.1rem]" /></span>
+                      <span className="min-w-0 flex-1 truncate">{label}</span>
+                      {view === "carts" && memberActive.length > 0 && <span className={`grid min-w-5 place-items-center rounded-full px-1.5 py-0.5 text-[10px] ${active ? "bg-sidebar-primary-foreground/12" : "bg-sidebar-primary text-sidebar-primary-foreground"}`}>{memberActive.length}</span>}
+                    </button>
+                  );
+                })}
+              </>
+            )}
+
+            {role === "admin" && (
+              <>
+                {([
+                  ["requests", t.requests, ListChecks, pendingCarts.length + pendingUsers.length + pendingPlanPayments.length],
+                  ["history", t.history, ReceiptText, 0],
+                  ["products", t.products, PackagePlus, 0],
+                  ["balances", t.balances, WalletCards, 0],
+                  ["analytics", t.analytics, BarChart3, 0],
+                ] as const).map(([view, label, Icon, count]) => {
+                  const active = adminView === view;
+                  return (
+                    <button key={view} type="button" onClick={() => setAdminView(view)} aria-current={active ? "page" : undefined} className={`group flex h-12 w-full items-center gap-3 rounded-xl px-2.5 text-start text-sm font-semibold transition ${active ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-[0_8px_24px_rgba(64,224,177,0.16)]" : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"}`}>
+                      <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${active ? "bg-sidebar-primary-foreground/10" : "bg-sidebar-accent group-hover:bg-sidebar-border"}`}><Icon className="size-[1.1rem]" /></span>
+                      <span className="min-w-0 flex-1 truncate">{label}</span>
+                      {count > 0 && <span className={`grid min-w-5 place-items-center rounded-full px-1.5 py-0.5 text-[10px] ${active ? "bg-sidebar-primary-foreground/12" : "bg-[#ffb454] text-[#211609]"}`}>{count}</span>}
+                    </button>
+                  );
+                })}
+              </>
+            )}
+
+            {role === "delivery" && (
+              <>
+                {([
+                  ["queue", t.requests, ShoppingBasket, deliveryQueue.length],
+                  ["history", t.history, ReceiptText, 0],
+                  ["balances", t.memberBalances, WalletCards, 0],
+                ] as const).map(([view, label, Icon, count]) => {
+                  const active = deliveryView === view;
+                  return (
+                    <button key={view} type="button" onClick={() => setDeliveryView(view)} aria-current={active ? "page" : undefined} className={`group flex h-12 w-full items-center gap-3 rounded-xl px-2.5 text-start text-sm font-semibold transition ${active ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-[0_8px_24px_rgba(64,224,177,0.16)]" : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"}`}>
+                      <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${active ? "bg-sidebar-primary-foreground/10" : "bg-sidebar-accent group-hover:bg-sidebar-border"}`}><Icon className="size-[1.1rem]" /></span>
+                      <span className="min-w-0 flex-1 truncate">{label}</span>
+                      {count > 0 && <span className={`grid min-w-5 place-items-center rounded-full px-1.5 py-0.5 text-[10px] ${active ? "bg-sidebar-primary-foreground/12" : "bg-sidebar-primary text-sidebar-primary-foreground"}`}>{count}</span>}
+                    </button>
+                  );
+                })}
+              </>
+            )}
+
+            <Link href="/services" className="group flex h-12 w-full items-center gap-3 rounded-xl px-2.5 text-sm font-semibold text-sidebar-foreground/75 transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-sidebar-accent group-hover:bg-sidebar-border"><ClipboardCheck className="size-[1.1rem]" /></span>
+              <span className="min-w-0 flex-1 truncate">{language === "ar" ? "الخدمات المنزلية" : language === "en" ? "Home services" : "Services maison"}</span>
+              <ChevronRight className="size-4 opacity-45 rtl:rotate-180" />
+            </Link>
+            {role === "member" && (
+              <button type="button" onClick={() => setMemberView("settings")} aria-current={memberView === "settings" ? "page" : undefined} className={`group flex h-12 w-full items-center gap-3 rounded-xl px-2.5 text-start text-sm font-semibold transition ${memberView === "settings" ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-[0_8px_24px_rgba(64,224,177,0.16)]" : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"}`}>
+                <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${memberView === "settings" ? "bg-sidebar-primary-foreground/10" : "bg-sidebar-accent group-hover:bg-sidebar-border"}`}><Settings2 className="size-[1.1rem]" /></span>
+                <span className="min-w-0 flex-1 truncate">{t.settings}</span>
+              </button>
+            )}
+          </div>
+
           {role === "member" && (
-            <>
-              <Button
-                size="icon-lg"
-                variant={memberView === "catalog" ? "default" : "ghost"}
-                className="rounded-2xl"
-                onClick={() => setMemberView("catalog")}
-                aria-label={t.catalog}
-              >
-                <ShoppingBasket />
-              </Button>
-              <Button
-                size="icon-lg"
-                variant={memberView === "carts" ? "default" : "ghost"}
-                className="rounded-2xl"
-                onClick={() => setMemberView("carts")}
-                aria-label={t.carts}
-              >
-                <ListChecks />
-              </Button>
-              <Button
-                size="icon-lg"
-                variant={memberView === "settings" ? "default" : "ghost"}
-                className="rounded-2xl"
-                onClick={() => setMemberView("settings")}
-                aria-label={t.settings}
-              >
-                <Settings2 />
-              </Button>
-            </>
+            <Link href="/abonnement" className="mt-auto flex items-center gap-3 rounded-2xl border border-[#ffb454]/35 bg-[#ffb454]/10 p-3 text-sidebar-foreground transition hover:border-[#ffb454]/65 hover:bg-[#ffb454]/15">
+              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#ffb454] text-[#211609]"><Crown className="size-[1.15rem]" /></span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs text-sidebar-foreground/60">{language === "ar" ? "الاشتراك" : language === "en" ? "Subscription" : "Abonnement"}</span>
+                <span className="mt-0.5 block text-sm font-bold uppercase">{data.currentPlan}</span>
+              </span>
+              <ChevronRight className="size-4 opacity-55 rtl:rotate-180" />
+            </Link>
           )}
-          {role === "admin" && <UserCog className="mt-3 size-6 text-primary" />}
-          {role === "delivery" && <PackageCheck className="mt-3 size-6 text-primary" />}
-          <Link href="/services" title="Missions maison">
-            <Button size="icon-lg" variant="ghost" className="rounded-2xl" aria-label="Missions maison">
-              <ClipboardCheck />
-            </Button>
-          </Link>
+        </nav>
+
+        <div className="mt-3 flex items-center gap-2 rounded-2xl border border-sidebar-border bg-sidebar-accent/55 p-2">
+          <button type="button" className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl p-1 text-start transition hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring" onClick={() => setProfileDialogOpen(true)} aria-label={t.editProfilePhoto}>
+            <ProfileAvatar user={currentUser} version={profileImageVersion} className="size-10 shrink-0 rounded-xl text-xs" />
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold">{currentUser.name}</span>
+              <span className="block truncate text-[11px] text-sidebar-foreground/55">{t.editProfilePhoto}</span>
+            </span>
+          </button>
+          <button type="button" className="grid size-9 shrink-0 place-items-center rounded-xl text-sidebar-foreground/60 transition hover:bg-sidebar-border hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring" onClick={() => { void fetch("/api/auth/logout", { method: "POST" }).finally(() => { window.location.assign("/connexion"); }); }} aria-label={t.logout} title={t.logout}>
+            <LogOut className="size-4" />
+          </button>
         </div>
-        <button
-          type="button"
-          className="grid size-11 place-items-center rounded-2xl border border-sidebar-border bg-sidebar-accent p-0.5 transition hover:border-sidebar-primary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-          onClick={() => setProfileDialogOpen(true)}
-          aria-label={t.editProfilePhoto}
-          title={t.editProfilePhoto}
-        >
-          <ProfileAvatar
-            user={currentUser}
-            version={profileImageVersion}
-            className="size-full rounded-[0.8rem] text-xs"
-          />
-        </button>
       </aside>
 
-      <div className="min-h-screen pb-[calc(6rem+env(safe-area-inset-bottom))] lg:ps-24 lg:pb-0">
+      <div className="min-h-screen pb-[calc(6rem+env(safe-area-inset-bottom))] lg:ps-64 lg:pb-0">
         <header className="sticky top-0 z-20 border-b border-border/80 bg-background/88 px-3 py-3 backdrop-blur-xl sm:px-8 lg:px-12">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 sm:gap-3">
-            <div className="flex min-w-0 items-center gap-3 max-[639px]:hidden">
+            <div className="flex min-w-0 items-center gap-3 max-[639px]:hidden lg:hidden">
               <div className="relative size-10 shrink-0 overflow-hidden rounded-2xl lg:hidden">
                 <Image src="/icons/icon-192.png" alt="" fill sizes="40px" className="object-cover" priority />
               </div>
@@ -2144,7 +2205,7 @@ export function FamilyTracker({
 
             <div className="ms-auto flex items-center gap-1 sm:gap-2">
               {role === "member" && (
-                <Link href="/abonnement" aria-label={`Forfait ${data.currentPlan}`}>
+                <Link href="/abonnement" aria-label={`Forfait ${data.currentPlan}`} className="lg:hidden">
                   <Button
                     variant="outline"
                     className="h-11 rounded-full border-border bg-card/70 px-3 shadow-sm hover:bg-card sm:px-4"
@@ -2156,7 +2217,7 @@ export function FamilyTracker({
                 </Link>
               )}
               {role !== "member" && (
-                <Link href="/services">
+                <Link href="/services" className="lg:hidden">
                   <Button size="icon" variant="ghost" className="size-11 rounded-xl border border-border bg-card/70" aria-label="Missions maison" title="Missions maison">
                     <ClipboardCheck />
                   </Button>
@@ -2240,7 +2301,7 @@ export function FamilyTracker({
               <Button
                 size="icon"
                 variant="ghost"
-                className={`size-11 rounded-xl border border-border bg-card/70 ${role === "member" ? "hidden sm:inline-flex" : ""}`}
+                className={`size-11 rounded-xl border border-border bg-card/70 lg:hidden ${role === "member" ? "hidden sm:inline-flex" : ""}`}
                 onClick={() => {
                   void fetch("/api/auth/logout", { method: "POST" }).finally(() => {
                     window.location.assign("/connexion");
@@ -2645,6 +2706,8 @@ export function FamilyTracker({
         {role === "admin" && (
           <AdminDashboard
             data={data}
+            view={adminView}
+            setView={setAdminView}
             pendingCarts={pendingCarts}
             pendingUsers={pendingUsers}
             pendingPlanPayments={pendingPlanPayments}
@@ -4108,6 +4171,8 @@ function OfflinePurchaseDialog({
 
 function AdminDashboard({
   data,
+  view,
+  setView,
   pendingCarts,
   pendingUsers,
   pendingPlanPayments,
@@ -4134,6 +4199,8 @@ function AdminDashboard({
   profileImageVersion,
 }: {
   data: AppData;
+  view: AdminView;
+  setView: (view: AdminView) => void;
   pendingCarts: Cart[];
   pendingUsers: PendingUser[];
   pendingPlanPayments: PlanPayment[];
@@ -4470,7 +4537,7 @@ function AdminDashboard({
         <OfflinePurchaseDialog data={data} productName={productName} money={money} parsePrice={parsePrice} act={act} busy={busy} />
       </div>
 
-      <Tabs defaultValue="requests">
+      <Tabs value={view} onValueChange={(value) => setView(value as AdminView)}>
         <TabsList className="mb-7 h-11 w-full justify-start gap-1 overflow-x-auto overflow-y-hidden rounded-2xl bg-muted/60 p-1 sm:w-fit">
           <TabsTrigger value="requests" className="h-9 rounded-xl px-4">
             <ListChecks /> {t.requests}
