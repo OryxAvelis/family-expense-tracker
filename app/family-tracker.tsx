@@ -405,7 +405,7 @@ type MemberWalletTransaction = {
 
 type FamilyWalletTransaction = {
   id: string;
-  type: "contribution" | "order";
+  type: "contribution" | "order" | "return";
   amount_cents: number;
   cart_id: number | null;
   contributor_id?: number | null;
@@ -418,6 +418,7 @@ type FamilyWallet = {
   balance_cents: number;
   credited_cents: number;
   spent_cents: number;
+  returned_cents: number;
   transactions: FamilyWalletTransaction[];
 };
 
@@ -3414,6 +3415,7 @@ function MemberBalancesManager({
   const [familyAmount, setFamilyAmount] = useState("");
   const [familyMemberId, setFamilyMemberId] = useState(() => wallets[0] ? String(wallets[0].member_id) : "");
   const [returnRequest, setReturnRequest] = useState<{
+    source: "personal" | "family";
     memberId: number;
     memberName: string;
     amountCents: number;
@@ -3447,6 +3449,7 @@ function MemberBalancesManager({
       return;
     }
     setReturnRequest({
+      source: "personal",
       memberId: wallet.member_id,
       memberName: wallet.member_name,
       amountCents,
@@ -3454,11 +3457,31 @@ function MemberBalancesManager({
     });
   };
 
+  const requestFamilyFundsReturn = () => {
+    const amountCents = Math.round(Number(familyAmount.replace(",", ".")) * 100);
+    const member = wallets.find((wallet) => wallet.member_id === Number(familyMemberId));
+    if (!member || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
+      toast.error(t.invalidPrice);
+      return;
+    }
+    if (amountCents > familyWallet.balance_cents) {
+      toast.error(language === "ar" ? "المبلغ أكبر من رصيد محفظة العائلة." : language === "en" ? "The amount exceeds the family-wallet balance." : "Le montant dépasse le solde de la cagnotte familiale.");
+      return;
+    }
+    setReturnRequest({
+      source: "family",
+      memberId: member.member_id,
+      memberName: member.member_name,
+      amountCents,
+      balanceCents: familyWallet.balance_cents,
+    });
+  };
+
   const confirmFundsReturn = async () => {
     if (!returnRequest) return;
     const ok = await act(
       {
-        action: "return_member_funds",
+        action: returnRequest.source === "family" ? "return_family_funds" : "return_member_funds",
         actorRole,
         memberId: returnRequest.memberId,
         amountCents: returnRequest.amountCents,
@@ -3466,7 +3489,8 @@ function MemberBalancesManager({
       t.fundsReturned,
     );
     if (ok) {
-      setAmounts((current) => ({ ...current, [returnRequest.memberId]: "" }));
+      if (returnRequest.source === "family") setFamilyAmount("");
+      else setAmounts((current) => ({ ...current, [returnRequest.memberId]: "" }));
       setReturnRequest(null);
     }
   };
@@ -3514,8 +3538,13 @@ function MemberBalancesManager({
           </div>
         </div>
 
-        {actorRole === "admin" && (
-          <form className="grid gap-3 border-t border-border p-4 sm:grid-cols-[minmax(10rem,1fr)_minmax(9rem,0.8fr)_auto_auto] sm:items-end sm:p-5" onSubmit={(event) => void changeFamilyFunds(event, "add_family_funds")}>
+        <form className={`grid gap-3 border-t border-border p-4 sm:items-end sm:p-5 ${actorRole === "admin" ? "sm:grid-cols-[minmax(10rem,1fr)_minmax(9rem,0.8fr)_auto_auto_auto]" : "sm:grid-cols-[minmax(10rem,1fr)_minmax(9rem,0.8fr)_auto]"}`} onSubmit={(event) => {
+          if (actorRole === "admin") void changeFamilyFunds(event, "add_family_funds");
+          else {
+            event.preventDefault();
+            requestFamilyFundsReturn();
+          }
+        }}>
             <div>
               <Label className="mb-1.5 block text-xs">Membre contributeur</Label>
               <Select value={familyMemberId} onValueChange={setFamilyMemberId}>
@@ -3530,18 +3559,21 @@ function MemberBalancesManager({
                 <span className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DH</span>
               </div>
             </div>
-            <Button type="submit" className="h-10 rounded-xl" disabled={busy || !familyAmount.trim() || !familyMemberId}>
+            {actorRole === "admin" && <Button type="submit" className="h-10 rounded-xl" disabled={busy || !familyAmount.trim() || !familyMemberId}>
               <Plus className="size-4" /> Argent reçu
-            </Button>
-            <Button type="button" variant="outline" className="h-10 rounded-xl" disabled={busy || !familyAmount.trim() || !familyMemberId} onClick={(event) => void changeFamilyFunds(event, "transfer_member_funds_to_family")}>
+            </Button>}
+            {actorRole === "admin" && <Button type="button" variant="outline" className="h-10 rounded-xl" disabled={busy || !familyAmount.trim() || !familyMemberId} onClick={(event) => void changeFamilyFunds(event, "transfer_member_funds_to_family")}>
               <WalletCards className="size-4" /> Transférer du personnel
+            </Button>}
+            <Button type={actorRole === "delivery" ? "submit" : "button"} variant="outline" className="h-10 rounded-xl border-[#d98200]/35 text-[#9a5700] hover:bg-[#ffb454]/10 hover:text-[#8a4e00]" disabled={busy || familyWallet.balance_cents <= 0 || !familyAmount.trim() || !familyMemberId} onClick={actorRole === "admin" ? requestFamilyFundsReturn : undefined}>
+              <Undo2 className="size-4" /> {t.returnFunds}
             </Button>
           </form>
-        )}
 
-        <div className="grid grid-cols-2 gap-3 border-t border-border px-4 py-3 text-sm sm:px-5">
+        <div className="grid grid-cols-3 gap-3 border-t border-border px-4 py-3 text-sm sm:px-5">
           <span className="text-muted-foreground">Contributions <strong className="ms-1 text-foreground">{money(familyWallet.credited_cents)}</strong></span>
-          <span className="text-end text-muted-foreground">Dépenses <strong className="ms-1 text-foreground">{money(familyWallet.spent_cents)}</strong></span>
+          <span className="text-center text-muted-foreground">Dépenses <strong className="ms-1 text-foreground">{money(familyWallet.spent_cents)}</strong></span>
+          <span className="text-end text-muted-foreground">{t.returnedMoney} <strong className="ms-1 text-foreground">{money(familyWallet.returned_cents)}</strong></span>
         </div>
         {familyWallet.transactions.length > 0 && (
           <div className="border-t border-border px-4 py-2 sm:px-5">
@@ -3550,6 +3582,8 @@ function MemberBalancesManager({
                 <span className="min-w-0 truncate text-muted-foreground">
                   {transaction.type === "contribution"
                     ? `${transaction.contributor_name ?? "Famille"} · contribution`
+                    : transaction.type === "return"
+                      ? `${transaction.contributor_name ?? "Membre"} · ${t.returnedMoney.toLocaleLowerCase()}`
                     : `Commande #${transaction.cart_id}`}
                 </span>
                 <strong className={transaction.amount_cents > 0 ? "text-primary" : "text-destructive"}>

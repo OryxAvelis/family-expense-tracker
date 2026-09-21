@@ -4,7 +4,7 @@ export const FAMILY_WALLET_META_KEY = "family_wallet_v1";
 
 export type FamilyWalletTransaction = {
   id: string;
-  type: "contribution" | "order";
+  type: "contribution" | "order" | "return";
   amount_cents: number;
   cart_id: number | null;
   contributor_id?: number | null;
@@ -24,7 +24,7 @@ export function parseFamilyWallet(value: string | undefined) {
       .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
       .map((entry) => ({
         id: cleanText(entry.id),
-        type: entry.type === "order" ? "order" as const : "contribution" as const,
+        type: entry.type === "order" ? "order" as const : entry.type === "return" ? "return" as const : "contribution" as const,
         amount_cents: Number(entry.amount_cents),
         cart_id: Number.isInteger(Number(entry.cart_id)) && Number(entry.cart_id) > 0 ? Number(entry.cart_id) : null,
         contributor_id: Number.isInteger(Number(entry.contributor_id)) && Number(entry.contributor_id) > 0
@@ -45,6 +45,7 @@ export function summarizeFamilyWallet(transactions: FamilyWalletTransaction[]) {
   let balanceCents = 0;
   let creditedCents = 0;
   let spentCents = 0;
+  let returnedCents = 0;
   const effectiveTransactions: FamilyWalletTransaction[] = [];
 
   for (const transaction of transactions) {
@@ -58,11 +59,12 @@ export function summarizeFamilyWallet(transactions: FamilyWalletTransaction[]) {
     const debitCents = Math.min(-transaction.amount_cents, balanceCents);
     if (debitCents <= 0) continue;
     balanceCents -= debitCents;
-    spentCents += debitCents;
+    if (transaction.type === "return") returnedCents += debitCents;
+    else spentCents += debitCents;
     effectiveTransactions.push({ ...transaction, amount_cents: -debitCents });
   }
 
-  return { balanceCents, creditedCents, spentCents, transactions: effectiveTransactions };
+  return { balanceCents, creditedCents, spentCents, returnedCents, transactions: effectiveTransactions };
 }
 
 async function readFamilyWallet() {

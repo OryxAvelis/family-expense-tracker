@@ -421,6 +421,7 @@ async function readState(viewer: FamilySessionUser) {
     balance_cents: familyWalletSummary.balanceCents,
     credited_cents: familyWalletSummary.creditedCents,
     spent_cents: familyWalletSummary.spentCents,
+    returned_cents: familyWalletSummary.returnedCents,
     transactions: familyWalletSummary.transactions.slice().reverse(),
   };
   const memberServiceFees = users
@@ -1239,6 +1240,47 @@ export async function POST(request: Request) {
         break;
       }
 
+      case "return_family_funds": {
+        if (viewer.role !== "admin" && viewer.role !== "delivery") {
+          throw new Error("Action non autorisée pour ce rôle.");
+        }
+        const memberId = asPositiveInt(body.memberId, "memberId");
+        const amountCents = asPositiveInt(body.amountCents, "amountCents");
+        if (amountCents > MAX_MEMBER_DEPOSIT_CENTS) throw new Error("Le montant est trop élevé.");
+        const { data: member, error: memberError } = await db
+          .from("family_users")
+          .select("id, name")
+          .eq("id", memberId)
+          .eq("role", "member")
+          .eq("active", true)
+          .maybeSingle();
+        throwIfSupabaseError(memberError);
+        if (!member) throw new Error("Membre introuvable.");
+
+        const { data: walletMeta, error: walletError } = await db
+          .from("app_meta")
+          .select("value")
+          .eq("key", FAMILY_WALLET_META_KEY)
+          .maybeSingle();
+        throwIfSupabaseError(walletError);
+        const wallet = summarizeFamilyWallet(parseFamilyWallet(walletMeta?.value));
+        if (amountCents > wallet.balanceCents) {
+          throw new Error("Le montant à rendre dépasse le solde de la cagnotte familiale.");
+        }
+
+        await addFamilyWalletTransaction({
+          id: crypto.randomUUID(),
+          type: "return",
+          amount_cents: -amountCents,
+          cart_id: null,
+          contributor_id: member.id,
+          contributor_name: member.name,
+          created_at: nowIso(),
+          actor_name: viewer.name,
+        });
+        break;
+      }
+
       case "transfer_member_funds_to_family": {
         requireRole(viewer.role, "admin");
         const memberId = asPositiveInt(body.memberId, "memberId");
@@ -1324,7 +1366,7 @@ export async function POST(request: Request) {
               }
             : {
                 id: `member-${memberId}-${entry.id}`,
-                type: "contribution" as const,
+                type: entry.type === "return" ? "return" as const : "contribution" as const,
                 amount_cents: entry.amount_cents,
                 cart_id: null,
                 contributor_id: memberId,
