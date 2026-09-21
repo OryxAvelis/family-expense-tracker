@@ -4,6 +4,21 @@ import { effectivePlan, parseServicesState, serviceFeeForPlan, SERVICES_META_KEY
 
 export const dynamic = "force-dynamic";
 
+const RECEIPT_META_PREFIX = "cart_receipt_";
+
+function receiptMeta(value?: string | null) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const key = typeof parsed.key === "string" ? parsed.key : "";
+    return /^cart-receipts\/\d+\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/.test(key)
+      ? { uploadedAt: typeof parsed.uploadedAt === "string" ? parsed.uploadedAt : null }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: Request) {
   const viewer = await getRequestFamilyUser(request);
   if (!viewer) return Response.json({ error: "Connexion requise." }, { status: 401 });
@@ -28,20 +43,26 @@ export async function GET(request: Request) {
       `offline_purchase_${cart.id}`,
       `cart_created_by_${cart.id}`,
       `cart_wallet_scope_${cart.id}`,
+      `${RECEIPT_META_PREFIX}${cart.id}`,
     ]);
     const { data: meta, error: metaError } = await db.from("app_meta").select("key, value").in("key", [SERVICES_META_KEY, ...keys]);
     throwIfSupabaseError(metaError);
     const metadata = new Map((meta ?? []).map((entry) => [entry.key, entry.value]));
     const plans = parseServicesState(metadata.get(SERVICES_META_KEY));
-    const carts = (data ?? []).map((cart) => ({
-      ...cart,
-      created_by: metadata.get(`cart_created_by_${cart.id}`) ?? null,
-      offline_purchase: metadata.get(`offline_purchase_${cart.id}`) === "1",
-      wallet_scope: metadata.get(`cart_wallet_scope_${cart.id}`) === "family" ? "family" : "personal",
-      service_fee_cents: cart.status === "cancelled" ? 0 : cart.status === "completed"
-        ? Number(metadata.get(`cart_service_fee_${cart.id}`) ?? 50)
-        : serviceFeeForPlan(effectivePlan(plans, Number(cart.member_id))),
-    }));
+    const carts = (data ?? []).map((cart) => {
+      const receipt = receiptMeta(metadata.get(`${RECEIPT_META_PREFIX}${cart.id}`));
+      return {
+        ...cart,
+        created_by: metadata.get(`cart_created_by_${cart.id}`) ?? null,
+        offline_purchase: metadata.get(`offline_purchase_${cart.id}`) === "1",
+        wallet_scope: metadata.get(`cart_wallet_scope_${cart.id}`) === "family" ? "family" : "personal",
+        receipt_url: receipt ? `/api/receipts?cartId=${cart.id}` : null,
+        receipt_uploaded_at: receipt?.uploadedAt ?? null,
+        service_fee_cents: cart.status === "cancelled" ? 0 : cart.status === "completed"
+          ? Number(metadata.get(`cart_service_fee_${cart.id}`) ?? 50)
+          : serviceFeeForPlan(effectivePlan(plans, Number(cart.member_id))),
+      };
+    });
     return Response.json({ carts, total: count ?? 0, page, pageSize: 20 });
   } catch {
     return Response.json({ error: "Impossible de charger l’historique." }, { status: 500 });

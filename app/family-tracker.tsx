@@ -7,6 +7,7 @@ import {
   BarChart3,
   Bell,
   BellRing,
+  Camera,
   Check,
   ChevronRight,
   CircleCheck,
@@ -29,6 +30,7 @@ import {
   ReceiptText,
   Repeat2,
   ScanBarcode,
+  ScanText,
   Search,
   Settings2,
   ShoppingBasket,
@@ -313,6 +315,92 @@ function productSearchScore(query: string, values: Array<string | null | undefin
   return matchedOriginalTerms === originalTerms.length ? score : 0;
 }
 
+type ReceiptSuggestion = {
+  itemId: number;
+  itemName: string;
+  receiptLine: string;
+  lineTotalCents: number;
+  actualUnitPriceCents: number;
+  confidence: number;
+};
+
+const RECEIPT_STOP_WORDS = new Set([
+  "de", "du", "des", "la", "le", "les", "un", "une", "et", "au", "aux", "en", "avec",
+  "the", "of", "and", "with", "for", "piece", "pieces", "kg", "litre", "liter",
+]);
+
+function receiptLineAmountCents(line: string) {
+  const matches = [...line.matchAll(/(?:^|\s)(\d{1,6}[.,]\d{2})(?=\s*(?:dh|mad|د\.?م\.?)?\s*$|\s)/gi)];
+  const raw = matches.at(-1)?.[1];
+  if (!raw) return null;
+  const cents = Math.round(Number(raw.replace(",", ".")) * 100);
+  return Number.isSafeInteger(cents) && cents > 0 && cents <= 10_000_000 ? cents : null;
+}
+
+function receiptWords(value: string) {
+  return normalizeProductSearch(value)
+    .split(/\s+/)
+    .filter((word) => word.length >= 2 && !RECEIPT_STOP_WORDS.has(word) && !/^\d+$/.test(word));
+}
+
+function receiptMatchScore(item: CartItem, line: string) {
+  const lineNormalized = normalizeProductSearch(line);
+  const lineWords = new Set(receiptWords(line));
+  const names = [item.name_fr, item.name_ar, item.name_en].filter(Boolean);
+  let best = 0;
+  for (const name of names) {
+    const normalizedName = normalizeProductSearch(name);
+    const words = receiptWords(name);
+    if (!words.length) continue;
+    const matched = words.filter((word) =>
+      lineWords.has(word) || [...lineWords].some((candidate) =>
+        candidate.startsWith(word) || word.startsWith(candidate) ||
+        (word.length >= 4 && editDistance(word, candidate) <= (word.length >= 7 ? 2 : 1)),
+      ),
+    ).length;
+    const coverage = matched / words.length;
+    const exactBonus = normalizedName.length >= 4 && lineNormalized.includes(normalizedName) ? 0.45 : 0;
+    best = Math.max(best, Math.min(1, coverage + exactBonus));
+  }
+  return best;
+}
+
+function receiptSuggestions(text: string, items: CartItem[], productName: (item: CartItem) => string) {
+  const candidates = text
+    .split(/\r?\n/)
+    .map((line) => ({ line: line.trim(), amountCents: receiptLineAmountCents(line) }))
+    .filter((entry): entry is { line: string; amountCents: number } => Boolean(entry.line) && entry.amountCents !== null);
+  const usedLines = new Set<number>();
+  const suggestions: ReceiptSuggestion[] = [];
+  for (const item of items) {
+    let bestIndex = -1;
+    let bestScore = 0;
+    candidates.forEach((candidate, index) => {
+      if (usedLines.has(index)) return;
+      const score = receiptMatchScore(item, candidate.line);
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    });
+    if (bestIndex < 0 || bestScore < 0.45) continue;
+    usedLines.add(bestIndex);
+    const candidate = candidates[bestIndex];
+    const actualUnitPriceCents = isAmountItem(item)
+      ? candidate.amountCents
+      : Math.max(1, Math.round(candidate.amountCents * 100 / item.quantity_hundredths));
+    suggestions.push({
+      itemId: item.id,
+      itemName: productName(item),
+      receiptLine: candidate.line,
+      lineTotalCents: candidate.amountCents,
+      actualUnitPriceCents,
+      confidence: Math.round(bestScore * 100),
+    });
+  }
+  return suggestions;
+}
+
 type Cart = {
   id: number;
   member_id: number;
@@ -328,6 +416,10 @@ type Cart = {
   service_fee_cents: number;
   offline_purchase?: boolean;
   wallet_scope: "family" | "personal";
+  receipt_url: string | null;
+  receipt_name: string | null;
+  receipt_uploaded_at: string | null;
+  receipt_uploaded_by: string | null;
 };
 
 type CartItem = {
@@ -544,6 +636,7 @@ const words = {
     favoriteAdded: "Produit ajouté aux favoris.",
     favoriteRemoved: "Produit retiré des favoris.",
     repeatOrder: "Recommander ce panier",
+    receipt: "Voir le ticket",
     orderRepeated: "Le panier est prêt à être renvoyé.",
     notificationsNewOrders: "Notifications des nouvelles commandes",
     notificationsHelp: "Recevez une alerte même lorsque le site est fermé.",
@@ -730,6 +823,7 @@ const words = {
     favoriteAdded: "تمت إضافة المنتج إلى المفضلة.",
     favoriteRemoved: "تمت إزالة المنتج من المفضلة.",
     repeatOrder: "إعادة هذا الطلب",
+    receipt: "عرض الفاتورة",
     orderRepeated: "السلة جاهزة لإعادة الإرسال.",
     notificationsNewOrders: "إشعارات الطلبات الجديدة",
     notificationsHelp: "توصل بتنبيه حتى عندما يكون الموقع مغلقاً.",
@@ -916,6 +1010,7 @@ const words = {
     favoriteAdded: "Product added to favorites.",
     favoriteRemoved: "Product removed from favorites.",
     repeatOrder: "Repeat this order",
+    receipt: "View receipt",
     orderRepeated: "The cart is ready to submit again.",
     notificationsNewOrders: "New-order notifications",
     notificationsHelp: "Receive an alert even when the site is closed.",
@@ -3836,6 +3931,11 @@ function MemberCarts({
                     label={t.missingProducts}
                     className="mt-3"
                   />
+                  {cart.receipt_url && (
+                    <Button asChild type="button" variant="outline" className="mt-3 w-full rounded-xl border-primary/20 text-primary">
+                      <a href={cart.receipt_url} target="_blank" rel="noreferrer"><ReceiptText className="size-4" /> {t.receipt}</a>
+                    </Button>
+                  )}
                   <div className="mt-4 space-y-2 border-t border-primary/15 pt-4 text-sm">
                     <div className="flex items-center justify-between gap-3 text-muted-foreground">
                       <span>{t.serviceFee}</span>
@@ -5848,6 +5948,235 @@ function AdminDashboard({
   );
 }
 
+function ReceiptScannerPanel({
+  cart,
+  items,
+  productName,
+  money,
+  prices,
+  setPrices,
+  parsePrice,
+  act,
+  busy,
+  language,
+}: {
+  cart: Cart;
+  items: CartItem[];
+  productName: (item: Pick<Product, "name_fr" | "name_ar" | "name_en">) => string;
+  money: (cents: number) => string;
+  prices: Record<number, string>;
+  setPrices: React.Dispatch<React.SetStateAction<Record<number, string>>>;
+  parsePrice: (value: string) => number;
+  act: (body: Record<string, unknown>, success: string) => Promise<boolean>;
+  busy: boolean;
+  language: Language;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [savedReceiptUrl, setSavedReceiptUrl] = useState<string | null>(cart.receipt_url);
+  const [scanning, setScanning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [status, setStatus] = useState("");
+  const [suggestions, setSuggestions] = useState<ReceiptSuggestion[]>([]);
+  const [ocrText, setOcrText] = useState("");
+  const [applied, setApplied] = useState(false);
+  const copy = language === "ar" ? {
+    invalidImage: "اختر صورة JPG أو PNG أو WebP بحجم أقل من 5 ميغا.",
+    reading: "قراءة الفاتورة على هذا الجهاز…",
+    saving: "حفظ صورة الفاتورة…",
+    detected: (count: number) => `تم اكتشاف ${count} ${count === 1 ? "سعر" : "أسعار"}. تحقق منها قبل اعتمادها.`,
+    noneDetected: "تم حفظ الفاتورة، لكن لم يتم التعرف على أي منتج بثقة كافية.",
+    scanFailed: "تعذرت القراءة التلقائية، لكن لا يزال من الممكن حفظ الصورة.",
+    saveFailed: "تعذر حفظ الفاتورة.",
+    applied: "تم اعتماد أسعار الفاتورة للمنتجات التي تم التعرف عليها.",
+    title: "مسح الفاتورة",
+    help: "تتم القراءة على هذا الجهاز. تحقق من الأسعار المقترحة قبل اعتمادها.",
+    view: "عرض",
+    replace: "استبدال",
+    photograph: "التقاط صورة",
+    recognized: (count: number) => `${count} ${count === 1 ? "منتج تم التعرف عليه" : "منتجات تم التعرف عليها"}`,
+    prefilled: "تم ملء خانات الأسعار مسبقاً.",
+    pricesApplied: "تم اعتماد الأسعار",
+    applyPrices: "اعتماد الأسعار",
+    confidence: "الثقة",
+    unitPrice: "سعر الوحدة",
+    detectedText: "عرض النص المكتشف",
+  } : language === "en" ? {
+    invalidImage: "Choose a JPG, PNG, or WebP image under 5 MB.",
+    reading: "Reading the receipt on this device…",
+    saving: "Saving receipt proof…",
+    detected: (count: number) => `${count} price${count === 1 ? "" : "s"} detected. Review before applying.`,
+    noneDetected: "Receipt saved. No product was recognized with enough confidence.",
+    scanFailed: "Automatic reading failed, but the photo can still be saved.",
+    saveFailed: "The receipt could not be saved.",
+    applied: "Receipt prices applied to the recognized products.",
+    title: "Scan receipt",
+    help: "Reading happens on this device. Review suggested prices before applying them.",
+    view: "View",
+    replace: "Replace",
+    photograph: "Take photo",
+    recognized: (count: number) => `${count} product${count === 1 ? "" : "s"} recognized`,
+    prefilled: "Price fields have been prefilled.",
+    pricesApplied: "Prices applied",
+    applyPrices: "Apply prices",
+    confidence: "Confidence",
+    unitPrice: "unit price",
+    detectedText: "View detected text",
+  } : {
+    invalidImage: "Choisissez une image JPG, PNG ou WebP de moins de 5 Mo.",
+    reading: "Lecture du ticket sur cet appareil…",
+    saving: "Enregistrement du justificatif…",
+    detected: (count: number) => `${count} prix détecté${count === 1 ? "" : "s"}. Vérifiez-les avant de les appliquer.`,
+    noneDetected: "Ticket enregistré. Aucun produit n’a été reconnu avec assez de certitude.",
+    scanFailed: "La lecture automatique a échoué, mais la photo peut toujours être enregistrée.",
+    saveFailed: "Enregistrement du ticket impossible.",
+    applied: "Prix du ticket appliqués aux produits reconnus.",
+    title: "Scanner le ticket",
+    help: "La lecture se fait sur cet appareil. Vérifiez les prix proposés avant de les appliquer.",
+    view: "Voir",
+    replace: "Remplacer",
+    photograph: "Photographier",
+    recognized: (count: number) => `${count} produit${count === 1 ? "" : "s"} reconnu${count === 1 ? "" : "s"}`,
+    prefilled: "Les champs de prix ont été préremplis.",
+    pricesApplied: "Prix appliqués",
+    applyPrices: "Appliquer les prix",
+    confidence: "Confiance",
+    unitPrice: "prix unitaire",
+    detectedText: "Voir le texte détecté",
+  };
+
+  useEffect(() => () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
+
+  const scan = async (file: File) => {
+    if (!(["image/jpeg", "image/png", "image/webp"] as string[]).includes(file.type) || file.size > 5 * 1024 * 1024) {
+      toast.error(copy.invalidImage);
+      return;
+    }
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(URL.createObjectURL(file));
+    setScanning(true);
+    setProgress(0);
+    setSuggestions([]);
+    setApplied(false);
+    let recognizedText = "";
+    if (items.length) {
+      try {
+        setStatus(copy.reading);
+        const { recognize } = await import("tesseract.js");
+        const result = await recognize(file, "fra+eng", {
+          logger: (message: { status: string; progress: number }) => {
+            if (Number.isFinite(message.progress)) setProgress(Math.round(message.progress * 100));
+          },
+        });
+        recognizedText = result.data.text.trim();
+        setOcrText(recognizedText);
+        const detected = receiptSuggestions(recognizedText, items, productName);
+        setSuggestions(detected);
+        setPrices((current) => ({
+          ...current,
+          ...Object.fromEntries(detected.map((entry) => [entry.itemId, (entry.actualUnitPriceCents / 100).toFixed(2)])),
+        }));
+        if (detected.length) toast.success(copy.detected(detected.length));
+        else toast.info(copy.noneDetected);
+      } catch {
+        toast.warning(copy.scanFailed);
+      }
+    }
+
+    try {
+      setStatus(copy.saving);
+      const formData = new FormData();
+      formData.set("receipt", file);
+      formData.set("ocrText", recognizedText);
+      const response = await fetch(`/api/receipts?cartId=${cart.id}`, { method: "POST", body: formData });
+      const payload = await response.json() as { receiptUrl?: string; error?: string };
+      if (response.status === 401) {
+        window.location.replace("/connexion");
+        return;
+      }
+      if (!response.ok || !payload.receiptUrl) throw new Error(payload.error || copy.saveFailed);
+      setSavedReceiptUrl(payload.receiptUrl);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : copy.saveFailed);
+    } finally {
+      setScanning(false);
+      setProgress(100);
+      setStatus("");
+    }
+  };
+
+  const applySuggestions = async () => {
+    if (!suggestions.length) return;
+    const ok = await act(
+      {
+        action: "apply_receipt_suggestions",
+        actorRole: "delivery",
+        cartId: cart.id,
+        suggestions: suggestions.map((entry) => ({
+          itemId: entry.itemId,
+          actualUnitPriceCents: parsePrice(
+            prices[entry.itemId] ?? (entry.actualUnitPriceCents / 100).toFixed(2),
+          ),
+        })),
+      },
+      copy.applied,
+    );
+    if (ok) setApplied(true);
+  };
+
+  return (
+    <section className="mb-5 overflow-hidden rounded-2xl border border-primary/20 bg-primary/[0.035]">
+      <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
+        <div className="relative grid size-20 shrink-0 place-items-center overflow-hidden rounded-2xl bg-card text-primary">
+          {previewUrl || savedReceiptUrl ? (
+            <Image src={previewUrl || savedReceiptUrl || ""} alt="Ticket de caisse" fill sizes="80px" unoptimized className="object-cover" />
+          ) : <ReceiptText className="size-8" />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="flex items-center gap-2 font-semibold"><ScanText className="size-5 text-primary" /> {copy.title}</h3>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{copy.help}</p>
+          {scanning && (
+            <div className="mt-3">
+              <div className="mb-1 flex items-center justify-between gap-3 text-xs text-muted-foreground"><span>{status}</span><strong>{progress}%</strong></div>
+              <div className="h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${progress}%` }} /></div>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(savedReceiptUrl || previewUrl) && <Button type="button" variant="outline" className="rounded-xl" asChild><a href={savedReceiptUrl || previewUrl || "#"} target="_blank" rel="noreferrer"><ReceiptText className="size-4" /> {copy.view}</a></Button>}
+          <Button type="button" className="rounded-xl" disabled={scanning || busy} onClick={() => inputRef.current?.click()}>
+            {scanning ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />} {savedReceiptUrl ? copy.replace : copy.photograph}
+          </Button>
+          <input ref={inputRef} aria-label={copy.photograph} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void scan(file); event.currentTarget.value = ""; }} />
+        </div>
+      </div>
+
+      {suggestions.length > 0 && (
+        <div className="border-t border-primary/15 bg-card/70 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><p className="text-sm font-semibold">{copy.recognized(suggestions.length)}</p><p className="text-xs text-muted-foreground">{copy.prefilled}</p></div>
+            <Button type="button" className="rounded-xl" disabled={busy || applied} onClick={() => void applySuggestions()}>
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />} {applied ? copy.pricesApplied : copy.applyPrices}
+            </Button>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {suggestions.map((suggestion) => (
+              <div key={suggestion.itemId} className="rounded-xl border border-border bg-card p-3 text-xs">
+                <div className="flex items-center justify-between gap-3"><strong className="truncate">{suggestion.itemName}</strong><span className="shrink-0 font-bold text-primary">{money(suggestion.lineTotalCents)}</span></div>
+                <p className="mt-1 truncate text-muted-foreground">{suggestion.receiptLine}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">{copy.confidence} {suggestion.confidence}% · {copy.unitPrice} {money(suggestion.actualUnitPriceCents)}</p>
+              </div>
+            ))}
+          </div>
+          {ocrText && <details className="mt-3 text-xs text-muted-foreground"><summary className="cursor-pointer font-medium">{copy.detectedText}</summary><pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-xl bg-muted p-3 font-sans">{ocrText}</pre></details>}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function DeliveryDashboard({
   queue,
   history,
@@ -6227,6 +6556,20 @@ function DeliveryDashboard({
                 </div>
               </div>
 
+              <ReceiptScannerPanel
+                key={selectedCart.id}
+                cart={selectedCart}
+                items={activeItems}
+                productName={productName}
+                money={money}
+                prices={prices}
+                setPrices={setPrices}
+                parsePrice={parsePrice}
+                act={act}
+                busy={busy}
+                language={language}
+              />
+
               <MissingProductsNote
                 note={selectedCart.missing_products_note}
                 label={t.missingProducts}
@@ -6372,6 +6715,11 @@ function DeliveryDashboard({
                   label={t.missingProducts}
                   className="mt-3"
                 />
+                {cart.receipt_url && (
+                  <Button asChild type="button" variant="outline" className="mt-3 rounded-xl border-primary/20 text-primary">
+                    <a href={cart.receipt_url} target="_blank" rel="noreferrer"><ReceiptText className="size-4" /> {t.receipt}</a>
+                  </Button>
+                )}
               </article>
             );
           })}

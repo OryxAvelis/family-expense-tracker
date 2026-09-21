@@ -64,6 +64,7 @@ const CART_SERVICE_FEE_PREFIX = "cart_service_fee_";
 const OFFLINE_PURCHASE_PREFIX = "offline_purchase_";
 const CART_PAYMENT_METHOD_PREFIX = "cart_payment_method_";
 const CART_WALLET_SCOPE_PREFIX = "cart_wallet_scope_";
+const CART_RECEIPT_PREFIX = "cart_receipt_";
 const AMOUNT_REQUEST_SENTINEL_CENTS = 2_147_483_647;
 const FAMILY_TIME_ZONE = "Africa/Casablanca";
 
@@ -193,6 +194,22 @@ function asNonNegativeInt(value: unknown, field: string) {
 
 function asText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function receiptMeta(value: string | undefined) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const key = asText(parsed.key);
+    if (!/^cart-receipts\/\d+\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/.test(key)) return null;
+    return {
+      name: asText(parsed.name).slice(0, 120),
+      uploaded_at: asText(parsed.uploadedAt),
+      uploaded_by: asText(parsed.uploadedBy),
+    };
+  } catch {
+    return null;
+  }
 }
 
 type WalletScope = "family" | "personal";
@@ -436,6 +453,7 @@ async function readState(viewer: FamilySessionUser) {
   const carts = ((cartsResult.data ?? []) as unknown as CartRow[])
     .map((cart) => {
       const member = joined(cart.family_users);
+      const receipt = receiptMeta(metadata.get(`${CART_RECEIPT_PREFIX}${cart.id}`));
       return {
         id: Number(cart.id),
         member_id: Number(cart.member_id),
@@ -448,6 +466,10 @@ async function readState(viewer: FamilySessionUser) {
         missing_products_note: cart.missing_products_note,
         offline_purchase: metadata.get(`${OFFLINE_PURCHASE_PREFIX}${cart.id}`) === "1",
         wallet_scope: metadata.get(`${CART_WALLET_SCOPE_PREFIX}${cart.id}`) === "family" ? "family" : "personal",
+        receipt_url: receipt ? `/api/receipts?cartId=${cart.id}` : null,
+        receipt_name: receipt?.name || null,
+        receipt_uploaded_at: receipt?.uploaded_at || null,
+        receipt_uploaded_by: receipt?.uploaded_by || null,
         member_name: member.name,
         member_initials: member.initials,
         service_fee_cents: cart.status === "completed"
@@ -951,6 +973,56 @@ export async function POST(request: Request) {
           .eq("id", item.cart_id)
           .in("status", ["pending", "ready"]);
         throwIfSupabaseError(cartError);
+        break;
+      }
+
+      case "apply_receipt_suggestions": {
+        requireRole(viewer.role, "delivery");
+        const cartId = asPositiveInt(body.cartId, "cartId");
+        const rawSuggestions = Array.isArray(body.suggestions) ? body.suggestions : [];
+        if (!rawSuggestions.length || rawSuggestions.length > 50) {
+          throw new Error("Aucune suggestion de ticket valide.");
+        }
+        const suggestions = rawSuggestions.map((raw) => {
+          const entry = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+          const itemId = asPositiveInt(entry.itemId, "itemId");
+          const actualUnitPriceCents = asPositiveInt(entry.actualUnitPriceCents, "actualUnitPriceCents");
+          if (actualUnitPriceCents > 10_000_000) throw new Error("Un prix détecté est trop élevé.");
+          return { itemId, actualUnitPriceCents };
+        });
+        if (new Set(suggestions.map((entry) => entry.itemId)).size !== suggestions.length) {
+          throw new Error("Le ticket contient des suggestions en double.");
+        }
+        const { data: cart, error: cartError } = await db
+          .from("carts")
+          .select("id")
+          .eq("id", cartId)
+          .in("status", ACTIVE_CART_STATUSES)
+          .maybeSingle();
+        throwIfSupabaseError(cartError);
+        if (!cart) throw new Error("Cette commande est déjà terminée.");
+        const { data: items, error: itemsError } = await db
+          .from("cart_items")
+          .select("id")
+          .eq("cart_id", cartId)
+          .in("id", suggestions.map((entry) => entry.itemId));
+        throwIfSupabaseError(itemsError);
+        const allowedIds = new Set((items ?? []).map((entry) => Number(entry.id)));
+        if (allowedIds.size !== suggestions.length) throw new Error("Un article ne correspond pas à cette commande.");
+        for (const suggestion of suggestions) {
+          const { error } = await db
+            .from("cart_items")
+            .update({ purchase_status: "bought", actual_unit_price_cents: suggestion.actualUnitPriceCents })
+            .eq("id", suggestion.itemId)
+            .eq("cart_id", cartId);
+          throwIfSupabaseError(error);
+        }
+        const { error: statusError } = await db
+          .from("carts")
+          .update({ status: "shopping" })
+          .eq("id", cartId)
+          .in("status", ["pending", "ready"]);
+        throwIfSupabaseError(statusError);
         break;
       }
 

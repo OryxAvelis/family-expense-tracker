@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 
 type Product = { name_fr: string; name_ar: string; name_en: string; unit: string; package_size: string | null };
 type Item = { id: number; quantity_hundredths: number; requested_unit_price_cents: number; actual_unit_price_cents: number; purchase_status: string; products: Product | Product[] };
-type HistoryCart = { id: number; member_id: number; status: string; created_at: string; completed_at: string | null; missing_products_note: string; created_by: string | null; offline_purchase: boolean; wallet_scope: "family" | "personal"; service_fee_cents: number; family_users: { name: string } | { name: string }[]; cart_items: Item[] };
+type HistoryCart = { id: number; member_id: number; status: string; created_at: string; completed_at: string | null; missing_products_note: string; created_by: string | null; offline_purchase: boolean; wallet_scope: "family" | "personal"; receipt_url: string | null; receipt_uploaded_at: string | null; service_fee_cents: number; family_users: { name: string } | { name: string }[]; cart_items: Item[] };
 const copy = {
   fr: { title: "Historique des paniers", all: "Tous les membres", statuses: "Tous les statuts", pending: "En attente", ready: "Priorité définie", shopping: "Achat en cours", completed: "Terminé", cancelled: "Annulé", products: "Produits", delivery: "Livraison", total: "Total", estimate: "Total estimé", empty: "Aucun panier trouvé.", retry: "Réessayer", previous: "Précédent", next: "Suivant", by: "Créé par", recorded: "Achat enregistré par l’admin", member: "Commande du membre", bought: "Acheté", unbought: "Non acheté", requested: "Demandé", date: "Créé le", finished: "Terminé le", loading: "Chargement…" },
   en: { title: "Cart history", all: "All members", statuses: "All statuses", pending: "Pending", ready: "Priority assigned", shopping: "Shopping", completed: "Completed", cancelled: "Cancelled", products: "Products", delivery: "Delivery", total: "Total", estimate: "Estimated total", empty: "No carts found.", retry: "Retry", previous: "Previous", next: "Next", by: "Created by", recorded: "Purchase recorded by admin", member: "Member order", bought: "Bought", unbought: "Not bought", requested: "Requested", date: "Created", finished: "Completed", loading: "Loading…" },
@@ -82,6 +82,7 @@ export function AdminCartHistory({ language, members, money }: { language: "fr" 
             </li>;
           })}</ul>
           {cart.missing_products_note && <p className="mt-3 whitespace-pre-wrap text-sm">{cart.missing_products_note}</p>}
+          {cart.receipt_url && <Button asChild variant="outline" className="mt-3"><a href={cart.receipt_url} target="_blank" rel="noreferrer">{language === "ar" ? "عرض الفاتورة" : language === "en" ? "View receipt" : "Voir le ticket"}</a></Button>}
           <div className="mt-4 space-y-2 border-t pt-3 text-sm"><p className="flex justify-between gap-3"><span>{t.products}</span><span>{money(subtotal)}</span></p><p className="flex justify-between gap-3"><span>{t.delivery}</span><span>{money(cart.service_fee_cents)}</span></p><p className="flex justify-between gap-3 font-semibold"><span>{complete ? t.total : t.estimate}</span><span>{money(subtotal + cart.service_fee_cents)}</span></p></div>
         </details>;
       })}
