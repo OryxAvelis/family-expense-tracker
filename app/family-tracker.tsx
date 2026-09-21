@@ -21,6 +21,7 @@ import {
   Loader2,
   LogOut,
   MessageSquareText,
+  Minus,
   Moon,
   PackageCheck,
   PackagePlus,
@@ -675,6 +676,16 @@ const words = {
     invalidAmount: "Saisissez un montant valide.",
     forAmount: "Pour",
     activeLimit: "3 paniers actifs maximum",
+    continueShopping: "Ajouter d’autres produits",
+    addMissingProducts: "Ajouter un produit absent",
+    hideMissingProducts: "Masquer le champ",
+    paymentSource: "Qui paie ?",
+    familyWalletLabel: "Cagnotte familiale",
+    personalWalletLabel: "Mon portefeuille",
+    decreaseQuantity: "Réduire la quantité",
+    increaseQuantity: "Augmenter la quantité",
+    removeItem: "Retirer le produit",
+    orderSummary: "Résumé de la commande",
     loading: "Chargement de la maison…",
     retry: "Réessayer",
     lightMode: "Activer le mode clair",
@@ -862,6 +873,16 @@ const words = {
     invalidAmount: "أدخل مبلغاً صالحاً.",
     forAmount: "بمبلغ",
     activeLimit: "3 سلال نشطة كحد أقصى",
+    continueShopping: "إضافة منتجات أخرى",
+    addMissingProducts: "إضافة منتج غير موجود",
+    hideMissingProducts: "إخفاء الحقل",
+    paymentSource: "من سيدفع؟",
+    familyWalletLabel: "محفظة العائلة",
+    personalWalletLabel: "محفظتي",
+    decreaseQuantity: "تقليل الكمية",
+    increaseQuantity: "زيادة الكمية",
+    removeItem: "إزالة المنتج",
+    orderSummary: "ملخص الطلب",
     loading: "جارٍ تحميل بيانات البيت…",
     retry: "إعادة المحاولة",
     lightMode: "تفعيل الوضع الفاتح",
@@ -1049,6 +1070,16 @@ const words = {
     invalidAmount: "Enter a valid amount.",
     forAmount: "For",
     activeLimit: "Maximum 3 active carts",
+    continueShopping: "Add more products",
+    addMissingProducts: "Add a missing product",
+    hideMissingProducts: "Hide field",
+    paymentSource: "Who is paying?",
+    familyWalletLabel: "Family wallet",
+    personalWalletLabel: "My wallet",
+    decreaseQuantity: "Decrease quantity",
+    increaseQuantity: "Increase quantity",
+    removeItem: "Remove product",
+    orderSummary: "Order summary",
     loading: "Loading the household…",
     retry: "Retry",
     lightMode: "Turn on light mode",
@@ -1256,6 +1287,7 @@ export function FamilyTracker({
   const [amountProduct, setAmountProduct] = useState<Product | null>(null);
   const [amountDh, setAmountDh] = useState("");
   const [missingProductsNote, setMissingProductsNote] = useState("");
+  const [missingNoteExpanded, setMissingNoteExpanded] = useState(false);
   const [editingCartId, setEditingCartId] = useState<number | null>(null);
   const [draftWalletScope, setDraftWalletScope] = useState<"family" | "personal">("family");
   const [deliveryPrices, setDeliveryPrices] = useState<Record<number, string>>({});
@@ -1776,6 +1808,10 @@ export function FamilyTracker({
     .filter((entry): entry is { product: Product; quantity: number } => Boolean(entry.product));
 
   const deliveryServiceFeeCents = data?.deliveryServiceFeeCents ?? 50;
+  const familyWalletBalanceCents = data?.familyWallet.balance_cents ?? 0;
+  const personalWalletBalanceCents = data?.memberWallets.find(
+    (wallet) => wallet.member_id === currentUser.id,
+  )?.balance_cents ?? 0;
   const draftTotal = draftProducts.reduce(
     (sum, entry) =>
       sum +
@@ -1783,6 +1819,7 @@ export function FamilyTracker({
         Math.round((entry.product.unit_price_cents * entry.quantity) / 100)),
     0,
   );
+  const draftGrandTotal = draftTotal + deliveryServiceFeeCents;
   const amountCentsPreview = Math.round(Number(amountDh.replace(",", ".")) * 100);
   const amountQuantityPreview =
     amountProduct && amountCentsPreview > 0
@@ -1974,6 +2011,7 @@ export function FamilyTracker({
         applyData(payload);
         setDraft({});
         setMissingProductsNote("");
+        setMissingNoteExpanded(false);
         setCartOpen(false);
         setMemberView("carts");
         await afterPaint();
@@ -2083,6 +2121,7 @@ export function FamilyTracker({
       setDraft({});
       setDraftAmounts({});
       setMissingProductsNote("");
+      setMissingNoteExpanded(false);
       setEditingCartId(null);
       setCartOpen(false);
       setMemberView("carts");
@@ -2099,6 +2138,7 @@ export function FamilyTracker({
     ])));
     setDraftAmounts(Object.fromEntries(cartItems.filter(isAmountItem).map((item) => [item.product_id, item.quantity_hundredths])));
     setMissingProductsNote(cart.missing_products_note);
+    setMissingNoteExpanded(Boolean(cart.missing_products_note.trim()));
     setDraftWalletScope(cart.wallet_scope);
     setEditingCartId(cart.id);
     setCartOpen(true);
@@ -2121,6 +2161,7 @@ export function FamilyTracker({
     );
     setDraftAmounts(Object.fromEntries(repeatedItems.filter(isAmountItem).map((item) => [item.product_id, item.quantity_hundredths])));
     setMissingProductsNote(cart.missing_products_note);
+    setMissingNoteExpanded(Boolean(cart.missing_products_note.trim()));
     setEditingCartId(null);
     setDraftWalletScope("family");
     setCartOpen(true);
@@ -3048,124 +3089,232 @@ export function FamilyTracker({
         </DialogContent>
       </Dialog>
 
-      <Sheet open={cartOpen} onOpenChange={setCartOpen}>
-        <SheetContent side={language === "ar" ? "left" : "right"} className="w-[92%] border-border bg-card sm:max-w-md">
-          <SheetHeader className="p-5 pb-2">
-            <SheetTitle className="text-2xl">{editingCartId ? t.edit : t.cart}</SheetTitle>
-            <SheetDescription>{t.activeLimit}</SheetDescription>
+      <Sheet
+        open={cartOpen}
+        onOpenChange={(open) => {
+          setCartOpen(open);
+          if (open && missingProductsNote.trim()) setMissingNoteExpanded(true);
+        }}
+      >
+        <SheetContent
+          side={language === "ar" ? "left" : "right"}
+          className="w-full gap-0 border-border bg-background sm:max-w-lg"
+        >
+          <SheetHeader className="shrink-0 border-b border-border bg-card px-4 py-4 pe-16 sm:px-5">
+            <div className="flex items-center gap-3">
+              <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+                <ShoppingCart className="size-5" />
+              </span>
+              <div className="min-w-0">
+                <SheetTitle className="text-xl tracking-tight">{editingCartId ? t.edit : t.cart}</SheetTitle>
+                <SheetDescription className="mt-0.5">
+                  {draftProducts.length
+                    ? `${draftProducts.length} ${t.items} · ${money(draftGrandTotal)}`
+                    : t.activeLimit}
+                </SheetDescription>
+              </div>
+            </div>
           </SheetHeader>
-          <div className="flex-1 overflow-y-auto px-5 py-3">
+
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
             {draftProducts.length ? (
-              <div className="space-y-3">
-                {draftProducts.map(({ product, quantity }) => (
-                  <div key={product.id} className="grid grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-3 rounded-2xl border border-border bg-muted/45 p-3 min-[390px]:flex">
-                    <ProductImage position={product.image_position} imageUrl={product.image_url} name={productName(product)} className="size-14 shrink-0 rounded-xl min-[390px]:size-16" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold">{productName(product)}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {product.unit_price_cents > 0
-                          ? `${money(product.unit_price_cents)} / ${product.package_size || product.unit}`
-                          : t.priceToConfirm}
-                      </p>
-                    </div>
-                    <div className="col-span-2 ms-auto flex w-full items-center justify-between gap-1 rounded-xl bg-background p-1 min-[390px]:w-auto">
+              <div className="space-y-2.5">
+                {draftProducts.map(({ product, quantity }) => {
+                  const lineTotal = draftAmounts[product.id] ??
+                    Math.round((product.unit_price_cents * quantity) / 100);
+                  return (
+                    <article key={product.id} className="grid grid-cols-[3.25rem_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-border bg-card p-3 shadow-sm">
+                      <ProductImage
+                        position={product.image_position}
+                        imageUrl={product.image_url}
+                        name={productName(product)}
+                        className="size-[3.25rem] shrink-0 rounded-xl"
+                      />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold sm:text-base">{productName(product)}</p>
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {product.unit_price_cents > 0
+                            ? `${money(product.unit_price_cents)} / ${product.package_size || product.unit}`
+                            : t.priceToConfirm}
+                        </p>
+                        <p className="mt-1 text-sm font-bold tabular-nums text-primary">{money(lineTotal)}</p>
+                      </div>
+
                       {draftAmounts[product.id] ? (
-                        <>
-                          <Button size="icon-xs" variant="ghost" onClick={() => removeFromCart(product.id)} aria-label={t.removeImage}>
-                            <X />
+                        <div className="flex items-center rounded-xl border border-border bg-muted/45 p-0.5">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="size-10 rounded-[0.65rem] text-destructive"
+                            onClick={() => removeFromCart(product.id)}
+                            aria-label={t.removeItem}
+                          >
+                            <Trash2 className="size-4" />
                           </Button>
-                          <span className="min-w-24 text-center text-xs font-bold text-primary">
-                            {t.forAmount} {money(draftAmounts[product.id])}
-                          </span>
-                          <Button size="icon-xs" variant="ghost" onClick={() => openAmountPicker(product)} aria-label={t.edit}>
-                            <Pencil />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="h-10 min-w-20 rounded-[0.65rem] px-2 text-xs font-bold text-primary"
+                            onClick={() => openAmountPicker(product)}
+                            aria-label={t.edit}
+                          >
+                            {money(draftAmounts[product.id])}
+                            <Pencil className="size-3.5" />
                           </Button>
-                        </>
+                        </div>
                       ) : (
-                        <>
-                          <Button size="icon-xs" variant="ghost" onClick={() => changeQuantity(product, -1)} aria-label="Réduire">
-                            <X />
+                        <div className="flex items-center rounded-xl border border-border bg-muted/45 p-0.5">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="size-10 rounded-[0.65rem]"
+                            onClick={() => changeQuantity(product, -1)}
+                            aria-label={t.decreaseQuantity}
+                          >
+                            <Minus className="size-4" />
                           </Button>
-                          <span className="min-w-12 text-center text-xs font-bold">{quantityLabel(quantity, product.unit, product.package_size)}</span>
-                          <Button size="icon-xs" variant="ghost" onClick={() => changeQuantity(product, 1)} aria-label="Ajouter">
-                            <Plus />
+                          <span className="min-w-14 px-1 text-center text-xs font-bold tabular-nums">
+                            {quantityLabel(quantity, product.unit, product.package_size)}
+                          </span>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="size-10 rounded-[0.65rem] text-primary"
+                            onClick={() => changeQuantity(product, 1)}
+                            aria-label={t.increaseQuantity}
+                          >
+                            <Plus className="size-4" />
                           </Button>
-                        </>
+                        </div>
                       )}
-                    </div>
-                  </div>
-                ))}
+                    </article>
+                  );
+                })}
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 w-full rounded-2xl border-dashed border-primary/35 text-primary"
+                  onClick={() => setCartOpen(false)}
+                >
+                  <Plus className="size-4" /> {t.continueShopping}
+                </Button>
               </div>
             ) : (
-              <div className="grid h-40 place-items-center text-center">
+              <div className="grid min-h-56 place-items-center rounded-3xl border border-dashed border-border bg-card/60 p-6 text-center">
                 <div>
-                  <ShoppingCart className="mx-auto mb-3 size-9 text-muted-foreground" />
-                  <p className="text-muted-foreground">{t.emptyCart}</p>
+                  <span className="mx-auto mb-3 grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary">
+                    <ShoppingCart className="size-7" />
+                  </span>
+                  <p className="font-semibold">{t.emptyCart}</p>
+                  <Button type="button" variant="outline" className="mt-4 rounded-xl" onClick={() => setCartOpen(false)}>
+                    <Plus className="size-4" /> {t.continueShopping}
+                  </Button>
                 </div>
               </div>
             )}
-            <div className="mt-5 space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <Label htmlFor="missing-products-note" className="text-sm font-semibold">
-                  {t.missingProducts}
-                </Label>
+
+            <section className="mt-4 overflow-hidden rounded-2xl border border-border bg-card">
+              <button
+                type="button"
+                className="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-start transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                onClick={() => setMissingNoteExpanded((current) => !current)}
+                aria-expanded={missingNoteExpanded}
+                aria-controls="missing-products-panel"
+              >
+                <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#ffb454]/15 text-[#a65f00] dark:text-[#ffb454]">
+                  <MessageSquareText className="size-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold">
+                    {missingNoteExpanded ? t.hideMissingProducts : t.addMissingProducts}
+                  </span>
+                  {!missingNoteExpanded && missingProductsNote.trim() && (
+                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">{missingProductsNote}</span>
+                  )}
+                </span>
                 <span className="text-xs text-muted-foreground">{t.optional}</span>
-              </div>
-              <Textarea
-                id="missing-products-note"
-                value={missingProductsNote}
-                onChange={(event) => setMissingProductsNote(event.target.value)}
-                maxLength={500}
-                placeholder={t.missingProductsHint}
-                className="min-h-28 resize-none rounded-2xl border-border bg-background text-base leading-6"
-              />
-              <p className="text-end text-xs text-muted-foreground">{missingProductsNote.length}/500</p>
-            </div>
+                <ChevronRight className={`size-4 shrink-0 text-muted-foreground transition-transform ${missingNoteExpanded ? "rotate-90" : language === "ar" ? "rotate-180" : ""}`} />
+              </button>
+              {missingNoteExpanded && (
+                <div id="missing-products-panel" className="border-t border-border p-3">
+                  <Label htmlFor="missing-products-note" className="sr-only">{t.missingProducts}</Label>
+                  <Textarea
+                    id="missing-products-note"
+                    value={missingProductsNote}
+                    onChange={(event) => setMissingProductsNote(event.target.value)}
+                    maxLength={500}
+                    placeholder={t.missingProductsHint}
+                    className="min-h-24 resize-none rounded-xl border-border bg-background text-base leading-6"
+                  />
+                  <p className="mt-1.5 text-end text-[11px] text-muted-foreground">{missingProductsNote.length}/500</p>
+                </div>
+              )}
+            </section>
           </div>
-          <SheetFooter className="border-t border-border p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-            <div className="mb-3">
-              <p className="mb-2 text-sm font-semibold">
-                {language === "ar" ? "مصدر الدفع" : language === "en" ? "Payment source" : "Source de paiement"}
-              </p>
-              <div className="grid grid-cols-2 gap-2">
+
+          <SheetFooter className="shrink-0 gap-3 border-t border-border bg-card/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-12px_30px_-24px_rgba(0,0,0,0.55)] backdrop-blur sm:px-5">
+            <div>
+              <p className="mb-1.5 text-xs font-semibold text-muted-foreground">{t.paymentSource}</p>
+              <div role="radiogroup" aria-label={t.paymentSource} className="grid grid-cols-2 gap-1 rounded-2xl bg-muted/70 p-1">
                 <button
                   type="button"
+                  role="radio"
+                  aria-checked={draftWalletScope === "family"}
                   onClick={() => setDraftWalletScope("family")}
-                  className={`rounded-xl border p-2.5 text-start transition-colors ${draftWalletScope === "family" ? "border-primary bg-primary/10 text-primary" : "border-border bg-background"}`}
+                  className={`flex min-w-0 items-center gap-2 rounded-xl px-3 py-2.5 text-start transition ${draftWalletScope === "family" ? "bg-card text-primary shadow-sm ring-1 ring-primary/20" : "text-muted-foreground hover:bg-card/60"}`}
                 >
-                  <span className="block text-xs font-semibold">{language === "ar" ? "محفظة العائلة" : language === "en" ? "Family wallet" : "Cagnotte familiale"}</span>
-                  <strong className="mt-1 block text-sm tabular-nums">{money(data.familyWallet.balance_cents)}</strong>
+                  <WalletCards className="size-4 shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[11px] font-semibold">{t.familyWalletLabel}</span>
+                    <strong className="block truncate text-sm tabular-nums">{money(familyWalletBalanceCents)}</strong>
+                  </span>
+                  {draftWalletScope === "family" && <Check className="size-4 shrink-0" />}
                 </button>
                 <button
                   type="button"
+                  role="radio"
+                  aria-checked={draftWalletScope === "personal"}
                   onClick={() => setDraftWalletScope("personal")}
-                  className={`rounded-xl border p-2.5 text-start transition-colors ${draftWalletScope === "personal" ? "border-primary bg-primary/10 text-primary" : "border-border bg-background"}`}
+                  className={`flex min-w-0 items-center gap-2 rounded-xl px-3 py-2.5 text-start transition ${draftWalletScope === "personal" ? "bg-card text-primary shadow-sm ring-1 ring-primary/20" : "text-muted-foreground hover:bg-card/60"}`}
                 >
-                  <span className="block text-xs font-semibold">{language === "ar" ? "محفظتي" : language === "en" ? "My wallet" : "Mon portefeuille"}</span>
-                  <strong className="mt-1 block text-sm tabular-nums">{money(data.memberWallets.find((wallet) => wallet.member_id === currentUser.id)?.balance_cents ?? 0)}</strong>
+                  <WalletCards className="size-4 shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[11px] font-semibold">{t.personalWalletLabel}</span>
+                    <strong className="block truncate text-sm tabular-nums">{money(personalWalletBalanceCents)}</strong>
+                  </span>
+                  {draftWalletScope === "personal" && <Check className="size-4 shrink-0" />}
                 </button>
               </div>
             </div>
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">{t.estimate}</span>
-              <span className="font-medium">{money(draftTotal)}</span>
+
+            <div className="flex items-end justify-between gap-4 rounded-2xl bg-primary/[0.065] px-4 py-3" aria-live="polite">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-muted-foreground">{t.orderSummary}</p>
+                <p className="mt-1 truncate text-xs text-muted-foreground">
+                  {money(draftTotal)} + {money(deliveryServiceFeeCents)} {t.serviceFee.toLocaleLowerCase()}
+                </p>
+              </div>
+              <div className="shrink-0 text-end">
+                <p className="text-[11px] text-muted-foreground">{t.totalWithService}</p>
+                <strong className="text-xl tabular-nums tracking-tight text-primary">{money(draftGrandTotal)}</strong>
+              </div>
             </div>
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">{t.serviceFee}</span>
-              <span className="font-medium">{money(deliveryServiceFeeCents)}</span>
-            </div>
-            <div className="mb-3 flex items-center justify-between border-t border-border pt-3">
-              <span className="font-semibold">{t.totalWithService}</span>
-              <strong className="text-xl">{money(draftTotal + deliveryServiceFeeCents)}</strong>
-            </div>
+
             <Button
               size="lg"
-              className="h-12 rounded-2xl"
+              className="h-14 w-full rounded-2xl text-base font-semibold shadow-sm"
               disabled={(!draftProducts.length && !missingProductsNote.trim()) || busy}
               onClick={() => void submitCart()}
             >
-              {busy && <Loader2 className="animate-spin" />}
-              {editingCartId ? t.update : t.submit}
+              {busy ? <Loader2 className="animate-spin" /> : <Check className="size-5" />}
+              <span>{editingCartId ? t.update : t.submit}</span>
+              <span className="text-primary-foreground/70">·</span>
+              <span className="font-bold tabular-nums">{money(draftGrandTotal)}</span>
+              <ChevronRight className={`ms-auto size-5 ${language === "ar" ? "rotate-180" : ""}`} />
             </Button>
           </SheetFooter>
         </SheetContent>
