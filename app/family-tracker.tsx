@@ -36,6 +36,7 @@ import {
   Sparkles,
   Sun,
   Trash2,
+  Undo2,
   UserCheck,
   UserPlus,
   WalletCards,
@@ -394,7 +395,7 @@ type DeliveryWallet = {
 
 type MemberWalletTransaction = {
   id: string;
-  type: "deposit" | "order" | "task" | "transfer";
+  type: "deposit" | "order" | "task" | "transfer" | "return";
   amount_cents: number;
   cart_id: number | null;
   task_id?: string | null;
@@ -427,6 +428,8 @@ type MemberWallet = {
   balance_cents: number;
   credited_cents: number;
   spent_cents: number;
+  returned_cents: number;
+  transferred_cents: number;
   transactions: MemberWalletTransaction[];
 };
 
@@ -626,6 +629,13 @@ const words = {
     addFunds: "Ajouter de l’argent",
     amount: "Montant",
     fundsAdded: "Versement ajouté au solde.",
+    returnFunds: "Rendre l’argent",
+    fundsReturned: "Argent rendu au membre.",
+    returnedMoney: "Argent rendu",
+    confirmReturnTitle: "Confirmer le remboursement",
+    confirmReturnHelp: "Le montant sera retiré du solde disponible et enregistré dans l’historique.",
+    confirmReturn: "Confirmer et rendre",
+    afterReturn: "Après remboursement",
     negativeBalance: "Montant à remettre au livreur",
   },
   ar: {
@@ -805,6 +815,13 @@ const words = {
     addFunds: "إضافة المال",
     amount: "المبلغ",
     fundsAdded: "تمت إضافة المبلغ إلى الرصيد.",
+    returnFunds: "إرجاع المال",
+    fundsReturned: "تم إرجاع المال إلى العضو.",
+    returnedMoney: "المال المُرجع",
+    confirmReturnTitle: "تأكيد إرجاع المال",
+    confirmReturnHelp: "سيتم خصم المبلغ من الرصيد المتاح وتسجيله في السجل.",
+    confirmReturn: "تأكيد الإرجاع",
+    afterReturn: "بعد الإرجاع",
     negativeBalance: "المبلغ الواجب تسليمه للمكلّف بالشراء",
   },
   en: {
@@ -984,6 +1001,13 @@ const words = {
     addFunds: "Add money",
     amount: "Amount",
     fundsAdded: "Deposit added to the balance.",
+    returnFunds: "Return money",
+    fundsReturned: "Money returned to the member.",
+    returnedMoney: "Money returned",
+    confirmReturnTitle: "Confirm money return",
+    confirmReturnHelp: "The amount will be removed from the available balance and recorded in the history.",
+    confirmReturn: "Confirm return",
+    afterReturn: "After return",
     negativeBalance: "Amount owed to the buyer",
   },
 } as const;
@@ -3217,7 +3241,7 @@ function MemberSettings({
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">
-                      {entry.type === "deposit" ? t.deposit : entry.type === "task" ? "Récompense de mission" : entry.type === "transfer" ? "Transfert vers la cagnotte familiale" : `${t.orderDebit} #${entry.cart_id}`}
+                      {entry.type === "deposit" ? t.deposit : entry.type === "task" ? "Récompense de mission" : entry.type === "transfer" ? "Transfert vers la cagnotte familiale" : entry.type === "return" ? t.returnedMoney : `${t.orderDebit} #${entry.cart_id}`}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {new Date(entry.created_at).toLocaleDateString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", { dateStyle: "medium" })}
@@ -3389,6 +3413,12 @@ function MemberBalancesManager({
   const [amounts, setAmounts] = useState<Record<number, string>>({});
   const [familyAmount, setFamilyAmount] = useState("");
   const [familyMemberId, setFamilyMemberId] = useState(() => wallets[0] ? String(wallets[0].member_id) : "");
+  const [returnRequest, setReturnRequest] = useState<{
+    memberId: number;
+    memberName: string;
+    amountCents: number;
+    balanceCents: number;
+  } | null>(null);
 
   const addFunds = async (event: FormEvent, memberId: number) => {
     event.preventDefault();
@@ -3403,6 +3433,42 @@ function MemberBalancesManager({
       t.fundsAdded,
     );
     if (ok) setAmounts((current) => ({ ...current, [memberId]: "" }));
+  };
+
+  const requestFundsReturn = (wallet: MemberWallet) => {
+    const raw = amounts[wallet.member_id] ?? "";
+    const amountCents = Math.round(Number(raw.replace(",", ".")) * 100);
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
+      toast.error(t.invalidPrice);
+      return;
+    }
+    if (amountCents > wallet.balance_cents) {
+      toast.error(language === "ar" ? "المبلغ أكبر من الرصيد المتاح." : language === "en" ? "The amount exceeds the available balance." : "Le montant dépasse le solde disponible.");
+      return;
+    }
+    setReturnRequest({
+      memberId: wallet.member_id,
+      memberName: wallet.member_name,
+      amountCents,
+      balanceCents: wallet.balance_cents,
+    });
+  };
+
+  const confirmFundsReturn = async () => {
+    if (!returnRequest) return;
+    const ok = await act(
+      {
+        action: "return_member_funds",
+        actorRole,
+        memberId: returnRequest.memberId,
+        amountCents: returnRequest.amountCents,
+      },
+      t.fundsReturned,
+    );
+    if (ok) {
+      setAmounts((current) => ({ ...current, [returnRequest.memberId]: "" }));
+      setReturnRequest(null);
+    }
   };
 
   const changeFamilyFunds = async (event: FormEvent, action: "add_family_funds" | "transfer_member_funds_to_family") => {
@@ -3511,7 +3577,7 @@ function MemberBalancesManager({
               </strong>
             </div>
 
-            <form className="mt-4 flex gap-2" onSubmit={(event) => void addFunds(event, wallet.member_id)}>
+            <form className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]" onSubmit={(event) => void addFunds(event, wallet.member_id)}>
               <div className="relative min-w-0 flex-1">
                 <Input
                   inputMode="decimal"
@@ -3526,11 +3592,15 @@ function MemberBalancesManager({
               <Button type="submit" className="h-10 rounded-xl" disabled={busy || !(amounts[wallet.member_id] ?? "").trim()}>
                 <Plus className="size-4" /> <span className="hidden sm:inline">{t.addFunds}</span>
               </Button>
+              <Button type="button" variant="outline" className="col-span-2 h-10 rounded-xl border-[#d98200]/35 text-[#9a5700] hover:bg-[#ffb454]/10 hover:text-[#8a4e00] sm:col-span-1" disabled={busy || wallet.balance_cents <= 0 || !(amounts[wallet.member_id] ?? "").trim()} onClick={() => requestFundsReturn(wallet)}>
+                <Undo2 className="size-4" /> {t.returnFunds}
+              </Button>
             </form>
 
-            <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-muted-foreground">
               <span>{t.moneyReceived}: {money(wallet.credited_cents)}</span>
-              <span>{t.orderExpenses}: {money(wallet.spent_cents)}</span>
+              <span className="text-center">{t.orderExpenses}: {money(wallet.spent_cents)}</span>
+              <span className="text-end">{t.returnedMoney}: {money(wallet.returned_cents)}</span>
             </div>
             {wallet.transactions[0] && (
               <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3 text-xs">
@@ -3541,6 +3611,8 @@ function MemberBalancesManager({
                       ? "Récompense de mission"
                       : wallet.transactions[0].type === "transfer"
                         ? "Transfert vers la cagnotte familiale"
+                        : wallet.transactions[0].type === "return"
+                          ? t.returnedMoney
                       : `${t.orderDebit} #${wallet.transactions[0].cart_id}`} · {new Date(wallet.transactions[0].created_at).toLocaleDateString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", { dateStyle: "medium" })}
                 </span>
                 <strong className={wallet.transactions[0].amount_cents > 0 ? "text-primary" : "text-destructive"}>
@@ -3551,6 +3623,31 @@ function MemberBalancesManager({
           </article>
         ))}
       </div>
+
+      <AlertDialog open={Boolean(returnRequest)} onOpenChange={(next) => !next && !busy && setReturnRequest(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t.confirmReturnTitle}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {returnRequest
+                ? `${money(returnRequest.amountCents)} · ${returnRequest.memberName}. ${t.confirmReturnHelp}`
+                : t.confirmReturnHelp}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {returnRequest && (
+            <div className="grid grid-cols-2 gap-3 rounded-2xl bg-muted/60 p-4 text-sm">
+              <div><p className="text-xs text-muted-foreground">{t.availableBalance}</p><p className="mt-1 font-bold">{money(returnRequest.balanceCents)}</p></div>
+              <div className="text-end"><p className="text-xs text-muted-foreground">{t.afterReturn}</p><p className="mt-1 font-bold text-primary">{money(returnRequest.balanceCents - returnRequest.amountCents)}</p></div>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>{t.cancel}</AlertDialogCancel>
+            <AlertDialogAction disabled={busy} className="bg-[#b76500] text-white hover:bg-[#9a5700]" onClick={(event) => { event.preventDefault(); void confirmFundsReturn(); }}>
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <Undo2 className="size-4" />} {t.confirmReturn}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

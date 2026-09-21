@@ -4,7 +4,7 @@ const MEMBER_WALLET_PREFIX = "member_wallet_";
 
 export type MemberWalletTransaction = {
   id: string;
-  type: "deposit" | "order" | "task" | "transfer";
+  type: "deposit" | "order" | "task" | "transfer" | "return";
   amount_cents: number;
   cart_id: number | null;
   task_id?: string | null;
@@ -33,6 +33,8 @@ export function parseMemberWallet(value: string | undefined) {
             ? "task" as const
             : entry.type === "transfer"
               ? "transfer" as const
+              : entry.type === "return"
+                ? "return" as const
               : "deposit" as const,
         amount_cents: Number(entry.amount_cents),
         cart_id: Number.isInteger(Number(entry.cart_id)) && Number(entry.cart_id) > 0 ? Number(entry.cart_id) : null,
@@ -51,6 +53,8 @@ export function summarizeMemberWallet(transactions: MemberWalletTransaction[]) {
   let balanceCents = 0;
   let creditedCents = 0;
   let spentCents = 0;
+  let returnedCents = 0;
+  let transferredCents = 0;
   const effectiveTransactions: MemberWalletTransaction[] = [];
 
   for (const transaction of transactions) {
@@ -65,7 +69,9 @@ export function summarizeMemberWallet(transactions: MemberWalletTransaction[]) {
     if (walletDebitCents <= 0) continue;
 
     balanceCents -= walletDebitCents;
-    spentCents += walletDebitCents;
+    if (transaction.type === "return") returnedCents += walletDebitCents;
+    else if (transaction.type === "transfer") transferredCents += walletDebitCents;
+    else spentCents += walletDebitCents;
     effectiveTransactions.push({
       ...transaction,
       amount_cents: -walletDebitCents,
@@ -76,6 +82,8 @@ export function summarizeMemberWallet(transactions: MemberWalletTransaction[]) {
     balanceCents,
     creditedCents,
     spentCents,
+    returnedCents,
+    transferredCents,
     transactions: effectiveTransactions,
   };
 }

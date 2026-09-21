@@ -411,6 +411,8 @@ async function readState(viewer: FamilySessionUser) {
         balance_cents: wallet.balanceCents,
         credited_cents: wallet.creditedCents,
         spent_cents: wallet.spentCents,
+        returned_cents: wallet.returnedCents,
+        transferred_cents: wallet.transferredCents,
         transactions: wallet.transactions.slice().reverse(),
       };
     });
@@ -1170,6 +1172,46 @@ export async function POST(request: Request) {
         break;
       }
 
+      case "return_member_funds": {
+        if (viewer.role !== "admin" && viewer.role !== "delivery") {
+          throw new Error("Action non autorisée pour ce rôle.");
+        }
+        const memberId = asPositiveInt(body.memberId, "memberId");
+        const amountCents = asPositiveInt(body.amountCents, "amountCents");
+        if (amountCents > MAX_MEMBER_DEPOSIT_CENTS) throw new Error("Le montant est trop élevé.");
+        const { data: member, error: memberError } = await db
+          .from("family_users")
+          .select("id")
+          .eq("id", memberId)
+          .eq("role", "member")
+          .eq("active", true)
+          .maybeSingle();
+        throwIfSupabaseError(memberError);
+        if (!member) throw new Error("Membre introuvable.");
+
+        const walletKey = memberWalletMetaKey(memberId);
+        const { data: walletMeta, error: walletError } = await db
+          .from("app_meta")
+          .select("value")
+          .eq("key", walletKey)
+          .maybeSingle();
+        throwIfSupabaseError(walletError);
+        const wallet = summarizeMemberWallet(parseMemberWallet(walletMeta?.value));
+        if (amountCents > wallet.balanceCents) {
+          throw new Error("Le montant à rendre dépasse le solde disponible.");
+        }
+
+        await addMemberWalletTransaction(memberId, {
+          id: crypto.randomUUID(),
+          type: "return",
+          amount_cents: -amountCents,
+          cart_id: null,
+          created_at: nowIso(),
+          actor_name: viewer.name,
+        });
+        break;
+      }
+
       case "add_family_funds": {
         requireRole(viewer.role, "admin");
         const memberId = asPositiveInt(body.memberId, "memberId");
@@ -1265,7 +1307,7 @@ export async function POST(request: Request) {
         throwIfSupabaseError(walletError);
         const walletMetadata = new Map((walletRows ?? []).map((entry) => [String(entry.key), String(entry.value)]));
         const personalTransactions = parseMemberWallet(walletMetadata.get(personalKey));
-        const movable = personalTransactions.filter((entry) => entry.type === "deposit" || entry.type === "order");
+        const movable = personalTransactions.filter((entry) => entry.type === "deposit" || entry.type === "order" || entry.type === "return");
         if (!movable.length) throw new Error("Aucun historique personnel à migrer.");
 
         const familyTransactions = parseFamilyWallet(walletMetadata.get(FAMILY_WALLET_META_KEY));
