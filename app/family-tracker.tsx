@@ -101,6 +101,7 @@ import {
   type ScannedCatalogProduct,
 } from "@/app/barcode-scanner-dialog";
 import { AdminAnalyticsCharts } from "@/app/admin-analytics-charts";
+import { DirectMemberCreator } from "@/app/direct-member-creator";
 import { ProfileAvatar, ProfilePhotoEditor } from "@/app/profile-photo";
 import { AdminCartHistory } from "@/app/admin-cart-history";
 import { useFamilyTheme } from "@/hooks/use-family-theme";
@@ -5116,7 +5117,6 @@ function AdminDashboard({
   const [productToRemove, setProductToRemove] = useState<Product | null>(null);
   const [memberToReject, setMemberToReject] = useState<PendingUser | null>(null);
   const [buyerName, setBuyerName] = useState("");
-  const [buyerUsername, setBuyerUsername] = useState("");
   const [buyerPin, setBuyerPin] = useState("");
   const [buyerPinConfirmation, setBuyerPinConfirmation] = useState("");
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
@@ -5142,8 +5142,7 @@ function AdminDashboard({
       help: "Un seul compte acheteur peut recevoir, acheter et livrer les commandes de cette famille.",
       ready: "Le compte acheteur est prêt.",
       name: "Nom de l’acheteur",
-      username: "Nom d’utilisateur",
-      pin: "PIN (6 à 12 chiffres)",
+      pin: "Code à 4 chiffres",
       confirmPin: "Confirmer le PIN",
       create: "Créer le compte acheteur",
       mismatch: "Les deux codes PIN ne correspondent pas.",
@@ -5154,8 +5153,7 @@ function AdminDashboard({
       help: "يمكن لحساب مشترٍ واحد فقط استلام طلبات هذه العائلة وشراؤها وتسليمها.",
       ready: "حساب المشتري جاهز.",
       name: "اسم المشتري",
-      username: "اسم المستخدم",
-      pin: "PIN من 6 إلى 12 رقماً",
+      pin: "رمز من 4 أرقام",
       confirmPin: "تأكيد PIN",
       create: "إنشاء حساب المشتري",
       mismatch: "رمزا PIN غير متطابقين.",
@@ -5166,8 +5164,7 @@ function AdminDashboard({
       help: "Only one Buyer account can receive, purchase, and deliver orders for this family.",
       ready: "The Buyer account is ready.",
       name: "Buyer name",
-      username: "Username",
-      pin: "PIN (6 to 12 digits)",
+      pin: "4-digit code",
       confirmPin: "Confirm PIN",
       create: "Create Buyer account",
       mismatch: "The two PINs do not match.",
@@ -5182,12 +5179,11 @@ function AdminDashboard({
       return;
     }
     const ok = await act(
-      { action: "create_buyer", name: buyerName, username: buyerUsername, pin: buyerPin },
+      { action: "create_buyer", name: buyerName, pin: buyerPin },
       buyerCopy.created,
     );
     if (ok) {
       setBuyerName("");
-      setBuyerUsername("");
       setBuyerPin("");
       setBuyerPinConfirmation("");
     }
@@ -5488,6 +5484,15 @@ function AdminDashboard({
         </TabsList>
 
         <TabsContent value="requests">
+          <DirectMemberCreator
+            language={language}
+            members={data.users}
+            busy={busy}
+            onCreate={(name, pin, successMessage) =>
+              act({ action: "create_member", name, pin }, successMessage)
+            }
+          />
+
           <section className="mb-8 overflow-hidden rounded-3xl border border-primary/20 bg-card">
             <div className="flex items-start gap-3 border-b border-border bg-primary/[0.045] p-4 sm:p-5">
               <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
@@ -5507,36 +5512,32 @@ function AdminDashboard({
                 <span className="grid size-11 place-items-center rounded-2xl bg-secondary font-bold text-primary">{familyBuyer.initials}</span>
                 <div className="min-w-0">
                   <p className="truncate font-semibold">{familyBuyer.name}</p>
-                  <p className="truncate text-sm text-muted-foreground">@{familyBuyer.username}</p>
+                  <p className="truncate text-sm text-muted-foreground">{buyerCopy.ready}</p>
                 </div>
                 <CircleCheck className="ms-auto size-6 shrink-0 text-primary" aria-hidden="true" />
               </div>
             ) : (
               <form className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5" onSubmit={(event) => void createBuyer(event)}>
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 sm:col-span-2">
                   <Label htmlFor="family-buyer-name">{buyerCopy.name}</Label>
                   <Input id="family-buyer-name" value={buyerName} onChange={(event) => setBuyerName(event.target.value)} required maxLength={80} autoComplete="name" className="h-11 rounded-xl" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="family-buyer-username">{buyerCopy.username}</Label>
-                  <Input id="family-buyer-username" value={buyerUsername} onChange={(event) => setBuyerUsername(event.target.value)} required maxLength={40} autoComplete="username" className="h-11 rounded-xl" />
-                </div>
-                <div className="space-y-1.5">
                   <Label htmlFor="family-buyer-pin">{buyerCopy.pin}</Label>
-                  <Input id="family-buyer-pin" type="password" inputMode="numeric" pattern="[0-9]{6,12}" value={buyerPin} onChange={(event) => setBuyerPin(event.target.value.replace(/\D/g, "").slice(0, 12))} required autoComplete="new-password" className="h-11 rounded-xl" />
+                  <Input id="family-buyer-pin" type="password" inputMode="numeric" pattern="[0-9]{4}" minLength={4} maxLength={4} value={buyerPin} onChange={(event) => setBuyerPin(event.target.value.replace(/\D/g, "").slice(0, 4))} required autoComplete="new-password" className="h-11 rounded-xl" />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="family-buyer-pin-confirmation">{buyerCopy.confirmPin}</Label>
-                  <Input id="family-buyer-pin-confirmation" type="password" inputMode="numeric" pattern="[0-9]{6,12}" value={buyerPinConfirmation} onChange={(event) => setBuyerPinConfirmation(event.target.value.replace(/\D/g, "").slice(0, 12))} required autoComplete="new-password" className="h-11 rounded-xl" />
+                  <Input id="family-buyer-pin-confirmation" type="password" inputMode="numeric" pattern="[0-9]{4}" minLength={4} maxLength={4} value={buyerPinConfirmation} onChange={(event) => setBuyerPinConfirmation(event.target.value.replace(/\D/g, "").slice(0, 4))} required autoComplete="new-password" className="h-11 rounded-xl" />
                 </div>
-                <Button type="submit" className="mt-1 h-11 rounded-xl sm:col-span-2" disabled={busy || !buyerName.trim() || !buyerUsername.trim() || buyerPin.length < 6 || buyerPinConfirmation.length < 6}>
+                <Button type="submit" className="mt-1 h-11 rounded-xl sm:col-span-2" disabled={busy || !buyerName.trim() || buyerPin.length !== 4 || buyerPinConfirmation.length !== 4}>
                   {busy ? <Loader2 className="animate-spin" /> : <UserPlus />} {buyerCopy.create}
                 </Button>
               </form>
             )}
           </section>
 
-          <div className="mb-8 rounded-3xl border border-primary/20 bg-primary/[0.035] p-4 sm:p-5">
+          {pendingUsers.length > 0 && <div className="mb-8 rounded-3xl border border-primary/20 bg-primary/[0.035] p-4 sm:p-5">
             <div className="mb-4 flex items-start gap-3">
               <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
                 <UserPlus className="size-5" />
@@ -5594,7 +5595,7 @@ function AdminDashboard({
                 {t.noAccountRequests}
               </div>
             )}
-          </div>
+          </div>}
 
           <div className="mb-8 rounded-3xl border border-[#f3a72f]/35 bg-[#f3a72f]/[0.06] p-4 sm:p-5">
             <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start">

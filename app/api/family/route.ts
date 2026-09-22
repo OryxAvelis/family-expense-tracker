@@ -719,14 +719,54 @@ export async function POST(request: Request) {
     const db = getSupabaseAdmin();
 
     switch (body.action) {
+      case "create_member": {
+        requireRole(viewer.role, "admin");
+        const name = normalizeFamilyName(asText(body.name));
+        const pin = asText(body.pin);
+        if (name.length < 2 || name.length > 80) throw new Error("Saisissez un nom valide.");
+        if (!/^\d{4}$/.test(pin)) throw new Error("Le code doit contenir exactement 4 chiffres.");
+
+        const baseUsername = normalizeFamilyUsername(name) || "membre";
+        const { data: familyUsernames, error: usernamesError } = await db
+          .from("family_users")
+          .select("username")
+          .eq("family_id", viewer.familyId);
+        throwIfSupabaseError(usernamesError);
+        const usedUsernames = new Set((familyUsernames ?? []).map((entry) => String(entry.username)));
+        let username = baseUsername;
+        for (let suffix = 2; usedUsernames.has(username) && suffix <= 999; suffix += 1) {
+          const suffixText = `-${suffix}`;
+          username = `${baseUsername.slice(0, 40 - suffixText.length)}${suffixText}`;
+        }
+        if (usedUsernames.has(username)) throw new Error("Choisissez un autre nom.");
+
+        const pinHash = await hashNewFamilyPin(pin);
+        const { error } = await db.rpc("create_darnaflow_member_direct", {
+          p_family_id: viewer.familyId,
+          p_owner_legacy_user_id: viewer.id,
+          p_display_name: name,
+          p_normalized_username: username,
+          p_initials: familyInitials(name),
+          p_pin_hash: pinHash,
+        });
+        if (error?.code === "23505") {
+          throw new Error("Cette personne existe déjà dans votre famille.");
+        }
+        if (error?.code === "PGRST202" || error?.code === "42883") {
+          throw new Error("L’ajout direct est en cours d’activation. Réessayez dans un instant.");
+        }
+        throwIfSupabaseError(error);
+        break;
+      }
+
       case "create_buyer": {
         requireRole(viewer.role, "admin");
         const name = normalizeFamilyName(asText(body.name));
-        const username = normalizeFamilyUsername(asText(body.username));
+        const username = normalizeFamilyUsername(asText(body.username) || name);
         const pin = asText(body.pin);
         if (name.length < 2 || name.length > 80) throw new Error("Saisissez un nom valide.");
         if (username.length < 2 || username.length > 40) throw new Error("Saisissez un nom d’utilisateur valide.");
-        if (!/^\d{6,12}$/.test(pin)) throw new Error("Le PIN doit contenir entre 6 et 12 chiffres.");
+        if (!/^\d{4}$/.test(pin)) throw new Error("Le code doit contenir exactement 4 chiffres.");
 
         const pinHash = await hashNewFamilyPin(pin);
         const { error } = await db.rpc("create_darnaflow_buyer", {

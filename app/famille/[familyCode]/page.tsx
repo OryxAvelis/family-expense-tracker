@@ -3,32 +3,25 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { FamilyEntrance } from "@/app/family-entrance";
-import {
-  familyRolePath,
-  getPageFamilyUser,
-} from "@/lib/family-auth";
+import { familyRolePath, getPageFamilyUser } from "@/lib/family-auth";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Connexion · Dépenses famille",
+  title: "Entrer dans ma famille · DarnaFlow",
 };
 
-export default async function LoginPage({
-  searchParams,
+export default async function FamilyEntrancePage({
+  params,
 }: {
-  searchParams: Promise<{
-    familyCode?: string | string[];
-  }>;
+  params: Promise<{ familyCode: string }>;
 }) {
   const user = await getPageFamilyUser();
   if (user) {
     const directEntry = (await cookies()).get("family_direct_entry")?.value === "1";
     redirect(directEntry ? familyRolePath(user.role) : "/abonnement");
   }
-  const parameters = await searchParams;
-  const initialFamilyCode = Array.isArray(parameters.familyCode)
-    ? parameters.familyCode[0]
-    : parameters.familyCode;
-  return <FamilyEntrance familyCode={initialFamilyCode} />;
+
+  const { familyCode } = await params;
+  return <FamilyEntrance familyCode={decodeURIComponent(familyCode)} />;
 }

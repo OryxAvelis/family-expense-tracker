@@ -76,10 +76,10 @@ function validateInput(input: CreateFamilyInput) {
       "Le nom d’utilisateur doit contenir entre 2 et 40 caractères.",
     );
   }
-  if (!/^\d{6,12}$/.test(input.pin)) {
+  if (!/^\d{4}$/.test(input.pin)) {
     throw new FamilyOnboardingError(
       "INVALID_PIN",
-      "Le code PIN doit contenir entre 6 et 12 chiffres.",
+      "Le code PIN doit contenir exactement 4 chiffres.",
     );
   }
   if (!(["fr", "ar", "en"] as string[]).includes(input.locale)) {

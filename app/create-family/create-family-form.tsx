@@ -50,8 +50,8 @@ const copy = {
     privateText: "Vos membres, commandes et soldes restent dans votre foyer.",
     ownerTitle: "Vous restez responsable",
     ownerText: "Le premier compte devient le propriétaire de la famille.",
-    codeTitle: "Accès uniquement sur invitation",
-    codeText: "Un code familial privé est créé et affiché une seule fois.",
+    codeTitle: "Simple pour toute la famille",
+    codeText: "Chaque personne choisit sa photo puis entre son code à 4 chiffres.",
     step: "Configuration initiale",
     formTitle: "Créer une famille",
     formDescription: "Comptez environ une minute. Vous pourrez ajouter le Buyer et les membres ensuite.",
@@ -63,27 +63,27 @@ const copy = {
     usernamePlaceholder: "Ex. nadia",
     usernameHint: "Unique seulement dans votre famille.",
     pin: "Code PIN du propriétaire",
-    pinPlaceholder: "6 à 12 chiffres",
+    pinPlaceholder: "4 chiffres",
     confirmPin: "Confirmer le code PIN",
     security: "Le PIN est haché avec Argon2id. DarnaFlow ne peut pas l’afficher.",
     submit: "Créer ma famille",
     creating: "Création sécurisée…",
     back: "Retour à la connexion",
     mismatch: "Les deux codes PIN ne correspondent pas.",
-    invalidPin: "Le code PIN doit contenir entre 6 et 12 chiffres.",
+    invalidPin: "Le code PIN doit contenir exactement 4 chiffres.",
     genericError: "La création de la famille a échoué. Réessayez.",
     successEyebrow: "FAMILLE CRÉÉE",
     successTitle: "Votre espace est prêt.",
-    successDescription: "Votre famille est créée. Conservez le code ci-dessous avant de vous connecter.",
+    successDescription: "Votre famille est créée. Ouvrez-la et choisissez votre photo pour entrer.",
     familyCode: "Code familial privé",
     supportRef: "Référence d’assistance anonyme",
     copyCode: "Copier le code",
-    copyInvite: "Copier le lien d’invitation",
+    copyInvite: "Copier le lien de la famille",
     copied: "Copié",
-    oneTime: "Enregistrez ce code maintenant. Il n’est jamais stocké en clair et ne sera pas réaffiché.",
+    oneTime: "La référence sert uniquement si vous demandez de l’aide à DarnaFlow.",
     preparing: "Isolation familiale activée",
     preparingText: "Vous pouvez vous connecter maintenant. Les membres, commandes et portefeuilles de votre famille restent séparés des autres foyers.",
-    finish: "Se connecter à ma famille",
+    finish: "Ouvrir ma famille",
   },
   ar: {
     eyebrow: "مساحة عائلية جديدة",
@@ -93,8 +93,8 @@ const copy = {
     privateText: "يبقى الأعضاء والطلبات والأرصدة داخل عائلتكم فقط.",
     ownerTitle: "أنت المسؤول",
     ownerText: "يصبح الحساب الأول مالك مساحة العائلة.",
-    codeTitle: "الدخول بالدعوة فقط",
-    codeText: "يُنشأ رمز عائلي خاص ويُعرض مرة واحدة.",
+    codeTitle: "ساهلة لجميع أفراد العائلة",
+    codeText: "كل واحد يختار صورتو ويدخل الرقم ديالو من 4 أرقام.",
     step: "الإعداد الأولي",
     formTitle: "إنشاء عائلة",
     formDescription: "يستغرق الأمر نحو دقيقة، ويمكنك إضافة المشتري والأعضاء لاحقاً.",
@@ -106,27 +106,27 @@ const copy = {
     usernamePlaceholder: "مثال: nadia",
     usernameHint: "فريد داخل عائلتك فقط.",
     pin: "رمز PIN للمالك",
-    pinPlaceholder: "من 6 إلى 12 رقماً",
+    pinPlaceholder: "4 أرقام",
     confirmPin: "تأكيد رمز PIN",
     security: "يُشفّر PIN بواسطة Argon2id ولا يمكن لـ DarnaFlow عرضه.",
     submit: "إنشاء عائلتي",
     creating: "جارٍ الإنشاء الآمن…",
     back: "العودة إلى تسجيل الدخول",
     mismatch: "رمزا PIN غير متطابقين.",
-    invalidPin: "يجب أن يتكوّن PIN من 6 إلى 12 رقماً.",
+    invalidPin: "يجب أن يتكوّن PIN من 4 أرقام.",
     genericError: "تعذر إنشاء العائلة. حاول مرة أخرى.",
     successEyebrow: "تم إنشاء العائلة",
     successTitle: "مساحتكم جاهزة.",
-    successDescription: "تم إنشاء عائلتكم. احفظ الرمز أدناه قبل تسجيل الدخول.",
+    successDescription: "تم إنشاء عائلتكم. افتحها واختار صورتك للدخول.",
     familyCode: "رمز العائلة الخاص",
     supportRef: "مرجع الدعم المجهول",
     copyCode: "نسخ الرمز",
-    copyInvite: "نسخ رابط الدعوة",
+    copyInvite: "نسخ رابط العائلة",
     copied: "تم النسخ",
-    oneTime: "احفظ هذا الرمز الآن. لا يتم تخزينه بشكل مكشوف ولن يظهر مرة أخرى.",
+    oneTime: "يُستعمل هذا المرجع فقط إذا احتجتم للمساعدة من DarnaFlow.",
     preparing: "تم تفعيل عزل العائلة",
     preparingText: "يمكنك تسجيل الدخول الآن. يبقى أعضاء عائلتك وطلباتها ومحافظها منفصلين عن باقي العائلات.",
-    finish: "تسجيل الدخول إلى عائلتي",
+    finish: "فتح عائلتي",
   },
   en: {
     eyebrow: "NEW FAMILY WORKSPACE",
@@ -136,8 +136,8 @@ const copy = {
     privateText: "Your members, orders, and balances stay inside your household.",
     ownerTitle: "You remain in control",
     ownerText: "The first account becomes the Family Owner.",
-    codeTitle: "Invitation-only access",
-    codeText: "A private family code is created and shown once.",
+    codeTitle: "Simple for the whole family",
+    codeText: "Each person chooses their photo and enters a 4-digit code.",
     step: "Initial setup",
     formTitle: "Create a family",
     formDescription: "This takes about one minute. You can add the Buyer and Members afterward.",
@@ -149,27 +149,27 @@ const copy = {
     usernamePlaceholder: "Example: nadia",
     usernameHint: "It only needs to be unique inside your family.",
     pin: "Owner PIN",
-    pinPlaceholder: "6 to 12 digits",
+    pinPlaceholder: "4 digits",
     confirmPin: "Confirm PIN",
     security: "The PIN is protected with Argon2id. DarnaFlow cannot display it.",
     submit: "Create my family",
     creating: "Creating securely…",
     back: "Back to sign in",
     mismatch: "The two PINs do not match.",
-    invalidPin: "The PIN must contain between 6 and 12 digits.",
+    invalidPin: "The PIN must contain exactly 4 digits.",
     genericError: "The family could not be created. Try again.",
     successEyebrow: "FAMILY CREATED",
     successTitle: "Your workspace is ready.",
-    successDescription: "Your family has been created. Save the code below before signing in.",
+    successDescription: "Your family is ready. Open it and choose your photo to enter.",
     familyCode: "Private family code",
     supportRef: "Anonymous support reference",
     copyCode: "Copy code",
-    copyInvite: "Copy invitation link",
+    copyInvite: "Copy family link",
     copied: "Copied",
-    oneTime: "Save this code now. It is never stored in plain text and will not be shown again.",
+    oneTime: "This reference is only needed if you ask DarnaFlow for help.",
     preparing: "Family isolation is active",
     preparingText: "You can sign in now. Your family’s members, orders, and wallets stay separated from every other household.",
-    finish: "Sign in to my family",
+    finish: "Open my family",
   },
 } as const;
 
@@ -208,7 +208,7 @@ export function CreateFamilyForm() {
   const direction = language === "ar" ? "rtl" : "ltr";
   const generatedUsername = usernameFromName(ownerName);
   const effectiveUsername = generatedUsername;
-  const numericPin = (value: string) => value.replace(/\D/g, "").slice(0, 12);
+  const numericPin = (value: string) => value.replace(/\D/g, "").slice(0, 4);
   const safetyFeatures = [
     { Icon: ShieldCheck, title: t.privateTitle, text: t.privateText },
     { Icon: Home, title: t.ownerTitle, text: t.ownerText },
@@ -217,7 +217,7 @@ export function CreateFamilyForm() {
 
   const readiness = useMemo(() => {
     const fields = [familyName.trim().length >= 2, ownerName.trim().length >= 2, effectiveUsername.length >= 2];
-    const pinReady = /^\d{6,12}$/.test(pin) && pin === confirmPin;
+    const pinReady = /^\d{4}$/.test(pin) && pin === confirmPin;
     return { complete: fields.every(Boolean) && pinReady, completed: fields.filter(Boolean).length + Number(pinReady) };
   }, [confirmPin, effectiveUsername, familyName, ownerName, pin]);
 
@@ -228,7 +228,7 @@ export function CreateFamilyForm() {
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
-    if (!/^\d{6,12}$/.test(pin)) {
+    if (!/^\d{4}$/.test(pin)) {
       setError(t.invalidPin);
       return;
     }
@@ -297,27 +297,25 @@ export function CreateFamilyForm() {
             </span>
           </div>
 
-          <div className="mt-7 rounded-3xl border border-primary/25 bg-primary/5 p-4 sm:p-6">
-            <div className="flex items-center gap-2 text-sm font-semibold text-primary">
-              <KeyRound className="size-4" /> {t.familyCode}
+          <div className="mt-7 flex gap-3 rounded-3xl border border-primary/25 bg-primary/8 p-5 sm:p-6">
+            <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary text-primary-foreground">
+              <Home className="size-6" />
+            </span>
+            <div>
+              <strong>{t.preparing}</strong>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">{t.preparingText}</p>
             </div>
-            <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <code dir="ltr" className="text-2xl font-bold tracking-[0.16em] sm:text-3xl">{created.familyCode}</code>
-              <Button type="button" variant="outline" className="rounded-xl" onClick={() => void copyValue("code", created.familyCode)}>
-                {copied === "code" ? <Check /> : <Copy />} {copied === "code" ? t.copied : t.copyCode}
-              </Button>
-            </div>
-            <p className="mt-4 rounded-2xl bg-card px-4 py-3 text-sm leading-6 text-muted-foreground">{t.oneTime}</p>
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <button type="button" onClick={() => void copyValue("ref", created.supportRef)} className="rounded-2xl border border-border bg-muted/35 p-4 text-start transition-colors hover:bg-muted/60">
               <span className="flex items-center gap-2 text-xs font-semibold text-muted-foreground"><Fingerprint className="size-4" /> {t.supportRef}</span>
               <strong dir="ltr" className="mt-2 block tracking-[0.12em]">{created.supportRef}</strong>
+              <span className="mt-2 block text-xs text-muted-foreground">{t.oneTime}</span>
             </button>
             <button
               type="button"
-              onClick={() => void copyValue("link", `${window.location.origin}/connexion?familyCode=${encodeURIComponent(created.familyCode)}&mode=signup`)}
+              onClick={() => void copyValue("link", `${window.location.origin}/famille/${encodeURIComponent(created.familyCode)}`)}
               className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-muted/35 p-4 text-start font-semibold transition-colors hover:bg-muted/60"
             >
               <span className="flex items-center gap-2"><UsersRound className="size-5 text-primary" /> {copied === "link" ? t.copied : t.copyInvite}</span>
@@ -325,16 +323,8 @@ export function CreateFamilyForm() {
             </button>
           </div>
 
-          <div className="mt-5 flex gap-3 rounded-2xl border border-primary/25 bg-primary/8 p-4">
-            <ShieldCheck className="mt-0.5 size-5 shrink-0 text-primary" />
-            <div>
-              <strong className="text-sm">{t.preparing}</strong>
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">{t.preparingText}</p>
-            </div>
-          </div>
-
           <Button asChild size="lg" className="mt-7 h-12 w-full rounded-2xl text-base">
-            <Link href={`/connexion?familyCode=${encodeURIComponent(created.familyCode)}`}>{t.finish} <ArrowRight /></Link>
+            <Link href={`/famille/${encodeURIComponent(created.familyCode)}`}>{t.finish} <ArrowRight /></Link>
           </Button>
         </section>
       </main>
@@ -429,7 +419,7 @@ export function CreateFamilyForm() {
                 <Label htmlFor="owner-pin">{t.pin}</Label>
                 <div className="relative">
                   <LockKeyhole className="pointer-events-none absolute start-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
-                  <Input id="owner-pin" type={showPin ? "text" : "password"} inputMode="numeric" pattern="[0-9]{6,12}" minLength={6} maxLength={12} autoComplete="off" required value={pin} onChange={(event) => setPin(numericPin(event.target.value))} placeholder={t.pinPlaceholder} className="h-12 rounded-2xl bg-background/70 px-12 text-base tracking-[0.2em]" />
+                  <Input id="owner-pin" type={showPin ? "text" : "password"} inputMode="numeric" pattern="[0-9]{4}" minLength={4} maxLength={4} autoComplete="off" required value={pin} onChange={(event) => setPin(numericPin(event.target.value))} placeholder={t.pinPlaceholder} className="h-12 rounded-2xl bg-background/70 px-12 text-base tracking-[0.2em]" />
                   <Button type="button" size="icon-sm" variant="ghost" className="absolute end-1.5 top-1/2 size-9 -translate-y-1/2 rounded-xl text-muted-foreground" onClick={() => setShowPin((current) => !current)} aria-label={showPin ? "Hide PIN" : "Show PIN"}>
                     {showPin ? <EyeOff /> : <Eye />}
                   </Button>
@@ -439,7 +429,7 @@ export function CreateFamilyForm() {
                 <Label htmlFor="confirm-owner-pin">{t.confirmPin}</Label>
                 <div className="relative">
                   <LockKeyhole className="pointer-events-none absolute start-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
-                  <Input id="confirm-owner-pin" type={showPin ? "text" : "password"} inputMode="numeric" pattern="[0-9]{6,12}" minLength={6} maxLength={12} autoComplete="off" required value={confirmPin} onChange={(event) => setConfirmPin(numericPin(event.target.value))} className="h-12 rounded-2xl bg-background/70 ps-12 text-base tracking-[0.2em]" />
+                  <Input id="confirm-owner-pin" type={showPin ? "text" : "password"} inputMode="numeric" pattern="[0-9]{4}" minLength={4} maxLength={4} autoComplete="off" required value={confirmPin} onChange={(event) => setConfirmPin(numericPin(event.target.value))} className="h-12 rounded-2xl bg-background/70 ps-12 text-base tracking-[0.2em]" />
                   {confirmPin && pin === confirmPin && <CheckCircle2 className="pointer-events-none absolute end-4 top-1/2 size-5 -translate-y-1/2 text-primary" />}
                 </div>
               </div>

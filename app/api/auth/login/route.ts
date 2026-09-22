@@ -1,4 +1,5 @@
 import {
+  authenticateFamilyMemberById,
   authenticateFamilyUser,
   consumeFamilyAuthAttempt,
   createFamilySession,
@@ -11,8 +12,14 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { username?: unknown; password?: unknown; familyCode?: unknown };
+    const body = (await request.json()) as {
+      username?: unknown;
+      memberId?: unknown;
+      password?: unknown;
+      familyCode?: unknown;
+    };
     const username = typeof body.username === "string" ? body.username : "";
+    const memberId = typeof body.memberId === "number" ? body.memberId : Number(body.memberId);
     const password = typeof body.password === "string" ? body.password : "";
     const familyCode = typeof body.familyCode === "string" ? body.familyCode : "";
     await ensureFamilyAuthUsers();
@@ -27,7 +34,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await authenticateFamilyUser(username, password, familyCode);
+    const result = Number.isSafeInteger(memberId) && memberId > 0
+      ? await authenticateFamilyMemberById(memberId, password, familyCode)
+      : await authenticateFamilyUser(username, password, familyCode);
 
     if (result.status === "invalid") {
       return Response.json(

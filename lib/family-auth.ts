@@ -386,6 +386,59 @@ export async function authenticateFamilyUser(username: string, password: string,
   };
 }
 
+export async function authenticateFamilyMemberById(
+  userId: number,
+  password: string,
+  familyCode?: string,
+) {
+  if (
+    !Number.isSafeInteger(userId) ||
+    userId <= 0 ||
+    !(/^(?:\d{4}|\d{6,12})$/).test(password)
+  ) {
+    return { status: "invalid" as const };
+  }
+
+  const db = getSupabaseAdmin();
+  await ensureFamilyAuthUsers();
+  const family = await resolveFamilyAccess(familyCode);
+  if (family.status === "provisioning") return { status: "provisioning" as const };
+  if (family.status === "suspended") return { status: "suspended" as const };
+  if (family.status !== "active") return { status: "invalid" as const };
+
+  const { data: user, error } = await db
+    .from("family_users")
+    .select("id, family_id, name, username, role, initials, password_hash, active")
+    .eq("family_id", family.familyId)
+    .eq("id", userId)
+    .maybeSingle();
+  throwIfSupabaseError(error);
+  if (!user) return { status: "invalid" as const };
+
+  if (
+    user.family_id === LEGACY_FAMILY_ID &&
+    ARCHIVED_DEFAULT_MEMBER_USERNAMES.includes(
+      user.username as typeof ARCHIVED_DEFAULT_MEMBER_USERNAMES[number],
+    )
+  ) {
+    return { status: "invalid" as const };
+  }
+
+  if (!(await verifyStoredPin(user, password))) return { status: "invalid" as const };
+  if (!user.active) return { status: "pending" as const };
+  return {
+    status: "authenticated" as const,
+    user: {
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      role: user.role as FamilyRole,
+      initials: user.initials,
+      familyId: String(user.family_id),
+    },
+  };
+}
+
 export async function createFamilySession(userId: number, familyId: string) {
   const db = getSupabaseAdmin();
   const token = createOpaqueToken();
