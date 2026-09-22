@@ -11,9 +11,10 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { username?: unknown; password?: unknown };
+    const body = (await request.json()) as { username?: unknown; password?: unknown; familyCode?: unknown };
     const username = typeof body.username === "string" ? body.username : "";
     const password = typeof body.password === "string" ? body.password : "";
+    const familyCode = typeof body.familyCode === "string" ? body.familyCode : "";
     await ensureFamilyAuthUsers();
     const limiter = await consumeFamilyAuthAttempt(request, "login", 20, 15 * 60);
     if (!limiter.allowed) {
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await authenticateFamilyUser(username, password);
+    const result = await authenticateFamilyUser(username, password, familyCode);
 
     if (result.status === "invalid") {
       return Response.json(
@@ -37,17 +38,40 @@ export async function POST(request: Request) {
 
     if (result.status === "pending") {
       return Response.json(
-        { error: "Votre compte attend l’approbation de Youssef.", code: "ACCOUNT_PENDING" },
+        { error: "Votre compte attend l’approbation du propriétaire de la famille.", code: "ACCOUNT_PENDING" },
         { status: 403 },
       );
     }
 
-    const session = await createFamilySession(result.user.id);
+    if (result.status === "provisioning") {
+      return Response.json(
+        { error: "L’espace de cette famille est encore en préparation.", code: "FAMILY_PROVISIONING" },
+        { status: 403 },
+      );
+    }
+
+    if (result.status === "suspended") {
+      return Response.json(
+        { error: "Cet espace familial est temporairement suspendu.", code: "FAMILY_SUSPENDED" },
+        { status: 403 },
+      );
+    }
+
+    const session = await createFamilySession(result.user.id, result.user.familyId);
     const directEntry = request.headers.get("cookie")
       ?.split(";")
       .some((cookie) => cookie.trim() === "family_direct_entry=1") ?? false;
     return Response.json(
-      { user: result.user, route: directEntry ? familyRolePath(result.user.role) : "/abonnement" },
+      {
+        user: {
+          id: result.user.id,
+          name: result.user.name,
+          username: result.user.username,
+          role: result.user.role,
+          initials: result.user.initials,
+        },
+        route: directEntry ? familyRolePath(result.user.role) : "/abonnement",
+      },
       { headers: { "set-cookie": familySessionCookie(session.token, request) } },
     );
   } catch {

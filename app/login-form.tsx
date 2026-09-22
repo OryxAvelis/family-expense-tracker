@@ -1,12 +1,15 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   Apple,
   CheckCircle2,
   Eye,
   EyeOff,
+  HousePlus,
   Languages,
   Loader2,
   LogIn,
@@ -44,19 +47,28 @@ const copy = {
     description: "Connectez-vous ou créez votre accès familial.",
     loginTab: "Connexion",
     signupTab: "Créer un compte",
+    familyCode: "Code familial",
+    familyCodePlaceholder: "XXXX-XXXX-XXXX",
+    familyLoginCodeHint: "Utilisez le code reçu du propriétaire. Les comptes de la famille migrée peuvent encore le laisser vide.",
+    familySignupCodeHint: "Le code familial privé est obligatoire pour rejoindre une famille.",
     username: "Votre nom",
     usernamePlaceholder: "Ex. Mohamed",
-    password: "Code PIN à 4 chiffres",
+    password: "Code PIN",
+    newPassword: "Nouveau PIN (6 à 12 chiffres)",
     submit: "Entrer dans mon espace",
     signupTitle: "Rejoindre la famille",
     signupDescription: "Choisissez votre nom et votre propre code PIN.",
     confirmPin: "Confirmer le code PIN",
     signupSubmit: "Créer mon compte",
     pinMismatch: "Les deux codes PIN ne correspondent pas.",
-    invalidPin: "Le code PIN doit contenir exactement 4 chiffres.",
-    pending: "Votre compte attend l’approbation de Youssef.",
+    invalidPin: "Le PIN doit contenir 4 chiffres pour un ancien compte, ou 6 à 12 chiffres pour un nouveau compte.",
+    invalidNewPin: "Le nouveau PIN doit contenir entre 6 et 12 chiffres.",
+    invalidFamilyCode: "Le code familial est invalide ou cet espace n’est pas disponible.",
+    familyProvisioning: "Cet espace familial est encore en préparation.",
+    familySuspended: "Cet espace familial est temporairement suspendu.",
+    pending: "Votre compte attend l’approbation du propriétaire de la famille.",
     created: "Compte créé !",
-    createdDescription: "Youssef doit maintenant approuver votre accès. Vous pourrez ensuite vous connecter avec ce nom et ce code PIN.",
+    createdDescription: "Le propriétaire de la famille doit maintenant approuver votre accès. Vous pourrez ensuite vous connecter avec ce nom et ce code PIN.",
     backToLogin: "Aller à la connexion",
     nameTaken: "Ce nom est déjà utilisé.",
     invalidName: "Saisissez un nom valide.",
@@ -64,8 +76,10 @@ const copy = {
     rateLimited: "Trop de tentatives. Réessayez plus tard.",
     error: "Connexion impossible.",
     signupError: "Création du compte impossible.",
-    secure: "Votre code reste personnel. Youssef valide chaque nouveau membre.",
+    secure: "Votre code reste personnel. Le propriétaire valide chaque nouveau membre.",
     access: "Accès réservé à la famille",
+    createFamily: "Créer une nouvelle famille",
+    createFamilyHint: "Vous n’avez pas encore d’espace DarnaFlow ?",
     showPassword: "Afficher le code PIN",
     hidePassword: "Masquer le code PIN",
     light: "Mode clair",
@@ -76,19 +90,28 @@ const copy = {
     description: "سجّل الدخول أو أنشئ حسابك العائلي.",
     loginTab: "تسجيل الدخول",
     signupTab: "إنشاء حساب",
+    familyCode: "رمز العائلة",
+    familyCodePlaceholder: "XXXX-XXXX-XXXX",
+    familyLoginCodeHint: "استعمل الرمز الذي أرسله مالك العائلة. يمكن لحسابات العائلة المنقولة تركه فارغاً مؤقتاً.",
+    familySignupCodeHint: "رمز العائلة الخاص إلزامي للانضمام إلى العائلة.",
     username: "اسمك",
     usernamePlaceholder: "مثال: Mohamed",
-    password: "رمز PIN من 4 أرقام",
+    password: "رمز PIN",
+    newPassword: "PIN جديد (من 6 إلى 12 رقماً)",
     submit: "الدخول إلى فضائي",
     signupTitle: "الانضمام إلى العائلة",
     signupDescription: "اختر اسمك ورمز PIN الخاص بك.",
     confirmPin: "تأكيد رمز PIN",
     signupSubmit: "إنشاء حسابي",
     pinMismatch: "رمزا PIN غير متطابقين.",
-    invalidPin: "يجب أن يتكون رمز PIN من 4 أرقام بالضبط.",
-    pending: "حسابك ينتظر موافقة يوسف.",
+    invalidPin: "يجب أن يكون PIN القديم من 4 أرقام، أو الجديد من 6 إلى 12 رقماً.",
+    invalidNewPin: "يجب أن يتكون PIN الجديد من 6 إلى 12 رقماً.",
+    invalidFamilyCode: "رمز العائلة غير صالح أو المساحة غير متاحة.",
+    familyProvisioning: "مساحة هذه العائلة ما زالت قيد الإعداد.",
+    familySuspended: "مساحة هذه العائلة موقوفة مؤقتاً.",
+    pending: "حسابك ينتظر موافقة مالك العائلة.",
     created: "تم إنشاء الحساب!",
-    createdDescription: "يجب على يوسف الموافقة على دخولك. بعد ذلك يمكنك تسجيل الدخول بهذا الاسم ورمز PIN.",
+    createdDescription: "يجب على مالك العائلة الموافقة على دخولك. بعد ذلك يمكنك تسجيل الدخول بهذا الاسم ورمز PIN.",
     backToLogin: "الذهاب إلى تسجيل الدخول",
     nameTaken: "هذا الاسم مستخدم بالفعل.",
     invalidName: "أدخل اسماً صالحاً.",
@@ -96,8 +119,10 @@ const copy = {
     rateLimited: "محاولات كثيرة. حاول لاحقاً.",
     error: "تعذر تسجيل الدخول.",
     signupError: "تعذر إنشاء الحساب.",
-    secure: "رمزك شخصي، ويوسف يوافق على كل عضو جديد.",
+    secure: "رمزك شخصي، ومالك العائلة يوافق على كل عضو جديد.",
     access: "الدخول مخصص للعائلة",
+    createFamily: "إنشاء عائلة جديدة",
+    createFamilyHint: "ليس لديكم مساحة DarnaFlow بعد؟",
     showPassword: "إظهار رمز PIN",
     hidePassword: "إخفاء رمز PIN",
     light: "الوضع الفاتح",
@@ -108,19 +133,28 @@ const copy = {
     description: "Sign in or create your family access.",
     loginTab: "Sign in",
     signupTab: "Create account",
+    familyCode: "Family code",
+    familyCodePlaceholder: "XXXX-XXXX-XXXX",
+    familyLoginCodeHint: "Use the code shared by the Family Owner. Migrated-family accounts may still leave it blank.",
+    familySignupCodeHint: "A private family code is required to join a family.",
     username: "Your name",
     usernamePlaceholder: "Example: Mohamed",
-    password: "4-digit PIN",
+    password: "PIN",
+    newPassword: "New PIN (6 to 12 digits)",
     submit: "Enter my space",
     signupTitle: "Join the family",
     signupDescription: "Choose your name and your own PIN.",
     confirmPin: "Confirm PIN",
     signupSubmit: "Create my account",
     pinMismatch: "The two PINs do not match.",
-    invalidPin: "The PIN must contain exactly 4 digits.",
-    pending: "Your account is waiting for Youssef’s approval.",
+    invalidPin: "Use 4 digits for a legacy account, or 6 to 12 digits for a new account.",
+    invalidNewPin: "A new PIN must contain between 6 and 12 digits.",
+    invalidFamilyCode: "The family code is invalid or this workspace is unavailable.",
+    familyProvisioning: "This family workspace is still being prepared.",
+    familySuspended: "This family workspace is temporarily suspended.",
+    pending: "Your account is waiting for the Family Owner’s approval.",
     created: "Account created!",
-    createdDescription: "Youssef now needs to approve your access. You can then sign in with this name and PIN.",
+    createdDescription: "The Family Owner now needs to approve your access. You can then sign in with this name and PIN.",
     backToLogin: "Go to sign in",
     nameTaken: "This name is already in use.",
     invalidName: "Enter a valid name.",
@@ -128,8 +162,10 @@ const copy = {
     rateLimited: "Too many attempts. Try again later.",
     error: "Unable to sign in.",
     signupError: "Unable to create the account.",
-    secure: "Your PIN stays personal. Youssef approves each new member.",
+    secure: "Your PIN stays personal. The Family Owner approves each new member.",
     access: "Family access only",
+    createFamily: "Create a new family",
+    createFamilyHint: "Don’t have a DarnaFlow workspace yet?",
     showPassword: "Show PIN",
     hidePassword: "Hide PIN",
     light: "Light mode",
@@ -143,9 +179,23 @@ const languageNames: Record<LoginLanguage, string> = {
   en: "English",
 };
 
-export function LoginForm() {
+function formatFamilyCode(value: string) {
+  const compact = value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+  return [compact.slice(0, 4), compact.slice(4, 8), compact.slice(8, 12)].filter(Boolean).join("-");
+}
+
+export function LoginForm({
+  initialFamilyCode = "",
+  initialMode = "login",
+}: {
+  initialFamilyCode?: string;
+  initialMode?: "login" | "signup";
+}) {
+  const searchParameters = useSearchParams();
   const [language, setLanguage] = useState<LoginLanguage>("fr");
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [mode, setMode] = useState<"login" | "signup">(initialMode);
+  const [editedFamilyCode, setEditedFamilyCode] = useState<string | null>(null);
+  const familyCode = editedFamilyCode ?? formatFamilyCode(searchParameters.get("familyCode") ?? initialFamilyCode);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [signupName, setSignupName] = useState("");
@@ -163,7 +213,7 @@ export function LoginForm() {
     document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
   }, [language]);
 
-  const numericPin = (value: string) => value.replace(/\D/g, "").slice(0, 4);
+  const numericPin = (value: string) => value.replace(/\D/g, "").slice(0, 12);
 
   const messageForCode = (code: string | undefined, fallback: string) => {
     if (code === "ACCOUNT_PENDING") return t.pending;
@@ -171,6 +221,9 @@ export function LoginForm() {
     if (code === "INVALID_NAME") return t.invalidName;
     if (code === "INVALID_CREDENTIALS") return t.invalidCredentials;
     if (code === "NAME_TAKEN") return t.nameTaken;
+    if (code === "INVALID_FAMILY_CODE") return t.invalidFamilyCode;
+    if (code === "FAMILY_PROVISIONING") return t.familyProvisioning;
+    if (code === "FAMILY_SUSPENDED") return t.familySuspended;
     if (code === "RATE_LIMITED") return t.rateLimited;
     return fallback;
   };
@@ -178,7 +231,7 @@ export function LoginForm() {
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
-    if (!/^\d{4}$/.test(password)) {
+    if (!(/^(?:\d{4}|\d{6,12})$/).test(password)) {
       setError(t.invalidPin);
       return;
     }
@@ -188,7 +241,7 @@ export function LoginForm() {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ familyCode, username, password }),
       });
       const payload = (await response.json()) as { route?: string; error?: string; code?: string };
       if (!response.ok || !payload.route) {
@@ -204,8 +257,8 @@ export function LoginForm() {
   const submitSignup = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
-    if (!/^\d{4}$/.test(signupPin)) {
-      setError(t.invalidPin);
+    if (!/^\d{6,12}$/.test(signupPin)) {
+      setError(t.invalidNewPin);
       return;
     }
     if (signupPin !== confirmPin) {
@@ -218,7 +271,7 @@ export function LoginForm() {
       const response = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: signupName, pin: signupPin }),
+        body: JSON.stringify({ familyCode, name: signupName, pin: signupPin }),
       });
       const payload = (await response.json()) as {
         created?: boolean;
@@ -369,6 +422,23 @@ export function LoginForm() {
               <TabsContent value="login" className="mt-4">
                 <form className="space-y-3 sm:space-y-4" onSubmit={(event) => void submit(event)}>
                   <div className="space-y-1.5">
+                    <Label htmlFor="family-login-code">{t.familyCode}</Label>
+                    <div className="relative">
+                      <HousePlus className="pointer-events-none absolute start-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="family-login-code"
+                        autoComplete="off"
+                        maxLength={14}
+                        value={familyCode}
+                        onChange={(event) => setEditedFamilyCode(formatFamilyCode(event.target.value))}
+                        placeholder={t.familyCodePlaceholder}
+                        className="h-11 rounded-2xl border-border bg-background/70 ps-12 font-mono text-base uppercase tracking-[0.1em] shadow-sm sm:h-12"
+                      />
+                    </div>
+                    <p className="text-xs leading-5 text-muted-foreground">{t.familyLoginCodeHint}</p>
+                  </div>
+
+                  <div className="space-y-1.5">
                     <Label htmlFor="family-login-name">{t.username}</Label>
                     <div className="relative">
                       <UserRound className="pointer-events-none absolute start-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
@@ -393,8 +463,8 @@ export function LoginForm() {
                         id="family-login-pin"
                         type={showPassword ? "text" : "password"}
                         inputMode="numeric"
-                        pattern="[0-9]{4}"
-                        maxLength={4}
+                        pattern="(?:[0-9]{4}|[0-9]{6,12})"
+                        maxLength={12}
                         autoComplete="current-password"
                         required
                         value={password}
@@ -442,6 +512,23 @@ export function LoginForm() {
                 ) : (
                   <form className="space-y-3" onSubmit={(event) => void submitSignup(event)}>
                     <div className="space-y-1.5">
+                      <Label htmlFor="family-signup-code">{t.familyCode}</Label>
+                      <div className="relative">
+                        <HousePlus className="pointer-events-none absolute start-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          id="family-signup-code"
+                          autoComplete="off"
+                          maxLength={14}
+                          value={familyCode}
+                          onChange={(event) => setEditedFamilyCode(formatFamilyCode(event.target.value))}
+                          placeholder={t.familyCodePlaceholder}
+                          className="h-11 rounded-2xl border-border bg-background/70 ps-12 font-mono text-base uppercase tracking-[0.1em] shadow-sm sm:h-12"
+                        />
+                      </div>
+                      <p className="text-xs leading-5 text-muted-foreground">{t.familySignupCodeHint}</p>
+                    </div>
+
+                    <div className="space-y-1.5">
                       <Label htmlFor="family-signup-name">{t.username}</Label>
                       <div className="relative">
                         <UserRound className="pointer-events-none absolute start-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
@@ -460,15 +547,16 @@ export function LoginForm() {
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label htmlFor="family-signup-pin">{t.password}</Label>
+                      <Label htmlFor="family-signup-pin">{t.newPassword}</Label>
                       <div className="relative">
                         <LockKeyhole className="pointer-events-none absolute start-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
                         <Input
                           id="family-signup-pin"
                           type={showPassword ? "text" : "password"}
                           inputMode="numeric"
-                          pattern="[0-9]{4}"
-                          maxLength={4}
+                          pattern="[0-9]{6,12}"
+                          minLength={6}
+                          maxLength={12}
                           autoComplete="new-password"
                           required
                           value={signupPin}
@@ -496,8 +584,9 @@ export function LoginForm() {
                           id="family-confirm-pin"
                           type={showPassword ? "text" : "password"}
                           inputMode="numeric"
-                          pattern="[0-9]{4}"
-                          maxLength={4}
+                          pattern="[0-9]{6,12}"
+                          minLength={6}
+                          maxLength={12}
                           autoComplete="new-password"
                           required
                           value={confirmPin}
@@ -523,7 +612,13 @@ export function LoginForm() {
             </Tabs>
           </div>
 
-          <p className="relative z-[1] mt-auto pt-3 text-center text-xs text-muted-foreground">{t.access}</p>
+          <div className="relative z-[1] mt-auto pt-4 text-center">
+            <p className="text-xs text-muted-foreground">{t.createFamilyHint}</p>
+            <Button asChild type="button" variant="outline" className="mt-2 h-10 w-full rounded-2xl bg-background/60">
+              <Link href="/create-family"><HousePlus /> {t.createFamily}</Link>
+            </Button>
+            <p className="mt-3 text-xs text-muted-foreground">{t.access}</p>
+          </div>
         </section>
       </div>
     </main>

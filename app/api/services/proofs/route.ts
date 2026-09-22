@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 const MAX_PROOF_BYTES = 5 * 1024 * 1024;
 const STORAGE_BUCKET = "product-images";
 const PROOF_KEY_PATTERN =
-  /^payment-proofs\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/;
+  /^payment-proofs\/(?:[0-9a-f-]{36}\/){1,2}[0-9a-f-]{36}\.(?:jpg|png|webp)$/;
 
 function proofType(bytes: Uint8Array) {
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
@@ -29,17 +29,17 @@ function proofType(bytes: Uint8Array) {
   return null;
 }
 
-async function loadState() {
+async function loadState(familyId: string) {
   const db = getSupabaseAdmin();
-  const { data, error } = await db.from("app_meta").select("value").eq("key", SERVICES_META_KEY).maybeSingle();
+  const { data, error } = await db.from("family_meta").select("value").eq("family_id", familyId).eq("key", SERVICES_META_KEY).maybeSingle();
   throwIfSupabaseError(error);
   return parseServicesState(data?.value);
 }
 
-async function saveState(value: ReturnType<typeof parseServicesState>) {
-  const { error } = await getSupabaseAdmin().from("app_meta").upsert(
-    { key: SERVICES_META_KEY, value: JSON.stringify(value) },
-    { onConflict: "key" },
+async function saveState(familyId: string, value: ReturnType<typeof parseServicesState>) {
+  const { error } = await getSupabaseAdmin().from("family_meta").upsert(
+    { family_id: familyId, key: SERVICES_META_KEY, value: JSON.stringify(value) },
+    { onConflict: "family_id,key" },
   );
   throwIfSupabaseError(error);
 }
@@ -50,7 +50,7 @@ export async function GET(request: Request) {
 
   try {
     const paymentId = new URL(request.url).searchParams.get("paymentId")?.trim() ?? "";
-    const state = await loadState();
+    const state = await loadState(viewer.familyId);
     const payment = state.payments.find((item) => item.id === paymentId);
     if (!payment || (viewer.role !== "admin" && payment.user_id !== viewer.id)) {
       return Response.json({ error: "Justificatif introuvable." }, { status: 404 });
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Le justificatif doit faire moins de 5 Mo." }, { status: 413 });
     }
 
-    const state = await loadState();
+    const state = await loadState(viewer.familyId);
     const payment = state.payments.find((item) => item.id === paymentId);
     if (!payment || payment.user_id !== viewer.id) {
       return Response.json({ error: "Paiement introuvable." }, { status: 404 });
@@ -111,7 +111,7 @@ export async function POST(request: Request) {
     }
 
     const previousKey = payment.proof_key;
-    const key = `payment-proofs/${payment.id}/${crypto.randomUUID()}.${type.extension}`;
+    const key = `payment-proofs/${viewer.familyId}/${payment.id}/${crypto.randomUUID()}.${type.extension}`;
     const db = getSupabaseAdmin();
     const { error: uploadError } = await db.storage.from(STORAGE_BUCKET).upload(key, bytes, {
       contentType: type.contentType,
@@ -123,7 +123,7 @@ export async function POST(request: Request) {
     payment.proof_key = key;
     payment.proof_name = proof.name.trim().slice(0, 120) || `justificatif.${type.extension}`;
     try {
-      await saveState(state);
+      await saveState(viewer.familyId, state);
     } catch (error) {
       await db.storage.from(STORAGE_BUCKET).remove([key]);
       throw error;

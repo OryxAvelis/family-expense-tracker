@@ -1,4 +1,5 @@
 import { getRequestFamilyUser } from "@/lib/family-auth";
+import { readFamilyMetaValue, upsertFamilyMeta } from "@/lib/family-meta";
 import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
@@ -7,7 +8,8 @@ export const runtime = "nodejs";
 const MAX_RECEIPT_BYTES = 5 * 1024 * 1024;
 const STORAGE_BUCKET = "product-images";
 const RECEIPT_META_PREFIX = "cart_receipt_";
-const RECEIPT_KEY_PATTERN = /^cart-receipts\/\d+\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/;
+const RECEIPT_KEY_PATTERN =
+  /^cart-receipts\/(?:[0-9a-f-]{36}\/)?\d+\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/;
 
 type ReceiptMeta = {
   key: string;
@@ -61,7 +63,12 @@ async function authorizedCart(request: Request) {
     return { error: Response.json({ error: "Panier invalide." }, { status: 400 }) };
   }
   const db = getSupabaseAdmin();
-  const { data: cart, error } = await db.from("carts").select("id, member_id, status").eq("id", cartId).maybeSingle();
+  const { data: cart, error } = await db
+    .from("carts")
+    .select("id, member_id, status")
+    .eq("family_id", viewer.familyId)
+    .eq("id", cartId)
+    .maybeSingle();
   throwIfSupabaseError(error);
   if (!cart || (viewer.role === "member" && Number(cart.member_id) !== viewer.id)) {
     return { error: Response.json({ error: "Ticket introuvable." }, { status: 404 }) };
@@ -73,10 +80,9 @@ export async function GET(request: Request) {
   try {
     const authorization = await authorizedCart(request);
     if ("error" in authorization) return authorization.error;
-    const { cartId, db } = authorization;
-    const { data: row, error } = await db.from("app_meta").select("value").eq("key", `${RECEIPT_META_PREFIX}${cartId}`).maybeSingle();
-    throwIfSupabaseError(error);
-    const meta = parseReceiptMeta(row?.value);
+    const { viewer, cartId, db } = authorization;
+    const stored = await readFamilyMetaValue(viewer.familyId, `${RECEIPT_META_PREFIX}${cartId}`);
+    const meta = parseReceiptMeta(stored);
     if (!meta) return Response.json({ error: "Aucun ticket enregistré." }, { status: 404 });
     const { data, error: downloadError } = await db.storage.from(STORAGE_BUCKET).download(meta.key);
     if (downloadError || !data) return Response.json({ error: "Ticket introuvable." }, { status: 404 });
@@ -99,7 +105,7 @@ export async function POST(request: Request) {
     if ("error" in authorization) return authorization.error;
     const { viewer, cartId, cart, db } = authorization;
     if (viewer.role !== "delivery") {
-      return Response.json({ error: "Seul Josef peut enregistrer le ticket." }, { status: 403 });
+      return Response.json({ error: "Seul l’acheteur familial peut enregistrer le ticket." }, { status: 403 });
     }
     if (!(["pending", "ready", "shopping"] as string[]).includes(String(cart.status))) {
       return Response.json({ error: "Cette commande est déjà terminée." }, { status: 409 });
@@ -117,10 +123,9 @@ export async function POST(request: Request) {
     if (!type) return Response.json({ error: "Utilisez une image JPG, PNG ou WebP." }, { status: 415 });
 
     const metaKey = `${RECEIPT_META_PREFIX}${cartId}`;
-    const { data: previousRow, error: previousError } = await db.from("app_meta").select("value").eq("key", metaKey).maybeSingle();
-    throwIfSupabaseError(previousError);
-    const previous = parseReceiptMeta(previousRow?.value);
-    const key = `cart-receipts/${cartId}/${crypto.randomUUID()}.${type.extension}`;
+    const previousRow = await readFamilyMetaValue(viewer.familyId, metaKey);
+    const previous = parseReceiptMeta(previousRow);
+    const key = `cart-receipts/${viewer.familyId}/${cartId}/${crypto.randomUUID()}.${type.extension}`;
     const { error: uploadError } = await db.storage.from(STORAGE_BUCKET).upload(key, bytes, {
       contentType: type.contentType,
       cacheControl: "0",
@@ -135,13 +140,11 @@ export async function POST(request: Request) {
       uploadedBy: viewer.name,
       ocrText: String(formData.get("ocrText") ?? "").trim().slice(0, 8_000),
     };
-    const { error: saveError } = await db.from("app_meta").upsert(
-      { key: metaKey, value: JSON.stringify(meta) },
-      { onConflict: "key" },
-    );
-    if (saveError) {
+    try {
+      await upsertFamilyMeta(viewer.familyId, { key: metaKey, value: JSON.stringify(meta) });
+    } catch (error) {
       await db.storage.from(STORAGE_BUCKET).remove([key]);
-      throw new Error(saveError.message);
+      throw error;
     }
     if (previous?.key) await db.storage.from(STORAGE_BUCKET).remove([previous.key]);
     return Response.json({

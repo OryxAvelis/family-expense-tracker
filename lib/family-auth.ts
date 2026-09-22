@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { hash as hashArgon2, verify as verifyArgon2 } from "@node-rs/argon2";
 
+import { digestFamilyCode, normalizeFamilyCode } from "@/lib/family-code";
 import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 
 export type FamilyRole = "admin" | "delivery" | "member";
@@ -11,6 +13,11 @@ export type FamilySessionUser = {
   username: string;
   role: FamilyRole;
   initials: string;
+};
+
+export type FamilyRequestUser = FamilySessionUser & {
+  /** Server-only tenant context. Never serialize this field to a browser. */
+  familyId: string;
 };
 
 export const FAMILY_USERS = [
@@ -28,9 +35,9 @@ export const ARCHIVED_DEFAULT_MEMBER_USERNAMES = [
 ] as const;
 
 export const FAMILY_SESSION_COOKIE = "family_expense_session";
-const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
+export const LEGACY_FAMILY_ID = "00000000-0000-4000-8000-000000000001";
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const FAMILY_AUTH_VERSION = "3";
-const PIN_HASH_ITERATIONS = 210_000;
 let ensureUsersPromise: Promise<void> | null = null;
 
 async function sha256(value: string) {
@@ -41,12 +48,6 @@ async function sha256(value: string) {
 
 export function hashFamilyPassword(username: string, password: string) {
   return sha256(`family-expense:${username.toLocaleLowerCase()}:${password}`);
-}
-
-function bytesToBase64Url(bytes: Uint8Array) {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
 function base64UrlToBytes(value: string) {
@@ -82,15 +83,26 @@ async function derivePinHash(pin: string, salt: Uint8Array, iterations: number) 
 }
 
 export async function hashNewFamilyPin(pin: string) {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const hash = await derivePinHash(pin, salt, PIN_HASH_ITERATIONS);
-  return `pbkdf2$${PIN_HASH_ITERATIONS}$${bytesToBase64Url(salt)}$${bytesToBase64Url(hash)}`;
+  return hashArgon2(pin, {
+    memoryCost: 19_456,
+    timeCost: 2,
+    parallelism: 1,
+    outputLen: 32,
+  });
 }
 
 async function verifyStoredPin(
   user: { id: number; username: string; password_hash: string },
   pin: string,
 ) {
+  if (user.password_hash.startsWith("$argon2id$")) {
+    try {
+      return await verifyArgon2(user.password_hash, pin);
+    } catch {
+      return false;
+    }
+  }
+
   const parts = user.password_hash.split("$");
   if (parts.length === 4 && parts[0] === "pbkdf2") {
     const iterations = Number(parts[1]);
@@ -226,6 +238,7 @@ async function syncFamilyAuthUsers() {
       initials: user.initials,
       password_hash: user.passwordHash,
       active: true,
+      family_id: LEGACY_FAMILY_ID,
     })),
     { onConflict: "id", ignoreDuplicates: true },
   );
@@ -236,6 +249,7 @@ async function syncFamilyAuthUsers() {
   const { error: deliveryError } = await db
     .from("family_users")
     .update({ name: "Josef", username: "josef", initials: "JO", role: "delivery", active: true })
+    .eq("family_id", LEGACY_FAMILY_ID)
     .eq("id", 2)
     .eq("role", "delivery");
   throwIfSupabaseError(deliveryError);
@@ -243,6 +257,7 @@ async function syncFamilyAuthUsers() {
   const { data: archivedUsers, error: archiveError } = await db
     .from("family_users")
     .update({ active: false })
+    .eq("family_id", LEGACY_FAMILY_ID)
     .in("username", [...ARCHIVED_DEFAULT_MEMBER_USERNAMES])
     .eq("role", "member")
     .select("id");
@@ -253,6 +268,7 @@ async function syncFamilyAuthUsers() {
     const { error: sessionError } = await db
       .from("family_sessions")
       .delete()
+      .eq("family_id", LEGACY_FAMILY_ID)
       .in("user_id", archivedUserIds);
     throwIfSupabaseError(sessionError);
   }
@@ -263,6 +279,7 @@ async function syncFamilyAuthUsers() {
         db
           .from("family_users")
           .update({ password_hash: user.passwordHash })
+          .eq("family_id", LEGACY_FAMILY_ID)
           .eq("id", user.id)
           .eq("password_hash", ""),
       ),
@@ -273,6 +290,7 @@ async function syncFamilyAuthUsers() {
   const { count: blankPasswordCount, error: blankPasswordError } = await db
     .from("family_users")
     .select("id", { count: "exact", head: true })
+    .eq("family_id", LEGACY_FAMILY_ID)
     .in("id", FAMILY_USERS.map((user) => user.id))
     .eq("password_hash", "");
   throwIfSupabaseError(blankPasswordError);
@@ -294,23 +312,62 @@ export async function ensureFamilyAuthUsers() {
   }
 }
 
-export async function authenticateFamilyUser(username: string, password: string) {
+export async function resolveFamilyAccess(familyCode?: string) {
+  const db = getSupabaseAdmin();
+  const normalizedCode = normalizeFamilyCode(familyCode ?? "");
+
+  if (!normalizedCode) {
+    if ((familyCode ?? "").trim()) return { status: "invalid" as const };
+    const { data: legacyFamily, error } = await db
+      .from("families")
+      .select("id, status")
+      .eq("id", LEGACY_FAMILY_ID)
+      .maybeSingle();
+    throwIfSupabaseError(error);
+    if (!legacyFamily || legacyFamily.status === "archived") return { status: "invalid" as const };
+    if (legacyFamily.status !== "active") return { status: legacyFamily.status as "provisioning" | "suspended" };
+    return { status: "active" as const, familyId: LEGACY_FAMILY_ID };
+  }
+
+  const digest = digestFamilyCode(normalizedCode);
+  const { data: family, error } = await db
+    .from("families")
+    .select("id, status")
+    .eq("access_code_hmac", digest)
+    .maybeSingle();
+  throwIfSupabaseError(error);
+  if (!family) return { status: "invalid" as const };
+  if (family.status !== "active") {
+    return { status: family.status === "archived" ? "invalid" as const : family.status };
+  }
+  return { status: "active" as const, familyId: String(family.id) };
+}
+
+export async function authenticateFamilyUser(username: string, password: string, familyCode?: string) {
   const normalizedUsername = normalizeFamilyUsername(username);
-  if (!normalizedUsername || username.length > 80 || !/^\d{4}$/.test(password)) {
+  if (!normalizedUsername || username.length > 80 || !(/^(?:\d{4}|\d{6,12})$/).test(password)) {
     return { status: "invalid" as const };
   }
 
   const db = getSupabaseAdmin();
   await ensureFamilyAuthUsers();
+  const family = await resolveFamilyAccess(familyCode);
+  if (family.status === "provisioning") return { status: "provisioning" as const };
+  if (family.status === "suspended") return { status: "suspended" as const };
+  if (family.status !== "active") return { status: "invalid" as const };
   const { data: user, error } = await db
     .from("family_users")
-    .select("id, name, username, role, initials, password_hash, active")
+    .select("id, family_id, name, username, role, initials, password_hash, active")
+    .eq("family_id", family.familyId)
     .eq("username", normalizedUsername)
     .maybeSingle();
   throwIfSupabaseError(error);
   if (!user) return { status: "invalid" as const };
 
-  if (ARCHIVED_DEFAULT_MEMBER_USERNAMES.includes(user.username as typeof ARCHIVED_DEFAULT_MEMBER_USERNAMES[number])) {
+  if (
+    user.family_id === LEGACY_FAMILY_ID &&
+    ARCHIVED_DEFAULT_MEMBER_USERNAMES.includes(user.username as typeof ARCHIVED_DEFAULT_MEMBER_USERNAMES[number])
+  ) {
     return { status: "invalid" as const };
   }
 
@@ -324,11 +381,12 @@ export async function authenticateFamilyUser(username: string, password: string)
       username: user.username,
       role: user.role as FamilyRole,
       initials: user.initials,
+      familyId: String(user.family_id),
     },
   };
 }
 
-export async function createFamilySession(userId: number) {
+export async function createFamilySession(userId: number, familyId: string) {
   const db = getSupabaseAdmin();
   const token = createOpaqueToken();
   const tokenHash = await hashSessionToken(token);
@@ -343,6 +401,7 @@ export async function createFamilySession(userId: number) {
   const { error: insertError } = await db.from("family_sessions").insert({
     token_hash: tokenHash,
     user_id: userId,
+    family_id: familyId,
     expires_at: expiresAt,
     created_at: now,
   });
@@ -357,7 +416,7 @@ async function findUserByToken(token: string | undefined) {
   const tokenHash = await hashSessionToken(token);
   const { data, error } = await getSupabaseAdmin()
     .from("family_sessions")
-    .select("family_users!inner(id, name, username, role, initials, active)")
+    .select("family_id, family_users!inner(id, family_id, name, username, role, initials, active)")
     .eq("token_hash", tokenHash)
     .gt("expires_at", new Date().toISOString())
     .eq("family_users.active", true)
@@ -365,13 +424,15 @@ async function findUserByToken(token: string | undefined) {
   throwIfSupabaseError(error);
   if (!data) return null;
 
-  const user = data.family_users as unknown as FamilySessionUser & { active: boolean };
+  const user = data.family_users as unknown as FamilySessionUser & { active: boolean; family_id: string };
+  if (String(data.family_id) !== String(user.family_id)) return null;
   return {
     id: Number(user.id),
     name: user.name,
     username: user.username,
     role: user.role,
     initials: user.initials,
+    familyId: String(data.family_id),
   };
 }
 
@@ -390,7 +451,15 @@ export async function getRequestFamilyUser(request: Request) {
 
 export async function getPageFamilyUser() {
   const cookieStore = await cookies();
-  return findUserByToken(cookieStore.get(FAMILY_SESSION_COOKIE)?.value);
+  const user = await findUserByToken(cookieStore.get(FAMILY_SESSION_COOKIE)?.value);
+  if (!user) return null;
+  return {
+    id: user.id,
+    name: user.name,
+    username: user.username,
+    role: user.role,
+    initials: user.initials,
+  } satisfies FamilySessionUser;
 }
 
 export async function requireFamilyRole(role: FamilyRole, returnTo: string) {

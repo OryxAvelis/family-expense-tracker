@@ -1,4 +1,4 @@
-import { getRequestFamilyUser } from "@/lib/family-auth";
+import { getRequestFamilyUser, LEGACY_FAMILY_ID } from "@/lib/family-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
@@ -7,7 +7,11 @@ export const runtime = "nodejs";
 const MAX_PROFILE_IMAGE_BYTES = 3 * 1024 * 1024;
 const PROFILE_IMAGE_BUCKET = "product-images";
 
-function profileImageKey(userId: number) {
+function profileImageKey(familyId: string, userId: number) {
+  return `profile-images/${familyId}/user-${userId}`;
+}
+
+function legacyProfileImageKey(userId: number) {
   return `profile-images/user-${userId}`;
 }
 
@@ -57,15 +61,23 @@ export async function GET(request: Request) {
     const { data: profile, error: profileError } = await db
       .from("family_users")
       .select("id")
+      .eq("family_id", viewer.familyId)
       .eq("id", userId)
       .eq("active", true)
       .maybeSingle();
     if (profileError) throw new Error(profileError.message);
     if (!profile) return Response.json({ error: "Profil invalide." }, { status: 404 });
 
-    const { data, error } = await db.storage
+    let { data, error } = await db.storage
       .from(PROFILE_IMAGE_BUCKET)
-      .download(profileImageKey(userId));
+      .download(profileImageKey(viewer.familyId, userId));
+    if ((error || !data) && viewer.familyId === LEGACY_FAMILY_ID) {
+      const legacy = await db.storage
+        .from(PROFILE_IMAGE_BUCKET)
+        .download(legacyProfileImageKey(userId));
+      data = legacy.data;
+      error = legacy.error;
+    }
     if (error || !data) return Response.json({ error: "Photo introuvable." }, { status: 404 });
 
     const headers = new Headers();
@@ -107,7 +119,7 @@ export async function POST(request: Request) {
 
     const { error } = await getSupabaseAdmin().storage
       .from(PROFILE_IMAGE_BUCKET)
-      .upload(profileImageKey(viewer.id), bytes, {
+      .upload(profileImageKey(viewer.familyId, viewer.id), bytes, {
         contentType,
         cacheControl: "0",
         upsert: true,
@@ -126,9 +138,11 @@ export async function DELETE(request: Request) {
   if (!viewer) return Response.json({ error: "Connexion requise." }, { status: 401 });
 
   try {
+    const keys = [profileImageKey(viewer.familyId, viewer.id)];
+    if (viewer.familyId === LEGACY_FAMILY_ID) keys.push(legacyProfileImageKey(viewer.id));
     const { error } = await getSupabaseAdmin().storage
       .from(PROFILE_IMAGE_BUCKET)
-      .remove([profileImageKey(viewer.id)]);
+      .remove(keys);
     if (error) throw new Error(error.message);
     return Response.json({ removed: true, version: Date.now() });
   } catch (error) {

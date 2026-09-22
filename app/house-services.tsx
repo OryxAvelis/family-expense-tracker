@@ -91,6 +91,9 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
   const visibleTemplates = templates.filter((item) => item.scope === catalogScope);
   const selectedTemplate = templates.find((item) => item.id === form.templateId) ?? templates[0];
   const selectedPlan = selectedTemplate.scope === "family" ? data?.familyPlan : data?.personalPlan;
+  const familyBuyer = data?.users.find((user) => user.role === "delivery");
+  const buyerName = familyBuyer?.name ?? "l’acheteur familial";
+  const buyerInitials = familyBuyer?.initials ?? "AF";
   const openService = (service: ServiceTemplate) => {
     const delivery = data?.users.find((user) => user.role === "delivery") ?? data?.users[0];
     setForm((value) => ({
@@ -124,7 +127,7 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
         <div className="grid gap-5 lg:grid-cols-[1fr_20rem]">
           <div className="rounded-[2rem] border border-primary/20 bg-gradient-to-br from-primary/15 via-card to-card p-6 sm:p-8">
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <div><Badge className="mb-3 rounded-full bg-primary/15 text-primary hover:bg-primary/15">SERVICES FAMILIAUX ET PERSONNELS</Badge><h1 className="max-w-2xl text-3xl font-black tracking-[-0.045em] sm:text-5xl">Choisissez un service, Josef s’occupe du reste.</h1><p className="mt-3 max-w-xl text-muted-foreground">Les besoins communs utilisent le forfait familial. Vos demandes privées restent personnelles.</p></div>
+              <div><Badge className="mb-3 rounded-full bg-primary/15 text-primary hover:bg-primary/15">SERVICES FAMILIAUX ET PERSONNELS</Badge><h1 className="max-w-2xl text-3xl font-black tracking-[-0.045em] sm:text-5xl">Choisissez un service, {buyerName} s’occupe du reste.</h1><p className="mt-3 max-w-xl text-muted-foreground">Les besoins communs utilisent le forfait familial. Vos demandes privées restent personnelles.</p></div>
               <Button size="lg" className="h-13 rounded-2xl px-6 shadow-lg" onClick={() => document.getElementById("services-catalog")?.scrollIntoView({ behavior: "smooth" })}><Sparkles /> Voir les services</Button>
             </div>
           </div>
@@ -211,14 +214,14 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
 
             <p className="leading-7 text-muted-foreground">{selectedTemplate.description}</p>
             <div className="rounded-2xl border border-border bg-muted/35 p-4">
-              <div className="mb-3 flex items-center gap-2 font-bold"><ShieldCheck className="size-5 text-primary" /> Ce que Josef va faire</div>
+              <div className="mb-3 flex items-center gap-2 font-bold"><ShieldCheck className="size-5 text-primary" /> Ce que {buyerName} va faire</div>
               <ol className="space-y-2.5">{selectedTemplate.steps.map((step, index) => <li key={step} className="flex items-start gap-3 text-sm"><span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary/12 text-xs font-black text-primary">{index + 1}</span><span className="pt-0.5">{step}</span></li>)}</ol>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               {selectedTemplate.id.endsWith("_custom") && <div className="sm:col-span-2"><Label htmlFor="task-title">Nom du service</Label><Input id="task-title" className="mt-1.5 h-12 rounded-xl" placeholder={selectedTemplate.scope === "family" ? "Ex. Arroser les plantes" : "Ex. Organiser mes fichiers"} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></div>}
-              <div className="sm:col-span-2"><Label htmlFor="task-description">Instructions pour Josef (facultatif)</Label><Textarea id="task-description" className="mt-1.5 min-h-24 rounded-xl" placeholder="Lieu, quantité ou détail important…" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></div>
-              <div><Label>Réalisé par</Label><div className="mt-1.5 flex h-12 items-center gap-3 rounded-xl border border-border bg-muted/45 px-3"><span className="grid size-7 place-items-center rounded-lg bg-primary/12 text-xs font-black text-primary">{data.users.find((user) => String(user.id) === form.assigneeId)?.initials ?? "JO"}</span><strong>{data.users.find((user) => String(user.id) === form.assigneeId)?.name ?? "Josef"}</strong></div></div>
+              <div className="sm:col-span-2"><Label htmlFor="task-description">Instructions pour l’acheteur (facultatif)</Label><Textarea id="task-description" className="mt-1.5 min-h-24 rounded-xl" placeholder="Lieu, quantité ou détail important…" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></div>
+              <div><Label>Réalisé par</Label><div className="mt-1.5 flex h-12 items-center gap-3 rounded-xl border border-border bg-muted/45 px-3"><span className="grid size-7 place-items-center rounded-lg bg-primary/12 text-xs font-black text-primary">{data.users.find((user) => String(user.id) === form.assigneeId)?.initials ?? buyerInitials}</span><strong>{data.users.find((user) => String(user.id) === form.assigneeId)?.name ?? buyerName}</strong></div></div>
               {selectedTemplate.id.endsWith("_custom") ? <div><Label htmlFor="reward">Prix proposé (2–49 DH)</Label><div className="relative mt-1.5"><CircleDollarSign className="absolute start-3 top-3.5 size-5 text-muted-foreground"/><Input id="reward" type="number" min="2" max="49" step="0.5" className="h-12 rounded-xl ps-10" value={form.reward} onChange={(event) => setForm({ ...form, reward: event.target.value })}/></div></div> : <div><Label>Prix fixé</Label><div className="mt-1.5 flex h-12 items-center rounded-xl border border-border bg-muted/45 px-4 font-black text-primary">{money(selectedTemplate.price)}</div></div>}
               <div><Label htmlFor="deadline">Date souhaitée</Label><Input id="deadline" type="datetime-local" className="mt-1.5 h-12 rounded-xl" value={form.deadline} onChange={(event) => setForm({ ...form, deadline: event.target.value })}/></div>
               <div><Label>Priorité</Label><Select value={form.priority} onValueChange={(value) => setForm({ ...form, priority: value })}><SelectTrigger className="mt-1.5 h-12 rounded-xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="normal">Normale</SelectItem><SelectItem value="urgent"><span className="inline-flex items-center gap-2"><Flame className="size-4"/>Urgente</span></SelectItem></SelectContent></Select></div>
@@ -226,7 +229,7 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
             </div>
           </div>
           <DialogFooter className="sticky bottom-0 border-t border-border bg-card/95 p-4 backdrop-blur sm:p-5">
-            <Button className="h-12 w-full rounded-xl" disabled={busy || !form.title.trim() || !form.assigneeId || Number(form.reward) < 2 || Number(form.reward) > 49} onClick={async () => { const ok = await act({ action: "create_task", scope: form.scope, templateId: form.templateId, title: form.title, description: form.description, assigneeId: Number(form.assigneeId), rewardCents: Math.round(Number(form.reward) * 100), priority: form.priority, deadline: form.deadline, recurrence: form.recurrence }, selectedTemplate.scope === "family" ? "Service familial demandé à Josef." : "Service personnel demandé à Josef."); if (ok) setOpen(false); }}><Sparkles /> Demander ce service · {money(Math.round(Number(form.reward) * 100))}</Button>
+            <Button className="h-12 w-full rounded-xl" disabled={busy || !form.title.trim() || !form.assigneeId || Number(form.reward) < 2 || Number(form.reward) > 49} onClick={async () => { const ok = await act({ action: "create_task", scope: form.scope, templateId: form.templateId, title: form.title, description: form.description, assigneeId: Number(form.assigneeId), rewardCents: Math.round(Number(form.reward) * 100), priority: form.priority, deadline: form.deadline, recurrence: form.recurrence }, selectedTemplate.scope === "family" ? `Service familial demandé à ${buyerName}.` : `Service personnel demandé à ${buyerName}.`); if (ok) setOpen(false); }}><Sparkles /> Demander ce service · {money(Math.round(Number(form.reward) * 100))}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

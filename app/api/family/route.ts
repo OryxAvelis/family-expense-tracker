@@ -1,9 +1,20 @@
 import {
   ARCHIVED_DEFAULT_MEMBER_USERNAMES,
+  familyInitials,
   getRequestFamilyUser,
+  hashNewFamilyPin,
+  LEGACY_FAMILY_ID,
+  normalizeFamilyName,
+  normalizeFamilyUsername,
   type FamilyRole,
-  type FamilySessionUser,
+  type FamilyRequestUser,
 } from "@/lib/family-auth";
+import {
+  deleteFamilyMeta,
+  readFamilyMeta,
+  readFamilyMetaValue,
+  upsertFamilyMeta,
+} from "@/lib/family-meta";
 import {
   getPushPublicKey,
   notifyDeliveryOfNewOrder,
@@ -16,17 +27,13 @@ import {
   addFamilyWalletTransaction,
   FAMILY_WALLET_META_KEY,
   parseFamilyWallet,
-  removeFamilyWalletTransaction,
   summarizeFamilyWallet,
-  updateFamilyWalletOrderAmount,
 } from "@/lib/family-wallet";
 import {
   addMemberWalletTransaction,
   memberWalletMetaKey,
   parseMemberWallet,
-  removeMemberWalletTransaction,
   summarizeMemberWallet,
-  updateMemberWalletOrderAmount,
 } from "@/lib/member-wallet";
 
 export const dynamic = "force-dynamic";
@@ -206,7 +213,7 @@ function receiptMeta(value: string | undefined) {
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
     const key = asText(parsed.key);
-    if (!/^cart-receipts\/\d+\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/.test(key)) return null;
+    if (!/^cart-receipts\/(?:[0-9a-f-]{36}\/)?\d+\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/.test(key)) return null;
     return {
       name: asText(parsed.name).slice(0, 120),
       uploaded_at: asText(parsed.uploadedAt),
@@ -293,6 +300,16 @@ function requireRole(actualRole: FamilyRole, requiredRole: FamilyRole) {
   if (actualRole !== requiredRole) throw new Error("Action non autorisée pour ce rôle.");
 }
 
+function requireCatalogManager(viewer: FamilyRequestUser) {
+  requireRole(viewer.role, "admin");
+  // The catalog is shared platform data. Until product overrides become
+  // family-scoped, only the migrated household may curate it. This prevents a
+  // new family owner from changing products for every other tenant.
+  if (viewer.familyId !== LEGACY_FAMILY_ID) {
+    throw new Error("Le catalogue partagé est géré par DarnaFlow.");
+  }
+}
+
 function joined<T>(value: T | T[]) {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -361,7 +378,7 @@ function cartOrder(
   );
 }
 
-async function readState(viewer: FamilySessionUser) {
+async function readState(viewer: FamilyRequestUser) {
   const db = getSupabaseAdmin();
 
   const readCarts = async () => {
@@ -369,7 +386,11 @@ async function readState(viewer: FamilySessionUser) {
     for (let offset = 0; ; offset += 500) {
       let query = db.from("carts").select(
         "id, member_id, status, priority, created_at, submitted_at, approved_at, completed_at, missing_products_note, family_users!inner(name, initials, active)",
-      ).eq("family_users.active", true).neq("status", "cancelled").order("id");
+      )
+        .eq("family_id", viewer.familyId)
+        .eq("family_users.active", true)
+        .neq("status", "cancelled")
+        .order("id");
       if (viewer.role === "member") query = query.eq("member_id", viewer.id);
       const { data, error } = await query.range(offset, offset + 499);
       throwIfSupabaseError(error);
@@ -379,23 +400,29 @@ async function readState(viewer: FamilySessionUser) {
     return { data: rows, error: null };
   };
 
-  const [usersResult, productsResult, cartsResult, metadataResult] = await Promise.all([
-    db.from("family_users").select("id, name, username, role, initials").eq("active", true).order("id"),
+  const [usersResult, productsResult, cartsResult, metadataResult, orderedProductsResult] = await Promise.all([
+    db
+      .from("family_users")
+      .select("id, name, username, role, initials")
+      .eq("family_id", viewer.familyId)
+      .eq("active", true)
+      .order("id"),
     db
       .from("products")
       .select(
-        "id, name_fr, name_ar, name_en, category, unit, unit_price_cents, image_position, image_url, barcode, package_size, external_source, external_id, purchase_count, cart_items(id)",
+        "id, name_fr, name_ar, name_en, category, unit, unit_price_cents, image_position, image_url, barcode, package_size, external_source, external_id, purchase_count",
       )
       .eq("active", true)
-      .order("purchase_count", { ascending: false })
       .order("name_fr"),
     readCarts(),
-    db.from("app_meta").select("key, value"),
+    db.from("family_meta").select("key, value").eq("family_id", viewer.familyId),
+    db.from("cart_items").select("product_id").eq("family_id", viewer.familyId).limit(5000),
   ]);
   throwIfSupabaseError(usersResult.error);
   throwIfSupabaseError(productsResult.error);
   throwIfSupabaseError(cartsResult.error);
   throwIfSupabaseError(metadataResult.error);
+  throwIfSupabaseError(orderedProductsResult.error);
 
   const metadata = new Map(
     (metadataResult.data ?? []).map((entry) => [String(entry.key), String(entry.value)]),
@@ -414,6 +441,7 @@ async function readState(viewer: FamilySessionUser) {
     const { data, error } = await db
       .from("family_users")
       .select("id, name, username, initials, created_at")
+      .eq("family_id", viewer.familyId)
       .eq("role", "member")
       .eq("active", false)
       .order("created_at", { ascending: true })
@@ -459,8 +487,17 @@ async function readState(viewer: FamilySessionUser) {
       member_id: user.id,
       service_fee_cents: serviceFeeForPlan(effectivePlan(servicesState, user.id)),
     }));
+  const orderedProductCounts = new Map<number, number>();
+  for (const entry of orderedProductsResult.data ?? []) {
+    const productId = Number(entry.product_id);
+    orderedProductCounts.set(productId, (orderedProductCounts.get(productId) ?? 0) + 1);
+  }
   const products = ((productsResult.data ?? []) as unknown as ProductRow[]).map(
-    ({ cart_items, ...product }) => ({ ...product, has_orders: Number(Boolean(cart_items?.length)) }),
+    (product) => ({
+      ...product,
+      purchase_count: orderedProductCounts.get(Number(product.id)) ?? 0,
+      has_orders: Number(orderedProductCounts.has(Number(product.id))),
+    }),
   );
   const carts = ((cartsResult.data ?? []) as unknown as CartRow[])
     .map((cart) => {
@@ -508,6 +545,7 @@ async function readState(viewer: FamilySessionUser) {
           .select(
             "id, cart_id, product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status, products!inner(name_fr, name_ar, name_en, unit, unit_price_cents, image_position, image_url, package_size)",
           )
+          .eq("family_id", viewer.familyId)
           .in("cart_id", visibleCartIds.slice(batch, batch + 100))
           .order("id")
           .range(offset, offset + 499);
@@ -539,6 +577,7 @@ async function readState(viewer: FamilySessionUser) {
       .select(
         "id, member_id, completed_at, cart_items(quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status)",
       )
+      .eq("family_id", viewer.familyId)
       .eq("status", "completed")
       .not("completed_at", "is", null)
       .limit(1000);
@@ -597,6 +636,7 @@ async function readState(viewer: FamilySessionUser) {
       const { data, error } = await db
         .from("carts")
         .select("id, completed_at")
+        .eq("family_id", viewer.familyId)
         .eq("status", "completed")
         .in("member_id", activeMemberIds)
         .limit(1000);
@@ -679,18 +719,42 @@ export async function POST(request: Request) {
     const db = getSupabaseAdmin();
 
     switch (body.action) {
+      case "create_buyer": {
+        requireRole(viewer.role, "admin");
+        const name = normalizeFamilyName(asText(body.name));
+        const username = normalizeFamilyUsername(asText(body.username));
+        const pin = asText(body.pin);
+        if (name.length < 2 || name.length > 80) throw new Error("Saisissez un nom valide.");
+        if (username.length < 2 || username.length > 40) throw new Error("Saisissez un nom d’utilisateur valide.");
+        if (!/^\d{6,12}$/.test(pin)) throw new Error("Le PIN doit contenir entre 6 et 12 chiffres.");
+
+        const pinHash = await hashNewFamilyPin(pin);
+        const { error } = await db.rpc("create_darnaflow_buyer", {
+          p_family_id: viewer.familyId,
+          p_owner_legacy_user_id: viewer.id,
+          p_display_name: name,
+          p_normalized_username: username,
+          p_initials: familyInitials(name),
+          p_pin_hash: pinHash,
+        });
+        if (error?.code === "23505") {
+          throw new Error(error.message.includes("BUYER_ALREADY_EXISTS")
+            ? "Cette famille possède déjà un acheteur actif."
+            : "Ce nom d’utilisateur est déjà utilisé dans votre famille.");
+        }
+        throwIfSupabaseError(error);
+        break;
+      }
+
       case "approve_user": {
         requireRole(viewer.role, "admin");
         const userId = asPositiveInt(body.userId, "userId");
-        if (userId <= 2) throw new Error("Ce compte ne peut pas être modifié.");
-        const { data, error } = await db
-          .from("family_users")
-          .update({ active: true })
-          .eq("id", userId)
-          .eq("role", "member")
-          .eq("active", false)
-          .select("id")
-          .maybeSingle();
+        if (viewer.familyId === LEGACY_FAMILY_ID && userId <= 2) throw new Error("Ce compte ne peut pas être modifié.");
+        const { data, error } = await db.rpc("set_darnaflow_member_approval", {
+          p_family_id: viewer.familyId,
+          p_legacy_user_id: userId,
+          p_approved: true,
+        });
         throwIfSupabaseError(error);
         if (!data) throw new Error("Cette demande a déjà été traitée.");
         break;
@@ -699,15 +763,12 @@ export async function POST(request: Request) {
       case "reject_user": {
         requireRole(viewer.role, "admin");
         const userId = asPositiveInt(body.userId, "userId");
-        if (userId <= 2) throw new Error("Ce compte ne peut pas être modifié.");
-        const { data, error } = await db
-          .from("family_users")
-          .delete()
-          .eq("id", userId)
-          .eq("role", "member")
-          .eq("active", false)
-          .select("id")
-          .maybeSingle();
+        if (viewer.familyId === LEGACY_FAMILY_ID && userId <= 2) throw new Error("Ce compte ne peut pas être modifié.");
+        const { data, error } = await db.rpc("set_darnaflow_member_approval", {
+          p_family_id: viewer.familyId,
+          p_legacy_user_id: userId,
+          p_approved: false,
+        });
         throwIfSupabaseError(error);
         if (!data) throw new Error("Cette demande a déjà été traitée.");
         break;
@@ -723,6 +784,7 @@ export async function POST(request: Request) {
         const { count, error: countError } = await db
           .from("carts")
           .select("id", { count: "exact", head: true })
+          .eq("family_id", viewer.familyId)
           .eq("member_id", viewer.id)
           .in("status", ACTIVE_CART_STATUSES);
         throwIfSupabaseError(countError);
@@ -769,6 +831,7 @@ export async function POST(request: Request) {
         const { data: created, error: cartError } = await db
           .from("carts")
           .insert({
+            family_id: viewer.familyId,
             member_id: viewer.id,
             status: "pending",
             missing_products_note: missingProductsNote,
@@ -783,6 +846,7 @@ export async function POST(request: Request) {
         if (productRows.length) {
           const { error: itemError } = await db.from("cart_items").insert(
             productRows.map((product) => ({
+              family_id: viewer.familyId,
               cart_id: created.id,
               product_id: product.id,
               quantity_hundredths:
@@ -798,20 +862,22 @@ export async function POST(request: Request) {
             })),
           );
           if (itemError) {
-            await db.from("carts").delete().eq("id", created.id);
+            await db.from("carts").delete().eq("family_id", viewer.familyId).eq("id", created.id);
             throwIfSupabaseError(itemError);
           }
         }
-        const { error: walletScopeError } = await db.from("app_meta").upsert(
-          { key: `${CART_WALLET_SCOPE_PREFIX}${created.id}`, value: walletScope },
-          { onConflict: "key" },
-        );
-        if (walletScopeError) {
-          await db.from("cart_items").delete().eq("cart_id", created.id);
-          await db.from("carts").delete().eq("id", created.id);
-          throwIfSupabaseError(walletScopeError);
+        try {
+          await upsertFamilyMeta(viewer.familyId, {
+            key: `${CART_WALLET_SCOPE_PREFIX}${created.id}`,
+            value: walletScope,
+          });
+        } catch (error) {
+          await db.from("cart_items").delete().eq("family_id", viewer.familyId).eq("cart_id", created.id);
+          await db.from("carts").delete().eq("family_id", viewer.familyId).eq("id", created.id);
+          throw error;
         }
         await notifyDeliveryOfNewOrder({
+          familyId: viewer.familyId,
           cartId: Number(created.id),
           memberName: viewer.name,
           itemCount: productRows.length,
@@ -830,6 +896,7 @@ export async function POST(request: Request) {
         const { data: cart, error: cartError } = await db
           .from("carts")
           .select("id, cart_items(product_id, requested_unit_price_cents)")
+          .eq("family_id", viewer.familyId)
           .eq("id", cartId)
           .eq("member_id", viewer.id)
           .in("status", ["pending", "ready"])
@@ -878,7 +945,11 @@ export async function POST(request: Request) {
           }
         }
 
-        const { error: deleteError } = await db.from("cart_items").delete().eq("cart_id", cartId);
+        const { error: deleteError } = await db
+          .from("cart_items")
+          .delete()
+          .eq("family_id", viewer.familyId)
+          .eq("cart_id", cartId);
         throwIfSupabaseError(deleteError);
         const { error: updateError } = await db
           .from("carts")
@@ -889,11 +960,13 @@ export async function POST(request: Request) {
             missing_products_note: missingProductsNote,
             submitted_at: nowIso(),
           })
+          .eq("family_id", viewer.familyId)
           .eq("id", cartId);
         throwIfSupabaseError(updateError);
         if (productRows.length) {
           const { error: insertError } = await db.from("cart_items").insert(
             productRows.map((product) => ({
+              family_id: viewer.familyId,
               cart_id: cartId,
               product_id: product.id,
               quantity_hundredths:
@@ -910,11 +983,10 @@ export async function POST(request: Request) {
           );
           throwIfSupabaseError(insertError);
         }
-        const { error: walletScopeError } = await db.from("app_meta").upsert(
-          { key: `${CART_WALLET_SCOPE_PREFIX}${cartId}`, value: walletScope },
-          { onConflict: "key" },
-        );
-        throwIfSupabaseError(walletScopeError);
+        await upsertFamilyMeta(viewer.familyId, {
+          key: `${CART_WALLET_SCOPE_PREFIX}${cartId}`,
+          value: walletScope,
+        });
         break;
       }
 
@@ -923,6 +995,7 @@ export async function POST(request: Request) {
         const { data, error } = await db
           .from("carts")
           .update({ status: "cancelled" })
+          .eq("family_id", viewer.familyId)
           .eq("id", asPositiveInt(body.cartId, "cartId"))
           .eq("member_id", viewer.id)
           .in("status", ["pending", "ready"])
@@ -939,6 +1012,7 @@ export async function POST(request: Request) {
         const { data: cart, error: cartError } = await db
           .from("carts")
           .select("status")
+          .eq("family_id", viewer.familyId)
           .eq("id", cartId)
           .in("status", ACTIVE_CART_STATUSES)
           .maybeSingle();
@@ -952,6 +1026,7 @@ export async function POST(request: Request) {
             priority: body.priority === "urgent" ? "urgent" : "normal",
             approved_at: nowIso(),
           })
+          .eq("family_id", viewer.familyId)
           .eq("id", cartId);
         throwIfSupabaseError(error);
         break;
@@ -967,8 +1042,10 @@ export async function POST(request: Request) {
             : asNonNegativeInt(body.actualUnitPriceCents, "actualUnitPriceCents");
         const { data: item, error: itemError } = await db
           .from("cart_items")
-          .select("id, cart_id, carts!inner(status)")
+          .select("id, cart_id, carts!inner(status, family_id)")
+          .eq("family_id", viewer.familyId)
           .eq("id", itemId)
+          .eq("carts.family_id", viewer.familyId)
           .in("carts.status", ACTIVE_CART_STATUSES)
           .maybeSingle();
         throwIfSupabaseError(itemError);
@@ -977,11 +1054,13 @@ export async function POST(request: Request) {
         const { error: updateError } = await db
           .from("cart_items")
           .update({ purchase_status: purchaseStatus, actual_unit_price_cents: actualUnitPriceCents })
+          .eq("family_id", viewer.familyId)
           .eq("id", itemId);
         throwIfSupabaseError(updateError);
         const { error: cartError } = await db
           .from("carts")
           .update({ status: "shopping" })
+          .eq("family_id", viewer.familyId)
           .eq("id", item.cart_id)
           .in("status", ["pending", "ready"]);
         throwIfSupabaseError(cartError);
@@ -1008,6 +1087,7 @@ export async function POST(request: Request) {
         const { data: cart, error: cartError } = await db
           .from("carts")
           .select("id")
+          .eq("family_id", viewer.familyId)
           .eq("id", cartId)
           .in("status", ACTIVE_CART_STATUSES)
           .maybeSingle();
@@ -1016,6 +1096,7 @@ export async function POST(request: Request) {
         const { data: items, error: itemsError } = await db
           .from("cart_items")
           .select("id")
+          .eq("family_id", viewer.familyId)
           .eq("cart_id", cartId)
           .in("id", suggestions.map((entry) => entry.itemId));
         throwIfSupabaseError(itemsError);
@@ -1025,6 +1106,7 @@ export async function POST(request: Request) {
           const { error } = await db
             .from("cart_items")
             .update({ purchase_status: "bought", actual_unit_price_cents: suggestion.actualUnitPriceCents })
+            .eq("family_id", viewer.familyId)
             .eq("id", suggestion.itemId)
             .eq("cart_id", cartId);
           throwIfSupabaseError(error);
@@ -1032,6 +1114,7 @@ export async function POST(request: Request) {
         const { error: statusError } = await db
           .from("carts")
           .update({ status: "shopping" })
+          .eq("family_id", viewer.familyId)
           .eq("id", cartId)
           .in("status", ["pending", "ready"]);
         throwIfSupabaseError(statusError);
@@ -1043,79 +1126,37 @@ export async function POST(request: Request) {
         const cartId = asPositiveInt(body.cartId, "cartId");
         const { data: cart, error: cartError } = await db
           .from("carts")
-          .select("id, member_id, missing_products_note")
+          .select("id, member_id")
+          .eq("family_id", viewer.familyId)
           .eq("id", cartId)
           .in("status", ACTIVE_CART_STATUSES)
           .maybeSingle();
         throwIfSupabaseError(cartError);
         if (!cart) throw new Error("Ce panier a déjà été traité.");
 
-        const { data: rows, error } = await db
-          .from("cart_items")
-          .select("product_id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status, products!inner(purchase_count)")
-          .eq("cart_id", cartId);
-        throwIfSupabaseError(error);
-        if (
-          (!rows?.length && !cart.missing_products_note.trim()) ||
-          rows?.some((item) => item.purchase_status === "requested")
-        ) {
-          throw new Error("Marquez chaque article comme acheté ou non acheté.");
-        }
-
-        for (const item of (rows ?? []).filter((entry) => entry.purchase_status === "bought")) {
-          const product = joined(item.products as unknown as { purchase_count: number });
-          const productUpdate = item.requested_unit_price_cents === AMOUNT_REQUEST_SENTINEL_CENTS
-            ? { purchase_count: product.purchase_count + 1, updated_at: nowIso() }
-            : {
-                unit_price_cents: item.actual_unit_price_cents,
-                purchase_count: product.purchase_count + 1,
-                updated_at: nowIso(),
-              };
-          const { error: productError } = await db
-            .from("products")
-            .update(productUpdate)
-            .eq("id", item.product_id);
-          throwIfSupabaseError(productError);
-        }
-        const { data: finished, error: finishError } = await db
-          .from("carts")
-          .update({ status: "completed", completed_at: nowIso() })
-          .eq("id", cartId)
-          .in("status", ACTIVE_CART_STATUSES)
-          .select("id")
-          .maybeSingle();
-        throwIfSupabaseError(finishError);
-        if (!finished) throw new Error("Ce panier a déjà été traité.");
-        const purchasedTotalCents = (rows ?? [])
-          .filter((entry) => entry.purchase_status === "bought")
-          .reduce(
-            (total, entry) => total + storedItemTotalCents(entry),
-            0,
-          );
-        const { data: finishMetadataRows, error: serviceMetaError } = await db
-          .from("app_meta")
-          .select("key, value")
-          .in("key", [SERVICES_META_KEY, `${CART_WALLET_SCOPE_PREFIX}${cartId}`]);
-        throwIfSupabaseError(serviceMetaError);
+        const finishMetadataRows = await readFamilyMeta(viewer.familyId, [
+          SERVICES_META_KEY,
+          `${CART_WALLET_SCOPE_PREFIX}${cartId}`,
+        ]);
         const finishMetadata = new Map((finishMetadataRows ?? []).map((entry) => [String(entry.key), String(entry.value)]));
         const memberPlan = effectivePlan(parseServicesState(finishMetadata.get(SERVICES_META_KEY)), Number(cart.member_id));
         const chargedServiceFeeCents = serviceFeeForPlan(memberPlan);
-        const { error: feeError } = await db.from("app_meta").upsert(
-          { key: `${CART_SERVICE_FEE_PREFIX}${cartId}`, value: String(chargedServiceFeeCents) },
-          { onConflict: "key" },
-        );
-        throwIfSupabaseError(feeError);
         const walletScope = finishMetadata.get(`${CART_WALLET_SCOPE_PREFIX}${cartId}`) === "family" ? "family" : "personal";
-        const walletTransaction = {
-          id: `order-${cartId}`,
-          type: "order" as const,
-          amount_cents: -(purchasedTotalCents + chargedServiceFeeCents),
-          cart_id: cartId,
-          created_at: nowIso(),
-          actor_name: viewer.name,
-        };
-        if (walletScope === "family") await addFamilyWalletTransaction(walletTransaction);
-        else await addMemberWalletTransaction(Number(cart.member_id), walletTransaction);
+        const { error: finishError } = await db.rpc("complete_darnaflow_cart", {
+          p_family_id: viewer.familyId,
+          p_cart_id: cartId,
+          p_buyer_legacy_user_id: viewer.id,
+          p_wallet_scope: walletScope,
+          p_service_fee_cents: chargedServiceFeeCents,
+          p_actor_name: viewer.name,
+        });
+        if (finishError?.message.includes("UNRESOLVED_CART_ITEMS") || finishError?.message.includes("EMPTY_CART")) {
+          throw new Error("Marquez chaque article comme acheté ou non acheté.");
+        }
+        if (finishError?.message.includes("CART_ALREADY_COMPLETED")) {
+          throw new Error("Ce panier a déjà été traité.");
+        }
+        throwIfSupabaseError(finishError);
         break;
       }
 
@@ -1138,6 +1179,7 @@ export async function POST(request: Request) {
         const { data: member, error: memberError } = await db
           .from("family_users")
           .select("id, name")
+          .eq("family_id", viewer.familyId)
           .eq("id", memberId)
           .eq("role", "member")
           .eq("active", true)
@@ -1174,6 +1216,7 @@ export async function POST(request: Request) {
         const { data: created, error: cartError } = await db
           .from("carts")
           .insert({
+            family_id: viewer.familyId,
             member_id: memberId,
             status: "pending",
             priority: null,
@@ -1192,6 +1235,7 @@ export async function POST(request: Request) {
         const rows = products.map((product) => {
           const item = itemByProduct.get(Number(product.id))!;
           return {
+            family_id: viewer.familyId,
             cart_id: cartId,
             product_id: product.id,
             quantity_hundredths: item.amountCents ?? item.quantityHundredths,
@@ -1203,27 +1247,32 @@ export async function POST(request: Request) {
 
         const { error: itemError } = await db.from("cart_items").insert(rows);
         if (itemError) {
-          await db.from("carts").delete().eq("id", cartId);
+          await db.from("carts").delete().eq("family_id", viewer.familyId).eq("id", cartId);
           throwIfSupabaseError(itemError);
         }
         try {
-          const { error: metaError } = await db.from("app_meta").upsert([
+          await upsertFamilyMeta(viewer.familyId, [
             { key: `cart_created_by_${cartId}`, value: viewer.name },
             { key: `cart_requested_date_${cartId}`, value: purchasedDate },
             { key: `${CART_WALLET_SCOPE_PREFIX}${cartId}`, value: walletScope },
-          ], { onConflict: "key" });
-          throwIfSupabaseError(metaError);
+          ]);
         } catch (error) {
-          await db.from("cart_items").delete().eq("cart_id", cartId);
-          await db.from("carts").delete().eq("id", cartId);
-          await db.from("app_meta").delete().in("key", [
+          await db.from("cart_items").delete().eq("family_id", viewer.familyId).eq("cart_id", cartId);
+          await db.from("carts").delete().eq("family_id", viewer.familyId).eq("id", cartId);
+          await deleteFamilyMeta(viewer.familyId, [
             `cart_created_by_${cartId}`,
             `cart_requested_date_${cartId}`,
             `${CART_WALLET_SCOPE_PREFIX}${cartId}`,
           ]);
           throw error;
         }
-        await notifyDeliveryOfNewOrder({ cartId, memberName: member.name, itemCount: rows.length, hasMissingProducts: false });
+        await notifyDeliveryOfNewOrder({
+          familyId: viewer.familyId,
+          cartId,
+          memberName: member.name,
+          itemCount: rows.length,
+          hasMissingProducts: false,
+        });
         break;
       }
 
@@ -1239,6 +1288,7 @@ export async function POST(request: Request) {
         const { data: member, error: memberError } = await db
           .from("family_users")
           .select("id")
+          .eq("family_id", viewer.familyId)
           .eq("id", memberId)
           .eq("role", "member")
           .eq("active", true)
@@ -1246,7 +1296,7 @@ export async function POST(request: Request) {
         throwIfSupabaseError(memberError);
         if (!member) throw new Error("Membre introuvable.");
 
-        await addMemberWalletTransaction(memberId, {
+        await addMemberWalletTransaction(viewer.familyId, memberId, {
           id: crypto.randomUUID(),
           type: "deposit",
           amount_cents: amountCents,
@@ -1267,6 +1317,7 @@ export async function POST(request: Request) {
         const { data: member, error: memberError } = await db
           .from("family_users")
           .select("id")
+          .eq("family_id", viewer.familyId)
           .eq("id", memberId)
           .eq("role", "member")
           .eq("active", true)
@@ -1275,18 +1326,13 @@ export async function POST(request: Request) {
         if (!member) throw new Error("Membre introuvable.");
 
         const walletKey = memberWalletMetaKey(memberId);
-        const { data: walletMeta, error: walletError } = await db
-          .from("app_meta")
-          .select("value")
-          .eq("key", walletKey)
-          .maybeSingle();
-        throwIfSupabaseError(walletError);
-        const wallet = summarizeMemberWallet(parseMemberWallet(walletMeta?.value));
+        const walletMeta = await readFamilyMetaValue(viewer.familyId, walletKey);
+        const wallet = summarizeMemberWallet(parseMemberWallet(walletMeta));
         if (amountCents > wallet.balanceCents) {
           throw new Error("Le montant à rendre dépasse le solde disponible.");
         }
 
-        await addMemberWalletTransaction(memberId, {
+        await addMemberWalletTransaction(viewer.familyId, memberId, {
           id: crypto.randomUUID(),
           type: "return",
           amount_cents: -amountCents,
@@ -1305,13 +1351,14 @@ export async function POST(request: Request) {
         const { data: member, error: memberError } = await db
           .from("family_users")
           .select("id, name")
+          .eq("family_id", viewer.familyId)
           .eq("id", memberId)
           .eq("role", "member")
           .eq("active", true)
           .maybeSingle();
         throwIfSupabaseError(memberError);
         if (!member) throw new Error("Membre introuvable.");
-        await addFamilyWalletTransaction({
+        await addFamilyWalletTransaction(viewer.familyId, {
           id: crypto.randomUUID(),
           type: "contribution",
           amount_cents: amountCents,
@@ -1334,6 +1381,7 @@ export async function POST(request: Request) {
         const { data: member, error: memberError } = await db
           .from("family_users")
           .select("id, name")
+          .eq("family_id", viewer.familyId)
           .eq("id", memberId)
           .eq("role", "member")
           .eq("active", true)
@@ -1341,18 +1389,13 @@ export async function POST(request: Request) {
         throwIfSupabaseError(memberError);
         if (!member) throw new Error("Membre introuvable.");
 
-        const { data: walletMeta, error: walletError } = await db
-          .from("app_meta")
-          .select("value")
-          .eq("key", FAMILY_WALLET_META_KEY)
-          .maybeSingle();
-        throwIfSupabaseError(walletError);
-        const wallet = summarizeFamilyWallet(parseFamilyWallet(walletMeta?.value));
+        const walletMeta = await readFamilyMetaValue(viewer.familyId, FAMILY_WALLET_META_KEY);
+        const wallet = summarizeFamilyWallet(parseFamilyWallet(walletMeta));
         if (amountCents > wallet.balanceCents) {
           throw new Error("Le montant à rendre dépasse le solde de la cagnotte familiale.");
         }
 
-        await addFamilyWalletTransaction({
+        await addFamilyWalletTransaction(viewer.familyId, {
           id: crypto.randomUUID(),
           type: "return",
           amount_cents: -amountCents,
@@ -1373,6 +1416,7 @@ export async function POST(request: Request) {
         const { data: member, error: memberError } = await db
           .from("family_users")
           .select("id, name")
+          .eq("family_id", viewer.familyId)
           .eq("id", memberId)
           .eq("role", "member")
           .eq("active", true)
@@ -1380,35 +1424,22 @@ export async function POST(request: Request) {
         throwIfSupabaseError(memberError);
         if (!member) throw new Error("Membre introuvable.");
         const walletKey = memberWalletMetaKey(memberId);
-        const { data: walletMeta, error: walletError } = await db.from("app_meta").select("value").eq("key", walletKey).maybeSingle();
-        throwIfSupabaseError(walletError);
-        const memberWallet = summarizeMemberWallet(parseMemberWallet(walletMeta?.value));
+        const walletMeta = await readFamilyMetaValue(viewer.familyId, walletKey);
+        const memberWallet = summarizeMemberWallet(parseMemberWallet(walletMeta));
         if (amountCents > memberWallet.balanceCents) throw new Error("Le solde personnel est insuffisant pour ce transfert.");
 
-        const transferId = crypto.randomUUID();
-        await addMemberWalletTransaction(memberId, {
-          id: `transfer-${transferId}`,
-          type: "transfer",
-          amount_cents: -amountCents,
-          cart_id: null,
-          created_at: nowIso(),
-          actor_name: viewer.name,
+        const { error: transferError } = await db.rpc("transfer_darnaflow_member_wallet_to_family", {
+          p_family_id: viewer.familyId,
+          p_member_id: memberId,
+          p_transfer_id: crypto.randomUUID(),
+          p_amount_cents: amountCents,
+          p_member_name: member.name,
+          p_actor_name: viewer.name,
         });
-        try {
-          await addFamilyWalletTransaction({
-            id: `transfer-${transferId}`,
-            type: "contribution",
-            amount_cents: amountCents,
-            cart_id: null,
-            contributor_id: memberId,
-            contributor_name: member.name,
-            created_at: nowIso(),
-            actor_name: viewer.name,
-          });
-        } catch (error) {
-          await removeMemberWalletTransaction(memberId, `transfer-${transferId}`);
-          throw error;
+        if (transferError?.message.includes("INSUFFICIENT_WALLET_BALANCE")) {
+          throw new Error("Le solde personnel est insuffisant pour ce transfert.");
         }
+        throwIfSupabaseError(transferError);
         break;
       }
 
@@ -1418,6 +1449,7 @@ export async function POST(request: Request) {
         const { data: member, error: memberError } = await db
           .from("family_users")
           .select("id, name")
+          .eq("family_id", viewer.familyId)
           .eq("id", memberId)
           .eq("role", "member")
           .eq("active", true)
@@ -1426,11 +1458,7 @@ export async function POST(request: Request) {
         if (!member) throw new Error("Membre introuvable.");
 
         const personalKey = memberWalletMetaKey(memberId);
-        const { data: walletRows, error: walletError } = await db
-          .from("app_meta")
-          .select("key, value")
-          .in("key", [personalKey, FAMILY_WALLET_META_KEY]);
-        throwIfSupabaseError(walletError);
+        const walletRows = await readFamilyMeta(viewer.familyId, [personalKey, FAMILY_WALLET_META_KEY]);
         const walletMetadata = new Map((walletRows ?? []).map((entry) => [String(entry.key), String(entry.value)]));
         const personalTransactions = parseMemberWallet(walletMetadata.get(personalKey));
         const movable = personalTransactions.filter((entry) => entry.type === "deposit" || entry.type === "order" || entry.type === "return");
@@ -1464,12 +1492,11 @@ export async function POST(request: Request) {
         const cartScopeRows = movable
           .filter((entry) => entry.type === "order" && entry.cart_id)
           .map((entry) => ({ key: `${CART_WALLET_SCOPE_PREFIX}${entry.cart_id}`, value: "family" }));
-        const { error: migrationError } = await db.from("app_meta").upsert([
+        await upsertFamilyMeta(viewer.familyId, [
           { key: personalKey, value: JSON.stringify(remainingPersonal.slice(-300)) },
           { key: FAMILY_WALLET_META_KEY, value: JSON.stringify([...familyTransactions, ...converted].slice(-500)) },
           ...cartScopeRows,
-        ], { onConflict: "key" });
-        throwIfSupabaseError(migrationError);
+        ]);
         break;
       }
 
@@ -1481,29 +1508,25 @@ export async function POST(request: Request) {
         const { data: cart, error: cartError } = await db
           .from("carts")
           .select("id, member_id, status")
+          .eq("family_id", viewer.familyId)
           .eq("id", cartId)
           .eq("status", "completed")
           .maybeSingle();
         throwIfSupabaseError(cartError);
         if (!cart) throw new Error("Commande terminée introuvable.");
 
-        const { data: walletScopeMeta, error: walletScopeError } = await db
-          .from("app_meta")
-          .select("value")
-          .eq("key", `${CART_WALLET_SCOPE_PREFIX}${cartId}`)
-          .maybeSingle();
-        throwIfSupabaseError(walletScopeError);
-        const walletScope = walletScopeMeta?.value === "family" ? "family" : "personal";
-        const removed = walletScope === "family"
-          ? await removeFamilyWalletTransaction(`order-${cartId}`)
-          : await removeMemberWalletTransaction(Number(cart.member_id), `order-${cartId}`);
-        if (!removed) throw new Error("Cette commande ne touche déjà plus au portefeuille.");
-
-        const { error: paymentError } = await db.from("app_meta").upsert(
-          { key: `${CART_PAYMENT_METHOD_PREFIX}${cartId}`, value: "direct" },
-          { onConflict: "key" },
+        const walletScopeMeta = await readFamilyMetaValue(
+          viewer.familyId,
+          `${CART_WALLET_SCOPE_PREFIX}${cartId}`,
         );
-        throwIfSupabaseError(paymentError);
+        const walletScope = walletScopeMeta === "family" ? "family" : "personal";
+        const { data: removed, error: directPaymentError } = await db.rpc("mark_darnaflow_order_paid_directly", {
+          p_family_id: viewer.familyId,
+          p_cart_id: cartId,
+          p_wallet_key: walletScope === "family" ? FAMILY_WALLET_META_KEY : memberWalletMetaKey(Number(cart.member_id)),
+        });
+        throwIfSupabaseError(directPaymentError);
+        if (!removed) throw new Error("Cette commande ne touche déjà plus au portefeuille.");
         break;
       }
 
@@ -1513,17 +1536,18 @@ export async function POST(request: Request) {
         const { data: cart, error: cartError } = await db
           .from("carts")
           .select("id, member_id, status, cart_items(quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status)")
+          .eq("family_id", viewer.familyId)
           .eq("id", cartId)
           .eq("status", "completed")
           .maybeSingle();
         throwIfSupabaseError(cartError);
         if (!cart) throw new Error("Commande terminée introuvable.");
 
-        const { data: metadataRows, error: metadataError } = await db
-          .from("app_meta")
-          .select("key, value")
-          .in("key", [SERVICES_META_KEY, `${CART_PAYMENT_METHOD_PREFIX}${cartId}`, `${CART_WALLET_SCOPE_PREFIX}${cartId}`]);
-        throwIfSupabaseError(metadataError);
+        const metadataRows = await readFamilyMeta(viewer.familyId, [
+          SERVICES_META_KEY,
+          `${CART_PAYMENT_METHOD_PREFIX}${cartId}`,
+          `${CART_WALLET_SCOPE_PREFIX}${cartId}`,
+        ]);
         const metadata = new Map((metadataRows ?? []).map((entry) => [String(entry.key), String(entry.value)]));
         const memberId = Number(cart.member_id);
         const memberPlan = effectivePlan(parseServicesState(metadata.get(SERVICES_META_KEY)), memberId);
@@ -1538,19 +1562,17 @@ export async function POST(request: Request) {
           0,
         );
 
-        const { error: feeError } = await db.from("app_meta").upsert(
-          { key: `${CART_SERVICE_FEE_PREFIX}${cartId}`, value: String(chargedServiceFeeCents) },
-          { onConflict: "key" },
-        );
-        throwIfSupabaseError(feeError);
-        if (metadata.get(`${CART_PAYMENT_METHOD_PREFIX}${cartId}`) !== "direct") {
-          const walletScope = metadata.get(`${CART_WALLET_SCOPE_PREFIX}${cartId}`) === "family" ? "family" : "personal";
-          if (walletScope === "family") {
-            await updateFamilyWalletOrderAmount(cartId, purchasedTotalCents + chargedServiceFeeCents);
-          } else {
-            await updateMemberWalletOrderAmount(memberId, cartId, purchasedTotalCents + chargedServiceFeeCents);
-          }
-        }
+        const walletScope = metadata.get(`${CART_WALLET_SCOPE_PREFIX}${cartId}`) === "family" ? "family" : "personal";
+        const { data: updated, error: updateChargeError } = await db.rpc("update_darnaflow_order_charge", {
+          p_family_id: viewer.familyId,
+          p_cart_id: cartId,
+          p_wallet_key: walletScope === "family" ? FAMILY_WALLET_META_KEY : memberWalletMetaKey(memberId),
+          p_purchased_total_cents: purchasedTotalCents,
+          p_service_fee_cents: chargedServiceFeeCents,
+          p_update_wallet: metadata.get(`${CART_PAYMENT_METHOD_PREFIX}${cartId}`) !== "direct",
+        });
+        throwIfSupabaseError(updateChargeError);
+        if (!updated) throw new Error("La transaction de cette commande est introuvable.");
         break;
       }
 
@@ -1567,20 +1589,12 @@ export async function POST(request: Request) {
         if (!product) throw new Error("Produit introuvable.");
 
         const key = favoriteMetaKey(viewer.id);
-        const { data: stored, error: readError } = await db
-          .from("app_meta")
-          .select("value")
-          .eq("key", key)
-          .maybeSingle();
-        throwIfSupabaseError(readError);
-        const favoriteIds = parseFavoriteIds(stored?.value);
+        const stored = await readFamilyMetaValue(viewer.familyId, key);
+        const favoriteIds = parseFavoriteIds(stored);
         const nextIds = favoriteIds.includes(productId)
           ? favoriteIds.filter((id) => id !== productId)
           : [...favoriteIds, productId].slice(-100);
-        const { error: writeError } = await db
-          .from("app_meta")
-          .upsert({ key, value: JSON.stringify(nextIds) }, { onConflict: "key" });
-        throwIfSupabaseError(writeError);
+        await upsertFamilyMeta(viewer.familyId, { key, value: JSON.stringify(nextIds) });
         break;
       }
 
@@ -1590,13 +1604,10 @@ export async function POST(request: Request) {
         if (budgetCents > MAX_MONTHLY_BUDGET_CENTS) {
           throw new Error("Le budget mensuel est trop élevé.");
         }
-        const { error } = await db
-          .from("app_meta")
-          .upsert(
-            { key: MONTHLY_BUDGET_META_KEY, value: String(budgetCents) },
-            { onConflict: "key" },
-          );
-        throwIfSupabaseError(error);
+        await upsertFamilyMeta(viewer.familyId, {
+          key: MONTHLY_BUDGET_META_KEY,
+          value: String(budgetCents),
+        });
         break;
       }
 
@@ -1605,6 +1616,7 @@ export async function POST(request: Request) {
         const { data: activeMembers, error: membersError } = await db
           .from("family_users")
           .select("id")
+          .eq("family_id", viewer.familyId)
           .eq("role", "member")
           .eq("active", true);
         throwIfSupabaseError(membersError);
@@ -1614,16 +1626,14 @@ export async function POST(request: Request) {
           const { data: completedCarts, error: cartsError } = await db
             .from("carts")
             .select("id")
+            .eq("family_id", viewer.familyId)
             .eq("status", "completed")
             .in("member_id", memberIds)
             .limit(1000);
           throwIfSupabaseError(cartsError);
           completedCartIds = (completedCarts ?? []).map((cart) => Number(cart.id));
         }
-        const { data: accountingMeta, error: metaReadError } = await db
-          .from("app_meta")
-          .select("key, value");
-        throwIfSupabaseError(metaReadError);
+        const accountingMeta = await readFamilyMeta(viewer.familyId);
         const metadata = new Map((accountingMeta ?? []).map((entry) => [String(entry.key), String(entry.value)]));
         const orderEarningsCents = completedCartIds.reduce((sum, cartId) => {
           const storedFee = metadata.get(`${CART_SERVICE_FEE_PREFIX}${cartId}`);
@@ -1633,6 +1643,7 @@ export async function POST(request: Request) {
         const { data: deliveryUsers, error: deliveryUsersError } = await db
           .from("family_users")
           .select("id")
+          .eq("family_id", viewer.familyId)
           .eq("role", "delivery")
           .eq("active", true);
         throwIfSupabaseError(deliveryUsersError);
@@ -1641,29 +1652,26 @@ export async function POST(request: Request) {
           .filter((task) => task.status === "completed" && deliveryIds.has(task.assignee_id))
           .reduce((sum, task) => sum + task.reward_cents, 0);
         const paidCents = orderEarningsCents + missionEarningsCents;
-        const { error } = await db
-          .from("app_meta")
-          .upsert(
-            { key: DELIVERY_PAID_META_KEY, value: String(paidCents) },
-            { onConflict: "key" },
-          );
-        throwIfSupabaseError(error);
+        await upsertFamilyMeta(viewer.familyId, {
+          key: DELIVERY_PAID_META_KEY,
+          value: String(paidCents),
+        });
         break;
       }
 
       case "subscribe_push": {
         if (!getPushPublicKey()) throw new Error("Les notifications ne sont pas encore configurées.");
-        await savePushSubscription(viewer.id, viewer.role, body.subscription);
+        await savePushSubscription(viewer.familyId, viewer.id, viewer.role, body.subscription);
         break;
       }
 
       case "unsubscribe_push": {
-        await removePushSubscription(viewer.id, body.endpoint);
+        await removePushSubscription(viewer.familyId, viewer.id, body.endpoint);
         break;
       }
 
       case "update_product": {
-        requireRole(viewer.role, "admin");
+        requireCatalogManager(viewer);
         const { error } = await db
           .from("products")
           .update({
@@ -1676,7 +1684,7 @@ export async function POST(request: Request) {
       }
 
       case "add_product": {
-        requireRole(viewer.role, "admin");
+        requireCatalogManager(viewer);
         const nameFr = asText(body.nameFr);
         const category = asText(body.category);
         const unit = asText(body.unit);
@@ -1699,7 +1707,7 @@ export async function POST(request: Request) {
       }
 
       case "edit_product": {
-        requireRole(viewer.role, "admin");
+        requireCatalogManager(viewer);
         const productId = asPositiveInt(body.productId, "productId");
         const nameFr = asText(body.nameFr);
         const category = asText(body.category);
@@ -1724,6 +1732,7 @@ export async function POST(request: Request) {
           const { data: previousOrder, error: orderError } = await db
             .from("cart_items")
             .select("id")
+            .eq("family_id", viewer.familyId)
             .eq("product_id", productId)
             .limit(1)
             .maybeSingle();
@@ -1762,12 +1771,14 @@ export async function POST(request: Request) {
       }
 
       case "remove_product": {
-        requireRole(viewer.role, "admin");
+        requireCatalogManager(viewer);
         const productId = asPositiveInt(body.productId, "productId");
         const { data: activeItem, error: activeError } = await db
           .from("cart_items")
-          .select("id, carts!inner(status)")
+          .select("id, carts!inner(status, family_id)")
+          .eq("family_id", viewer.familyId)
           .eq("product_id", productId)
+          .eq("carts.family_id", viewer.familyId)
           .in("carts.status", ACTIVE_CART_STATUSES)
           .limit(1)
           .maybeSingle();

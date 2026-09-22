@@ -1,4 +1,4 @@
-import { getRequestFamilyUser } from "@/lib/family-auth";
+import { getRequestFamilyUser, LEGACY_FAMILY_ID } from "@/lib/family-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
@@ -70,8 +70,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const viewer = await getRequestFamilyUser(request);
   if (!viewer) return Response.json({ error: "Connexion requise." }, { status: 401 });
-  if (viewer.role !== "admin") {
-    return Response.json({ error: "Action réservée à l’administrateur." }, { status: 403 });
+  if (viewer.role !== "admin" || viewer.familyId !== LEGACY_FAMILY_ID) {
+    return Response.json({ error: "Le catalogue partagé est géré par DarnaFlow." }, { status: 403 });
   }
 
   try {

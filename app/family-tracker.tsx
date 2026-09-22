@@ -616,14 +616,14 @@ const words = {
     totalWithService: "Total avec service",
     serviceEarnings: "Gains de service ce mois",
     completedOrders: "commandes terminées",
-    wallet: "Portefeuille de Josef",
+    wallet: "Portefeuille de l’acheteur",
     earned: "Gagné",
     paid: "Payé",
     unpaid: "À payer",
     allTime: "Depuis le début",
     settleWallet: "Marquer comme payé",
-    settleWalletHelp: "Confirmez que tout le montant restant a été remis à Josef.",
-    walletSettled: "Le portefeuille de Josef est à jour.",
+    settleWalletHelp: "Confirmez que tout le montant restant a été remis à l’acheteur familial.",
+    walletSettled: "Le portefeuille de l’acheteur est à jour.",
     budget: "Budget familial",
     monthlyBudget: "Budget mensuel",
     setBudget: "Enregistrer le budget",
@@ -712,7 +712,7 @@ const words = {
     unifiedCatalogHint: "Le catalogue familial, MyMarket et Carrefour réunis dans une seule recherche.",
     searchSuggestions: "Suggestions de recherche",
     myMarketCatalog: "Catalogue MyMarket",
-    myMarketHint: "Prix MyMarket en ligne — Josef confirme le prix réel.",
+    myMarketHint: "Prix MyMarket en ligne — l’acheteur familial confirme le prix réel.",
     myMarketRules: "Tous les rayons sauf Animaux",
     myMarketLoading: "Chargement du catalogue MyMarket…",
     myMarketSearching: "Recherche dans MyMarket et Carrefour…",
@@ -742,7 +742,7 @@ const words = {
     deposit: "Versement",
     orderDebit: "Commande",
     memberBalances: "Soldes des membres",
-    memberBalancesHelp: "Enregistrez l’argent remis à Josef. Les commandes terminées sont déduites automatiquement.",
+    memberBalancesHelp: "Enregistrez l’argent remis à l’acheteur familial. Les commandes terminées sont déduites automatiquement.",
     addFunds: "Ajouter de l’argent",
     amount: "Montant",
     fundsAdded: "Versement ajouté au solde.",
@@ -825,14 +825,14 @@ const words = {
     totalWithService: "المجموع مع الخدمة",
     serviceEarnings: "أرباح الخدمة هذا الشهر",
     completedOrders: "طلبات مكتملة",
-    wallet: "محفظة جوزيف",
+    wallet: "محفظة المشتري",
     earned: "المكتسب",
     paid: "المدفوع",
     unpaid: "غير المدفوع",
     allTime: "منذ البداية",
     settleWallet: "تحديد الكل كمدفوع",
-    settleWalletHelp: "أكد أن جوزيف توصل بكامل المبلغ المتبقي.",
-    walletSettled: "محفظة جوزيف محدثة.",
+    settleWalletHelp: "أكد أن مشتري العائلة توصل بكامل المبلغ المتبقي.",
+    walletSettled: "محفظة المشتري محدثة.",
     budget: "ميزانية العائلة",
     monthlyBudget: "الميزانية الشهرية",
     setBudget: "حفظ الميزانية",
@@ -921,7 +921,7 @@ const words = {
     unifiedCatalogHint: "منتجات البيت وMyMarket وكارفور في بحث واحد.",
     searchSuggestions: "اقتراحات البحث",
     myMarketCatalog: "منتجات MyMarket",
-    myMarketHint: "ثمن MyMarket على الإنترنت — جوزيف يؤكد الثمن الحقيقي.",
+    myMarketHint: "ثمن MyMarket على الإنترنت — مشتري العائلة يؤكد الثمن الحقيقي.",
     myMarketRules: "كل الأقسام ما عدا الحيوانات",
     myMarketLoading: "جارٍ تحميل منتجات MyMarket…",
     myMarketSearching: "جارٍ البحث في MyMarket وكارفور…",
@@ -951,7 +951,7 @@ const words = {
     deposit: "إيداع",
     orderDebit: "طلب",
     memberBalances: "أرصدة أفراد العائلة",
-    memberBalancesHelp: "سجّل المال المُسلّم لجوزيف. تُخصم الطلبات المكتملة تلقائياً.",
+    memberBalancesHelp: "سجّل المال المُسلّم لمشتري العائلة. تُخصم الطلبات المكتملة تلقائياً.",
     addFunds: "إضافة المال",
     amount: "المبلغ",
     fundsAdded: "تمت إضافة المبلغ إلى الرصيد.",
@@ -1034,14 +1034,14 @@ const words = {
     totalWithService: "Total with service",
     serviceEarnings: "Service earnings this month",
     completedOrders: "completed orders",
-    wallet: "Josef’s wallet",
+    wallet: "Buyer wallet",
     earned: "Earned",
     paid: "Paid",
     unpaid: "Unpaid",
     allTime: "All time",
     settleWallet: "Mark as paid",
-    settleWalletHelp: "Confirm that Josef received the full unpaid amount.",
-    walletSettled: "Josef’s wallet is up to date.",
+    settleWalletHelp: "Confirm that the family buyer received the full unpaid amount.",
+    walletSettled: "The buyer wallet is up to date.",
     budget: "Family budget",
     monthlyBudget: "Monthly budget",
     setBudget: "Save budget",
@@ -1130,7 +1130,7 @@ const words = {
     unifiedCatalogHint: "The family, MyMarket, and Carrefour catalogs combined in one search.",
     searchSuggestions: "Search suggestions",
     myMarketCatalog: "MyMarket catalog",
-    myMarketHint: "Online MyMarket price — Josef confirms the real price.",
+    myMarketHint: "Online MyMarket price — the family buyer confirms the real price.",
     myMarketRules: "All departments except Animals",
     myMarketLoading: "Loading the MyMarket catalog…",
     myMarketSearching: "Searching MyMarket and Carrefour…",
@@ -1160,7 +1160,7 @@ const words = {
     deposit: "Deposit",
     orderDebit: "Order",
     memberBalances: "Member balances",
-    memberBalancesHelp: "Record money given to Josef. Completed orders are deducted automatically.",
+    memberBalancesHelp: "Record money given to the family buyer. Completed orders are deducted automatically.",
     addFunds: "Add money",
     amount: "Amount",
     fundsAdded: "Deposit added to the balance.",
@@ -4492,7 +4492,7 @@ function OfflinePurchaseDialog({
     }
     const ok = await act(
       { action: "create_member_order", memberId: Number(memberId), purchasedDate, walletScope, items },
-      "Commande créée pour le membre et envoyée à Josef.",
+      "Commande créée pour le membre et envoyée à l’acheteur familial.",
     );
     if (ok) {
       setOpen(false);
@@ -4532,7 +4532,7 @@ function OfflinePurchaseDialog({
         priority: "normal",
         recurrence: "none",
       },
-      `Service créé pour ${selectedMember?.name ?? "le membre"} et envoyé à Josef.`,
+      `Service créé pour ${selectedMember?.name ?? "le membre"} et envoyé à l’acheteur familial.`,
     );
     if (ok) {
       setOpen(false);
@@ -4556,7 +4556,7 @@ function OfflinePurchaseDialog({
           <DialogHeader className="pe-8 text-start">
             <DialogTitle className="text-2xl tracking-[-0.025em] sm:text-3xl">Commander pour un membre</DialogTitle>
             <DialogDescription className="mt-1 text-sm leading-6 sm:text-base">
-              Choisissez des produits ou un service pour le membre. Josef recevra la demande avec le bon nom.
+              Choisissez des produits ou un service pour le membre. L’acheteur familial recevra la demande avec le bon nom.
             </DialogDescription>
           </DialogHeader>
 
@@ -4894,7 +4894,7 @@ function OfflinePurchaseDialog({
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h3 className="font-semibold sm:text-lg">Service pour {selectedMember?.name ?? "ce membre"}</h3>
-                    <p className="text-xs text-muted-foreground">Josef verra le membre comme demandeur.</p>
+                    <p className="text-xs text-muted-foreground">L’acheteur familial verra le membre comme demandeur.</p>
                   </div>
                   {selectedService && (
                     <Button type="button" size="sm" variant="ghost" className="rounded-xl text-muted-foreground hover:text-destructive" onClick={() => setSelectedServiceId("")}>
@@ -4919,7 +4919,7 @@ function OfflinePurchaseDialog({
                       <Input id="admin-service-title" value={serviceTitle} onChange={(event) => setServiceTitle(event.target.value)} maxLength={80} className="mt-1.5 h-11 rounded-xl" />
                     </div>
                     <div>
-                      <Label htmlFor="admin-service-description">Instructions pour Josef</Label>
+                      <Label htmlFor="admin-service-description">Instructions pour l’acheteur familial</Label>
                       <Textarea id="admin-service-description" value={serviceDescription} onChange={(event) => setServiceDescription(event.target.value)} maxLength={400} rows={4} className="mt-1.5 rounded-xl" placeholder="Ajoutez les détails utiles…" />
                     </div>
                     {selectedService.id.endsWith("_custom") && (
@@ -4954,7 +4954,7 @@ function OfflinePurchaseDialog({
             <section className="mx-auto mt-6 max-w-3xl">
               <div className="mb-4">
                 <h3 className="text-lg font-semibold">Vérifiez la commande</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Confirmez le membre, les produits et les quantités. Josef vérifiera les prix pendant les achats.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Confirmez le membre, les produits et les quantités. L’acheteur familial vérifiera les prix pendant les achats.</p>
               </div>
               <div className="overflow-hidden rounded-2xl border border-border">
                 {selected.map((product) => {
@@ -4991,7 +4991,7 @@ function OfflinePurchaseDialog({
             <section className="mx-auto mt-6 max-w-3xl">
               <div className="mb-4">
                 <h3 className="text-lg font-semibold">Vérifiez le service</h3>
-                <p className="mt-1 text-sm text-muted-foreground">La mission sera enregistrée au nom de {selectedMember?.name ?? "ce membre"} et apparaîtra chez Josef.</p>
+                <p className="mt-1 text-sm text-muted-foreground">La mission sera enregistrée au nom de {selectedMember?.name ?? "ce membre"} et apparaîtra chez l’acheteur familial.</p>
               </div>
               <div className="overflow-hidden rounded-2xl border border-border">
                 <div className={`bg-gradient-to-br p-5 ${selectedService.gradient}`}>
@@ -5010,7 +5010,7 @@ function OfflinePurchaseDialog({
                 </div>
                 <div className="grid gap-3 bg-card p-4 sm:grid-cols-3">
                   <div><p className="text-xs text-muted-foreground">Demandé pour</p><p className="mt-1 font-semibold">{selectedMember?.name}</p></div>
-                  <div><p className="text-xs text-muted-foreground">Réalisé par</p><p className="mt-1 font-semibold">Josef</p></div>
+                  <div><p className="text-xs text-muted-foreground">Réalisé par</p><p className="mt-1 font-semibold">Acheteur familial</p></div>
                   <div><p className="text-xs text-muted-foreground">Prix du service</p><p className="mt-1 font-bold text-primary">{money(serviceRewardCents)}</p></div>
                 </div>
               </div>
@@ -5032,7 +5032,7 @@ function OfflinePurchaseDialog({
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={() => setStep(2)} className="hidden h-11 rounded-xl sm:inline-flex">Modifier</Button>
               <Button disabled={busy || !memberId || !hasSelection} onClick={() => void (orderType === "products" ? submit() : submitService())} className="h-11 rounded-xl px-5">
-                {busy ? <Loader2 className="animate-spin" /> : <Check />} Envoyer à Josef
+                {busy ? <Loader2 className="animate-spin" /> : <Check />} Envoyer à l’acheteur
               </Button>
             </div>
           ) : (
@@ -5115,6 +5115,10 @@ function AdminDashboard({
   const [removeEditProductImage, setRemoveEditProductImage] = useState(false);
   const [productToRemove, setProductToRemove] = useState<Product | null>(null);
   const [memberToReject, setMemberToReject] = useState<PendingUser | null>(null);
+  const [buyerName, setBuyerName] = useState("");
+  const [buyerUsername, setBuyerUsername] = useState("");
+  const [buyerPin, setBuyerPin] = useState("");
+  const [buyerPinConfirmation, setBuyerPinConfirmation] = useState("");
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
   const [budgetInput, setBudgetInput] = useState(
     data.monthlyBudgetCents ? (data.monthlyBudgetCents / 100).toFixed(2) : "",
@@ -5131,6 +5135,63 @@ function AdminDashboard({
     () => (editProductImage ? URL.createObjectURL(editProductImage) : null),
     [editProductImage],
   );
+  const familyBuyer = data.users.find((user) => user.role === "delivery");
+  const buyerCopy = {
+    fr: {
+      title: "Acheteur familial",
+      help: "Un seul compte acheteur peut recevoir, acheter et livrer les commandes de cette famille.",
+      ready: "Le compte acheteur est prêt.",
+      name: "Nom de l’acheteur",
+      username: "Nom d’utilisateur",
+      pin: "PIN (6 à 12 chiffres)",
+      confirmPin: "Confirmer le PIN",
+      create: "Créer le compte acheteur",
+      mismatch: "Les deux codes PIN ne correspondent pas.",
+      created: "Compte acheteur créé.",
+    },
+    ar: {
+      title: "مشتري العائلة",
+      help: "يمكن لحساب مشترٍ واحد فقط استلام طلبات هذه العائلة وشراؤها وتسليمها.",
+      ready: "حساب المشتري جاهز.",
+      name: "اسم المشتري",
+      username: "اسم المستخدم",
+      pin: "PIN من 6 إلى 12 رقماً",
+      confirmPin: "تأكيد PIN",
+      create: "إنشاء حساب المشتري",
+      mismatch: "رمزا PIN غير متطابقين.",
+      created: "تم إنشاء حساب المشتري.",
+    },
+    en: {
+      title: "Family buyer",
+      help: "Only one Buyer account can receive, purchase, and deliver orders for this family.",
+      ready: "The Buyer account is ready.",
+      name: "Buyer name",
+      username: "Username",
+      pin: "PIN (6 to 12 digits)",
+      confirmPin: "Confirm PIN",
+      create: "Create Buyer account",
+      mismatch: "The two PINs do not match.",
+      created: "Buyer account created.",
+    },
+  }[language];
+
+  const createBuyer = async (event: FormEvent) => {
+    event.preventDefault();
+    if (buyerPin !== buyerPinConfirmation) {
+      toast.error(buyerCopy.mismatch);
+      return;
+    }
+    const ok = await act(
+      { action: "create_buyer", name: buyerName, username: buyerUsername, pin: buyerPin },
+      buyerCopy.created,
+    );
+    if (ok) {
+      setBuyerName("");
+      setBuyerUsername("");
+      setBuyerPin("");
+      setBuyerPinConfirmation("");
+    }
+  };
 
   useEffect(
     () => () => {
@@ -5427,6 +5488,54 @@ function AdminDashboard({
         </TabsList>
 
         <TabsContent value="requests">
+          <section className="mb-8 overflow-hidden rounded-3xl border border-primary/20 bg-card">
+            <div className="flex items-start gap-3 border-b border-border bg-primary/[0.045] p-4 sm:p-5">
+              <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
+                {familyBuyer ? <UserCheck className="size-5" /> : <UserPlus className="size-5" />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-lg font-semibold">{buyerCopy.title}</h2>
+                  <Badge variant={familyBuyer ? "default" : "outline"}>{familyBuyer ? buyerCopy.ready : "1 / famille"}</Badge>
+                </div>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">{buyerCopy.help}</p>
+              </div>
+            </div>
+
+            {familyBuyer ? (
+              <div className="flex items-center gap-3 p-4 sm:p-5">
+                <span className="grid size-11 place-items-center rounded-2xl bg-secondary font-bold text-primary">{familyBuyer.initials}</span>
+                <div className="min-w-0">
+                  <p className="truncate font-semibold">{familyBuyer.name}</p>
+                  <p className="truncate text-sm text-muted-foreground">@{familyBuyer.username}</p>
+                </div>
+                <CircleCheck className="ms-auto size-6 shrink-0 text-primary" aria-hidden="true" />
+              </div>
+            ) : (
+              <form className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5" onSubmit={(event) => void createBuyer(event)}>
+                <div className="space-y-1.5">
+                  <Label htmlFor="family-buyer-name">{buyerCopy.name}</Label>
+                  <Input id="family-buyer-name" value={buyerName} onChange={(event) => setBuyerName(event.target.value)} required maxLength={80} autoComplete="name" className="h-11 rounded-xl" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="family-buyer-username">{buyerCopy.username}</Label>
+                  <Input id="family-buyer-username" value={buyerUsername} onChange={(event) => setBuyerUsername(event.target.value)} required maxLength={40} autoComplete="username" className="h-11 rounded-xl" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="family-buyer-pin">{buyerCopy.pin}</Label>
+                  <Input id="family-buyer-pin" type="password" inputMode="numeric" pattern="[0-9]{6,12}" value={buyerPin} onChange={(event) => setBuyerPin(event.target.value.replace(/\D/g, "").slice(0, 12))} required autoComplete="new-password" className="h-11 rounded-xl" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="family-buyer-pin-confirmation">{buyerCopy.confirmPin}</Label>
+                  <Input id="family-buyer-pin-confirmation" type="password" inputMode="numeric" pattern="[0-9]{6,12}" value={buyerPinConfirmation} onChange={(event) => setBuyerPinConfirmation(event.target.value.replace(/\D/g, "").slice(0, 12))} required autoComplete="new-password" className="h-11 rounded-xl" />
+                </div>
+                <Button type="submit" className="mt-1 h-11 rounded-xl sm:col-span-2" disabled={busy || !buyerName.trim() || !buyerUsername.trim() || buyerPin.length < 6 || buyerPinConfirmation.length < 6}>
+                  {busy ? <Loader2 className="animate-spin" /> : <UserPlus />} {buyerCopy.create}
+                </Button>
+              </form>
+            )}
+          </section>
+
           <div className="mb-8 rounded-3xl border border-primary/20 bg-primary/[0.035] p-4 sm:p-5">
             <div className="mb-4 flex items-start gap-3">
               <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
@@ -6684,7 +6793,7 @@ function DeliveryDashboard({
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="flex items-center gap-2 text-lg font-semibold"><Sparkles className="size-5 text-primary" /> Missions de service</h2>
-              <p className="mt-1 text-xs text-muted-foreground">Demandes familiales et personnelles envoyées à Josef.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Demandes familiales et personnelles envoyées à l’acheteur familial.</p>
             </div>
             <Badge variant="outline" className="border-primary/20 bg-card text-primary">{activeServiceTasks.length} active{activeServiceTasks.length === 1 ? "" : "s"}</Badge>
           </div>

@@ -1,4 +1,5 @@
 import { getRequestFamilyUser } from "@/lib/family-auth";
+import { readFamilyMeta } from "@/lib/family-meta";
 import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 import { effectivePlan, parseServicesState, serviceFeeForPlan, SERVICES_META_KEY } from "@/lib/family-services";
 
@@ -11,7 +12,7 @@ function receiptMeta(value?: string | null) {
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
     const key = typeof parsed.key === "string" ? parsed.key : "";
-    return /^cart-receipts\/\d+\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/.test(key)
+    return /^cart-receipts\/(?:[0-9a-f-]{36}\/)?\d+\/[0-9a-f-]{36}\.(?:jpg|png|webp)$/.test(key)
       ? { uploadedAt: typeof parsed.uploadedAt === "string" ? parsed.uploadedAt : null }
       : null;
   } catch {
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
     let query = db.from("carts").select(
       "id, member_id, status, created_at, submitted_at, completed_at, missing_products_note, family_users!inner(name), cart_items(id, quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status, products!inner(name_fr, name_ar, name_en, unit, package_size))",
       { count: "exact" },
-    );
+    ).eq("family_id", viewer.familyId);
     const memberId = Number(parameters.get("memberId"));
     if (memberId > 0 && Number.isSafeInteger(memberId)) query = query.eq("member_id", memberId);
     const status = parameters.get("status");
@@ -45,8 +46,7 @@ export async function GET(request: Request) {
       `cart_wallet_scope_${cart.id}`,
       `${RECEIPT_META_PREFIX}${cart.id}`,
     ]);
-    const { data: meta, error: metaError } = await db.from("app_meta").select("key, value").in("key", [SERVICES_META_KEY, ...keys]);
-    throwIfSupabaseError(metaError);
+    const meta = await readFamilyMeta(viewer.familyId, [SERVICES_META_KEY, ...keys]);
     const metadata = new Map((meta ?? []).map((entry) => [entry.key, entry.value]));
     const plans = parseServicesState(metadata.get(SERVICES_META_KEY));
     const carts = (data ?? []).map((cart) => {

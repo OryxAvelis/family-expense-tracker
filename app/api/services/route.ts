@@ -33,26 +33,26 @@ const paidPlan = (value: unknown): PaidPlanId => {
   return value;
 };
 
-async function loadState() {
+async function loadState(familyId: string) {
   const db = getSupabaseAdmin();
-  const { data, error } = await db.from("app_meta").select("value").eq("key", SERVICES_META_KEY).maybeSingle();
+  const { data, error } = await db.from("family_meta").select("value").eq("family_id", familyId).eq("key", SERVICES_META_KEY).maybeSingle();
   throwIfSupabaseError(error);
   return parseServicesState(data?.value);
 }
 
-async function saveState(state: ServicesState) {
+async function saveState(familyId: string, state: ServicesState) {
   const db = getSupabaseAdmin();
-  const { error } = await db.from("app_meta").upsert(
-    { key: SERVICES_META_KEY, value: JSON.stringify(state) },
-    { onConflict: "key" },
+  const { error } = await db.from("family_meta").upsert(
+    { family_id: familyId, key: SERVICES_META_KEY, value: JSON.stringify(state) },
+    { onConflict: "family_id,key" },
   );
   throwIfSupabaseError(error);
 }
 
-async function loadUsers() {
+async function loadUsers(familyId: string) {
   const db = getSupabaseAdmin();
   const { data, error } = await db.from("family_users")
-    .select("id, name, initials, role").eq("active", true).order("name");
+    .select("id, name, initials, role").eq("family_id", familyId).eq("active", true).order("name");
   throwIfSupabaseError(error);
   return (data ?? []) as FamilyUser[];
 }
@@ -78,12 +78,12 @@ function maybeActivateFamilyPlan(state: ServicesState) {
   return false;
 }
 
-async function buildInsights(plan: string) {
+async function buildInsights(familyId: string, plan: string) {
   if (plan !== "pro") return { locked: true, expensive: [], predictions: [], savings: [] };
   const db = getSupabaseAdmin();
   const { data, error } = await db.from("cart_items")
     .select("product_id, actual_unit_price_cents, quantity_hundredths, carts!inner(status, completed_at), products!inner(name_fr, unit_price_cents)")
-    .eq("purchase_status", "bought").eq("carts.status", "completed").limit(1000);
+    .eq("family_id", familyId).eq("purchase_status", "bought").eq("carts.status", "completed").limit(1000);
   throwIfSupabaseError(error);
   type Row = { product_id: number; actual_unit_price_cents: number; carts: { completed_at: string }; products: { name_fr: string; unit_price_cents: number } };
   const grouped = new Map<number, { name: string; current: number; prices: number[]; dates: string[] }>();
@@ -127,8 +127,8 @@ async function buildInsights(plan: string) {
   };
 }
 
-async function responseFor(viewer: { id: number; role: string }, state: ServicesState, unlocked = false) {
-  const users = await loadUsers();
+async function responseFor(viewer: { id: number; role: string; familyId: string }, state: ServicesState, unlocked = false) {
+  const users = await loadUsers(viewer.familyId);
   const plan = effectivePlan(state, viewer.id);
   const viewNow = new Date();
   const familyPlan = activePlanForScope(state, viewer.id, "family", viewNow);
@@ -156,7 +156,10 @@ async function responseFor(viewer: { id: number; role: string }, state: Services
     familyFundCents: state.family_fund_cents,
     familyTargetPlan: state.family_target_plan, familyMembership, personalMembership,
     payments: viewer.role === "admin"
-      ? state.payments.slice().reverse()
+      ? state.payments.slice().reverse().map((payment) => ({
+          ...payment,
+          proof_key: payment.proof_key ? "available" : null,
+        }))
       : state.payments.filter((payment) =>
           payment.user_id === viewer.id ||
           (payment.scope === "family" && payment.status === "confirmed"),
@@ -167,7 +170,7 @@ async function responseFor(viewer: { id: number; role: string }, state: Services
     trialAvailable: !state.trial_used_by.includes(viewer.id) && !state.payments.some((payment) =>
       payment.user_id === viewer.id && payment.request_type === "trial" && payment.status === "pending"
     ),
-    insights: await buildInsights(plan), unlocked,
+    insights: await buildInsights(viewer.familyId, plan), unlocked,
   };
 }
 
@@ -175,7 +178,7 @@ export async function GET(request: Request) {
   try {
     const viewer = await getRequestFamilyUser(request);
     if (!viewer) return Response.json({ error: "Connexion requise." }, { status: 401 });
-    return Response.json(await responseFor(viewer, await loadState()));
+    return Response.json(await responseFor(viewer, await loadState(viewer.familyId)));
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Erreur inattendue." }, { status: 500 });
   }
@@ -186,8 +189,8 @@ export async function POST(request: Request) {
     const viewer = await getRequestFamilyUser(request);
     if (!viewer) return Response.json({ error: "Connexion requise." }, { status: 401 });
     const body = await request.json() as Body;
-    const state = await loadState();
-    const users = await loadUsers();
+    const state = await loadState(viewer.familyId);
+    const users = await loadUsers(viewer.familyId);
     const now = new Date();
     let unlocked = false;
     let planRequestNotification: Parameters<typeof notifyAdminOfPlanRequest>[0] | null = null;
@@ -245,7 +248,7 @@ export async function POST(request: Request) {
           if (task.status !== "pending" && task.status !== "in_progress") throw new Error("Cette mission est déjà terminée.");
           task.status = "completed"; task.completed_at = now.toISOString();
           const assignee = users.find((user) => user.id === task.assignee_id);
-          if (assignee?.role === "member") await addMemberWalletTransaction(task.assignee_id, {
+          if (assignee?.role === "member") await addMemberWalletTransaction(viewer.familyId, task.assignee_id, {
             id: `task-${task.id}`, type: "task", amount_cents: task.reward_cents, cart_id: null, task_id: task.id,
             created_at: now.toISOString(), actor_name: viewer.name,
           });
@@ -271,7 +274,7 @@ export async function POST(request: Request) {
         const paymentId = crypto.randomUUID();
         state.family_target_plan = plan;
         state.payments.push({ id: paymentId, user_id: viewer.id, user_name: viewer.name, scope: "family", plan, amount_cents: amountCents, status: "pending", created_at: now.toISOString(), confirmed_at: null });
-        planRequestNotification = { paymentId, memberName: viewer.name, scope: "family", plan, amountCents };
+        planRequestNotification = { familyId: viewer.familyId, paymentId, memberName: viewer.name, scope: "family", plan, amountCents };
         break;
       }
       case "request_personal_plan": {
@@ -282,7 +285,7 @@ export async function POST(request: Request) {
         const paymentId = crypto.randomUUID();
         const amountCents = PLAN_RULES[plan].price_cents;
         state.payments.push({ id: paymentId, user_id: viewer.id, user_name: viewer.name, scope: "personal", plan, amount_cents: amountCents, status: "pending", created_at: now.toISOString(), confirmed_at: null });
-        planRequestNotification = { paymentId, memberName: viewer.name, scope: "personal", plan, amountCents };
+        planRequestNotification = { familyId: viewer.familyId, paymentId, memberName: viewer.name, scope: "personal", plan, amountCents };
         break;
       }
       case "vote_plan": {
@@ -300,7 +303,7 @@ export async function POST(request: Request) {
         }
         const paymentId = crypto.randomUUID();
         state.payments.push({ id: paymentId, user_id: viewer.id, user_name: viewer.name, scope: "personal", plan: "pro", amount_cents: 0, status: "pending", request_type: "trial", created_at: now.toISOString(), confirmed_at: null });
-        planRequestNotification = { paymentId, memberName: viewer.name, scope: "personal", plan: "pro", amountCents: 0, requestType: "trial" };
+        planRequestNotification = { familyId: viewer.familyId, paymentId, memberName: viewer.name, scope: "personal", plan: "pro", amountCents: 0, requestType: "trial" };
         break;
       }
       case "confirm_payment": {
@@ -333,7 +336,7 @@ export async function POST(request: Request) {
       }
       default: throw new Error("Action inconnue.");
     }
-    await saveState(state);
+    await saveState(viewer.familyId, state);
     if (planRequestNotification) await notifyAdminOfPlanRequest(planRequestNotification);
     return Response.json(await responseFor(viewer, state, unlocked));
   } catch (error) {

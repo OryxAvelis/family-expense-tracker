@@ -1,6 +1,8 @@
 # Configure these values locally in .env.local and in Vercel project settings.
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_replace-me
+# Dedicated HMAC pepper for family invitation codes (at least 32 random characters).
+FAMILY_CODE_PEPPER=replace-with-at-least-32-random-characters
 FAMILY_INITIAL_PASSWORD=choose-a-private-starter-password
 VAPID_PUBLIC_KEY=replace-with-a-web-push-public-key
 VAPID_PRIVATE_KEY=replace-with-a-web-push-private-key

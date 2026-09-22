@@ -67,42 +67,33 @@ export function summarizeFamilyWallet(transactions: FamilyWalletTransaction[]) {
   return { balanceCents, creditedCents, spentCents, returnedCents, transactions: effectiveTransactions };
 }
 
-async function readFamilyWallet() {
-  const db = getSupabaseAdmin();
-  const { data, error } = await db.from("app_meta").select("value").eq("key", FAMILY_WALLET_META_KEY).maybeSingle();
-  throwIfSupabaseError(error);
-  return parseFamilyWallet(data?.value);
-}
-
-async function writeFamilyWallet(transactions: FamilyWalletTransaction[]) {
-  const db = getSupabaseAdmin();
-  const { error } = await db.from("app_meta").upsert(
-    { key: FAMILY_WALLET_META_KEY, value: JSON.stringify(transactions.slice(-500)) },
-    { onConflict: "key" },
-  );
+export async function addFamilyWalletTransaction(familyId: string, transaction: FamilyWalletTransaction) {
+  const { error } = await getSupabaseAdmin().rpc("append_darnaflow_wallet_transaction", {
+    p_family_id: familyId,
+    p_wallet_key: FAMILY_WALLET_META_KEY,
+    p_transaction: transaction,
+    p_history_limit: 500,
+  });
   throwIfSupabaseError(error);
 }
 
-export async function addFamilyWalletTransaction(transaction: FamilyWalletTransaction) {
-  const transactions = await readFamilyWallet();
-  if (transactions.some((entry) => entry.id === transaction.id)) return;
-  await writeFamilyWallet([...transactions, transaction]);
+export async function removeFamilyWalletTransaction(familyId: string, transactionId: string) {
+  const { data, error } = await getSupabaseAdmin().rpc("remove_darnaflow_wallet_transaction", {
+    p_family_id: familyId,
+    p_wallet_key: FAMILY_WALLET_META_KEY,
+    p_transaction_id: transactionId,
+  });
+  throwIfSupabaseError(error);
+  return Boolean(data);
 }
 
-export async function removeFamilyWalletTransaction(transactionId: string) {
-  const transactions = await readFamilyWallet();
-  const remaining = transactions.filter((entry) => entry.id !== transactionId);
-  if (remaining.length === transactions.length) return false;
-  await writeFamilyWallet(remaining);
-  return true;
-}
-
-export async function updateFamilyWalletOrderAmount(cartId: number, amountCents: number) {
-  const transactions = await readFamilyWallet();
-  const transactionId = `order-${cartId}`;
-  const index = transactions.findIndex((entry) => entry.id === transactionId);
-  if (index < 0) return false;
-  transactions[index] = { ...transactions[index], amount_cents: -Math.abs(amountCents) };
-  await writeFamilyWallet(transactions);
-  return true;
+export async function updateFamilyWalletOrderAmount(familyId: string, cartId: number, amountCents: number) {
+  const { data, error } = await getSupabaseAdmin().rpc("update_darnaflow_wallet_order_amount", {
+    p_family_id: familyId,
+    p_wallet_key: FAMILY_WALLET_META_KEY,
+    p_transaction_id: `order-${cartId}`,
+    p_amount_cents: Math.abs(amountCents),
+  });
+  throwIfSupabaseError(error);
+  return Boolean(data);
 }

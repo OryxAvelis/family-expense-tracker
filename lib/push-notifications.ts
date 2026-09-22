@@ -87,11 +87,12 @@ function isValidSubscription(value: unknown): value is PushSubscription {
   );
 }
 
-async function readSubscriptions() {
+async function readSubscriptions(familyId: string) {
   const db = getSupabaseAdmin();
   const { data, error } = await db
-    .from("app_meta")
+    .from("family_meta")
     .select("value")
+    .eq("family_id", familyId)
     .eq("key", PUSH_SUBSCRIPTIONS_META_KEY)
     .maybeSingle();
   throwIfSupabaseError(error);
@@ -118,22 +119,23 @@ async function readSubscriptions() {
   }
 }
 
-async function writeSubscriptions(subscriptions: StoredPushSubscription[]) {
+async function writeSubscriptions(familyId: string, subscriptions: StoredPushSubscription[]) {
   const { error } = await getSupabaseAdmin()
-    .from("app_meta")
+    .from("family_meta")
     .upsert(
       {
+        family_id: familyId,
         key: PUSH_SUBSCRIPTIONS_META_KEY,
         value: JSON.stringify(subscriptions.slice(-MAX_PUSH_SUBSCRIPTIONS)),
       },
-      { onConflict: "key" },
+      { onConflict: "family_id,key" },
     );
   throwIfSupabaseError(error);
 }
 
-export async function savePushSubscription(userId: number, role: PushRole, value: unknown) {
+export async function savePushSubscription(familyId: string, userId: number, role: PushRole, value: unknown) {
   if (!isValidSubscription(value)) throw new Error("Abonnement de notification invalide.");
-  const subscriptions = await readSubscriptions();
+  const subscriptions = await readSubscriptions(familyId);
   const next = subscriptions.filter((entry) => entry.endpoint !== value.endpoint);
   next.push({
     endpoint: value.endpoint,
@@ -143,20 +145,22 @@ export async function savePushSubscription(userId: number, role: PushRole, value
     role,
     createdAt: new Date().toISOString(),
   });
-  await writeSubscriptions(next);
+  await writeSubscriptions(familyId, next);
 }
 
-export async function removePushSubscription(userId: number, endpoint: unknown) {
+export async function removePushSubscription(familyId: string, userId: number, endpoint: unknown) {
   if (typeof endpoint !== "string" || endpoint.length > 2048) {
     throw new Error("Abonnement de notification invalide.");
   }
-  const subscriptions = await readSubscriptions();
+  const subscriptions = await readSubscriptions(familyId);
   await writeSubscriptions(
+    familyId,
     subscriptions.filter((entry) => entry.userId !== userId || entry.endpoint !== endpoint),
   );
 }
 
 async function notifyRole(
+  familyId: string,
   role: PushRole,
   message: { title: string; body: string; url: string; tag: string },
 ) {
@@ -164,10 +168,11 @@ async function notifyRole(
   if (!vapid) return 0;
 
   try {
-    const subscriptions = await readSubscriptions();
+    const subscriptions = await readSubscriptions(familyId);
     const { data: activeUsers, error: activeUsersError } = await getSupabaseAdmin()
       .from("family_users")
       .select("id")
+      .eq("family_id", familyId)
       .eq("role", role)
       .eq("active", true);
     throwIfSupabaseError(activeUsersError);
@@ -195,7 +200,7 @@ async function notifyRole(
     );
 
     if (staleEndpoints.size) {
-      await writeSubscriptions(subscriptions.filter((entry) => !staleEndpoints.has(entry.endpoint)));
+      await writeSubscriptions(familyId, subscriptions.filter((entry) => !staleEndpoints.has(entry.endpoint)));
     }
     return targets.length - staleEndpoints.size;
   } catch {
@@ -216,7 +221,7 @@ export async function notifyMembersOfShoppingReminder() {
     },
     {
       title: "Nouveau dans Dépenses famille",
-      body: "Les essais Pro nécessitent maintenant l’accord de Youssef, avec un suivi clair.",
+      body: "Les essais Pro nécessitent l’accord du propriétaire de la famille, avec un suivi clair.",
     },
     {
       title: "Votre panier vous attend",
@@ -225,26 +230,35 @@ export async function notifyMembersOfShoppingReminder() {
   ];
   const slot = Math.floor(Date.now() / (3 * 60 * 60 * 1000));
   const reminder = reminders[slot % reminders.length];
-  return notifyRole("member", {
-    ...reminder,
-    url: "/membre",
-    tag: "family-shopping-reminder",
-  });
+  const { data: families, error } = await getSupabaseAdmin()
+    .from("families")
+    .select("id")
+    .eq("status", "active")
+    .limit(1000);
+  throwIfSupabaseError(error);
+  const counts = await Promise.all((families ?? []).map((family) => notifyRole(String(family.id), "member", {
+      ...reminder,
+      url: "/membre",
+      tag: "family-shopping-reminder",
+    })));
+  return counts.reduce((sum, count) => sum + count, 0);
 }
 
 export async function notifyDeliveryOfNewOrder({
+  familyId,
   cartId,
   memberName,
   itemCount,
   hasMissingProducts,
 }: {
+  familyId: string;
   cartId: number;
   memberName: string;
   itemCount: number;
   hasMissingProducts: boolean;
 }) {
   const itemLabel = `${itemCount} article${itemCount === 1 ? "" : "s"}`;
-  await notifyRole("delivery", {
+  await notifyRole(familyId, "delivery", {
       title: `Nouvelle commande · ${memberName}`,
       body: hasMissingProducts
         ? `${itemLabel} et un commentaire à vérifier.`
@@ -255,6 +269,7 @@ export async function notifyDeliveryOfNewOrder({
 }
 
 export async function notifyAdminOfPlanRequest({
+  familyId,
   paymentId,
   memberName,
   scope,
@@ -262,6 +277,7 @@ export async function notifyAdminOfPlanRequest({
   amountCents,
   requestType = "payment",
 }: {
+  familyId: string;
   paymentId: string;
   memberName: string;
   scope: "family" | "personal";
@@ -270,7 +286,7 @@ export async function notifyAdminOfPlanRequest({
   requestType?: "payment" | "trial";
 }) {
   const amount = new Intl.NumberFormat("fr-MA", { style: "currency", currency: "MAD" }).format(amountCents / 100);
-  await notifyRole("admin", {
+  await notifyRole(familyId, "admin", {
     title: `${requestType === "trial" ? "Demande d’essai" : "Demande de forfait"} · ${memberName}`,
     body: requestType === "trial"
       ? "Essai personnel PRO de 7 jours à approuver."

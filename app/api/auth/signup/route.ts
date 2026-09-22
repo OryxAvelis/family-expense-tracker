@@ -5,7 +5,9 @@ import {
   hashNewFamilyPin,
   normalizeFamilyName,
   normalizeFamilyUsername,
+  resolveFamilyAccess,
 } from "@/lib/family-auth";
+import { digestFamilyCode } from "@/lib/family-code";
 import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 
 export const dynamic = "force-dynamic";
@@ -27,9 +29,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = (await request.json()) as { name?: unknown; pin?: unknown };
+    const body = (await request.json()) as { name?: unknown; pin?: unknown; familyCode?: unknown };
     const name = normalizeFamilyName(typeof body.name === "string" ? body.name : "");
     const pin = typeof body.pin === "string" ? body.pin : "";
+    const familyCode = typeof body.familyCode === "string" ? body.familyCode : "";
     const username = normalizeFamilyUsername(name);
 
     if (name.length < 2 || name.length > 40 || !FAMILY_NAME_PATTERN.test(name) || !username) {
@@ -38,40 +41,40 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
-    if (!/^\d{4}$/.test(pin)) {
+    if (!/^\d{6,12}$/.test(pin)) {
       return Response.json(
-        { error: "Le code PIN doit contenir exactement 4 chiffres.", code: "INVALID_PIN" },
+        { error: "Le code PIN doit contenir entre 6 et 12 chiffres.", code: "INVALID_PIN" },
         { status: 400 },
       );
     }
 
     const db = getSupabaseAdmin();
-    const { data: existing, error: existingError } = await db
-      .from("family_users")
-      .select("id")
-      .eq("username", username)
-      .maybeSingle();
-    throwIfSupabaseError(existingError);
-    if (existing) {
+    const family = await resolveFamilyAccess(familyCode);
+    const familyCodeDigest = digestFamilyCode(familyCode);
+    if (family.status !== "active" || !familyCodeDigest) {
       return Response.json(
-        { error: "Ce nom est déjà utilisé.", code: "NAME_TAKEN" },
-        { status: 409 },
+        { error: "Code familial invalide ou espace indisponible.", code: "INVALID_FAMILY_CODE" },
+        { status: 401 },
       );
     }
-
     const passwordHash = await hashNewFamilyPin(pin);
-    const { error } = await db.from("family_users").insert({
-      name,
-      username,
-      password_hash: passwordHash,
-      role: "member",
-      initials: familyInitials(name),
-      active: false,
+    const { error } = await db.rpc("join_darnaflow_family", {
+      p_code_hmac: familyCodeDigest,
+      p_display_name: name,
+      p_normalized_username: username,
+      p_initials: familyInitials(name),
+      p_pin_hash: passwordHash,
     });
     if (error?.code === "23505") {
       return Response.json(
         { error: "Ce nom est déjà utilisé.", code: "NAME_TAKEN" },
         { status: 409 },
+      );
+    }
+    if (error?.code === "P0001") {
+      return Response.json(
+        { error: "Code familial invalide ou invitation indisponible.", code: "INVALID_FAMILY_CODE" },
+        { status: 401 },
       );
     }
     throwIfSupabaseError(error);
