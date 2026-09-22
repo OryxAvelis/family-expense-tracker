@@ -32,7 +32,7 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const HOUSE_CATALOG_IMAGE_VERSION = "5";
+const HOUSE_CATALOG_IMAGE_VERSION = "6";
 const HOUSE_CATALOG_IMAGES = [
   [1, "Lait entier", "/products/milk-jouda.png"],
   [3, "Huile d’olive", "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/571202-1-2.jpg"],
@@ -51,6 +51,7 @@ const HOUSE_CATALOG_PRICE_UPDATES = [
 ] as const;
 const HOUSE_CATALOG_PACKAGE_UPDATES = [[1, "Lait entier", "0.5 L"]] as const;
 const EXTERNAL_CATALOG_IMAGE_UPDATES = [
+  ["bringo", "17619", "/products/bringo-delicia-apricot-jam-37cl.jpg"],
   ["bringo", "1482682", "/products/bringo-delicia-apricot-jam-37cl.jpg"],
   ["bringo", "16307", "/products/bringo-amgalita-pastry-flour-1kg.jpg"],
 ] as const;
