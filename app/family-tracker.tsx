@@ -676,6 +676,18 @@ const words = {
     invalidAmount: "Saisissez un montant valide.",
     forAmount: "Pour",
     activeLimit: "3 paniers actifs maximum",
+    checkout: "Validation",
+    checkoutReady: "Prêt en moins d’une minute",
+    switchWallet: "Changer",
+    available: "disponible",
+    yourCart: "Votre panier",
+    editProducts: "Modifier les produits",
+    missingSomething: "Il manque quelque chose ?",
+    missingSomethingHint: "Ajoutez les produits absents du catalogue",
+    productsTotal: "Produits",
+    totalLabel: "Total",
+    confirmAndSend: "Confirmer et envoyer",
+    visibleImmediately: "L’admin et le livreur la verront immédiatement.",
     continueShopping: "Ajouter d’autres produits",
     addMissingProducts: "Ajouter un produit absent",
     hideMissingProducts: "Masquer le champ",
@@ -873,6 +885,18 @@ const words = {
     invalidAmount: "أدخل مبلغاً صالحاً.",
     forAmount: "بمبلغ",
     activeLimit: "3 سلال نشطة كحد أقصى",
+    checkout: "تأكيد الطلب",
+    checkoutReady: "جاهز في أقل من دقيقة",
+    switchWallet: "تغيير",
+    available: "متاح",
+    yourCart: "سلتك",
+    editProducts: "تعديل المنتجات",
+    missingSomething: "هل ينقصك شيء؟",
+    missingSomethingHint: "أضف منتجات غير موجودة في الكتالوج",
+    productsTotal: "المنتجات",
+    totalLabel: "المجموع",
+    confirmAndSend: "تأكيد وإرسال",
+    visibleImmediately: "سيراها المسؤول والمكلّف بالشراء فوراً.",
     continueShopping: "إضافة منتجات أخرى",
     addMissingProducts: "إضافة منتج غير موجود",
     hideMissingProducts: "إخفاء الحقل",
@@ -1070,6 +1094,18 @@ const words = {
     invalidAmount: "Enter a valid amount.",
     forAmount: "For",
     activeLimit: "Maximum 3 active carts",
+    checkout: "Checkout",
+    checkoutReady: "Ready in under a minute",
+    switchWallet: "Switch",
+    available: "available",
+    yourCart: "Your cart",
+    editProducts: "Edit products",
+    missingSomething: "Missing something?",
+    missingSomethingHint: "Add products not found in the catalog",
+    productsTotal: "Products",
+    totalLabel: "Total",
+    confirmAndSend: "Confirm & send",
+    visibleImmediately: "Admin and buyer will see it immediately.",
     continueShopping: "Add more products",
     addMissingProducts: "Add a missing product",
     hideMissingProducts: "Hide field",
@@ -1840,7 +1876,8 @@ export function FamilyTracker({
         Math.round((entry.product.unit_price_cents * entry.quantity) / 100)),
     0,
   );
-  const draftGrandTotal = draftTotal + deliveryServiceFeeCents;
+  const hasDraftOrder = Boolean(draftProducts.length || missingProductsNote.trim());
+  const draftGrandTotal = hasDraftOrder ? draftTotal + deliveryServiceFeeCents : 0;
   const amountCentsPreview = Math.round(Number(amountDh.replace(",", ".")) * 100);
   const amountQuantityPreview =
     amountProduct && amountCentsPreview > 0
@@ -3121,111 +3158,152 @@ export function FamilyTracker({
           side={language === "ar" ? "left" : "right"}
           className="w-full gap-0 border-border bg-background sm:max-w-lg"
         >
-          <SheetHeader className="shrink-0 border-b border-border bg-card px-4 py-4 pe-16 sm:px-5">
-            <div className="flex items-center gap-3">
-              <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
-                <ShoppingCart className="size-5" />
-              </span>
-              <div className="min-w-0">
-                <SheetTitle className="text-xl tracking-tight">{editingCartId ? t.edit : t.cart}</SheetTitle>
-                <SheetDescription className="mt-0.5">
-                  {draftProducts.length
-                    ? `${draftProducts.length} ${t.items} · ${money(draftGrandTotal)}`
-                    : t.activeLimit}
-                </SheetDescription>
-              </div>
-            </div>
+          <SheetHeader className="shrink-0 bg-background px-4 pb-3 pt-6 pe-16 sm:px-5">
+            <SheetTitle className="text-3xl font-bold tracking-[-0.035em]">
+              {editingCartId ? t.edit : t.checkout}
+            </SheetTitle>
+            <SheetDescription className="text-sm">
+              {hasDraftOrder ? t.checkoutReady : t.activeLimit}
+            </SheetDescription>
           </SheetHeader>
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-5 pt-3 sm:px-5">
+            {hasDraftOrder && (
+              <button
+                type="button"
+                onClick={() =>
+                  setDraftWalletScope((current) =>
+                    current === "family" ? "personal" : "family",
+                  )
+                }
+                className="flex min-h-24 w-full items-center gap-3 rounded-2xl border border-primary/20 bg-primary/[0.045] p-3 text-start transition-colors hover:bg-primary/[0.075] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                aria-label={`${t.paymentSource}: ${
+                  draftWalletScope === "family" ? t.familyWalletLabel : t.personalWalletLabel
+                }. ${t.switchWallet}`}
+              >
+                <span className="grid size-14 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+                  <WalletCards className="size-6" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <strong className="block truncate text-base">
+                    {draftWalletScope === "family" ? t.familyWalletLabel : t.personalWalletLabel}
+                  </strong>
+                  <span className="mt-0.5 block truncate text-sm text-muted-foreground">
+                    {money(
+                      draftWalletScope === "family"
+                        ? familyWalletBalanceCents
+                        : personalWalletBalanceCents,
+                    )} {t.available}
+                  </span>
+                </span>
+                <span className="shrink-0 rounded-xl bg-primary/8 px-3 py-2 text-sm font-semibold text-primary">
+                  {t.switchWallet}
+                </span>
+              </button>
+            )}
             {draftProducts.length ? (
-              <div className="space-y-2.5">
-                {draftProducts.map(({ product, quantity }) => {
-                  const lineTotal = draftAmounts[product.id] ??
-                    Math.round((product.unit_price_cents * quantity) / 100);
-                  return (
-                    <article key={product.id} className="grid grid-cols-[3.25rem_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-border bg-card p-3 shadow-sm">
-                      <ProductImage
-                        position={product.image_position}
-                        imageUrl={product.image_url}
-                        name={productName(product)}
-                        className="size-[3.25rem] shrink-0 rounded-xl"
-                      />
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold sm:text-base">{productName(product)}</p>
-                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                          {product.unit_price_cents > 0
-                            ? `${money(product.unit_price_cents)} / ${product.package_size || product.unit}`
-                            : t.priceToConfirm}
-                        </p>
-                        <p className="mt-1 text-sm font-bold tabular-nums text-primary">{money(lineTotal)}</p>
-                      </div>
+              <section className="mt-5" aria-labelledby="checkout-cart-heading">
+                <div className="mb-2 flex items-baseline gap-1.5">
+                  <h3 id="checkout-cart-heading" className="text-base font-bold">{t.yourCart}</h3>
+                  <span className="text-sm text-muted-foreground">({draftProducts.length} {t.items})</span>
+                </div>
 
-                      {draftAmounts[product.id] ? (
-                        <div className="flex items-center rounded-xl border border-border bg-muted/45 p-0.5">
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="size-10 rounded-[0.65rem] text-destructive"
-                            onClick={() => removeFromCart(product.id)}
-                            aria-label={t.removeItem}
-                          >
-                            <Trash2 className="size-4" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="h-10 min-w-20 rounded-[0.65rem] px-2 text-xs font-bold text-primary"
-                            onClick={() => openAmountPicker(product)}
-                            aria-label={t.edit}
-                          >
-                            {money(draftAmounts[product.id])}
-                            <Pencil className="size-3.5" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center rounded-xl border border-border bg-muted/45 p-0.5">
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="size-10 rounded-[0.65rem]"
-                            onClick={() => changeQuantity(product, -1)}
-                            aria-label={t.decreaseQuantity}
-                          >
-                            <Minus className="size-4" />
-                          </Button>
-                          <span className="min-w-14 px-1 text-center text-xs font-bold tabular-nums">
-                            {quantityLabel(quantity, product.unit, product.package_size)}
-                          </span>
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="size-10 rounded-[0.65rem] text-primary"
-                            onClick={() => changeQuantity(product, 1)}
-                            aria-label={t.increaseQuantity}
-                          >
-                            <Plus className="size-4" />
-                          </Button>
-                        </div>
-                      )}
-                    </article>
-                  );
-                })}
+                <div className="overflow-hidden rounded-2xl border border-border bg-card">
+                  {draftProducts.map(({ product, quantity }, index) => {
+                    const lineTotal = draftAmounts[product.id] ??
+                      Math.round((product.unit_price_cents * quantity) / 100);
+                    return (
+                      <article
+                        key={product.id}
+                        className={`grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-3 p-3 ${index ? "border-t border-border" : ""}`}
+                      >
+                        <ProductImage
+                          position={product.image_position}
+                          imageUrl={product.image_url}
+                          name={productName(product)}
+                          className="size-12 shrink-0 rounded-xl"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex min-w-0 items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold">{productName(product)}</p>
+                              <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                                {product.unit_price_cents > 0
+                                  ? `${money(product.unit_price_cents)} / ${product.package_size || product.unit}`
+                                  : t.priceToConfirm}
+                              </p>
+                            </div>
+                            <strong className="shrink-0 text-sm tabular-nums">{money(lineTotal)}</strong>
+                          </div>
 
-                <Button
+                          <div className="mt-2 flex items-center justify-end">
+                            {draftAmounts[product.id] ? (
+                              <div className="flex items-center rounded-xl border border-border bg-muted/45 p-0.5">
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-9 rounded-[0.65rem] text-destructive"
+                                  onClick={() => removeFromCart(product.id)}
+                                  aria-label={t.removeItem}
+                                >
+                                  <Trash2 className="size-4" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  className="h-9 min-w-20 rounded-[0.65rem] px-2 text-xs font-bold text-primary"
+                                  onClick={() => openAmountPicker(product)}
+                                  aria-label={t.edit}
+                                >
+                                  {money(draftAmounts[product.id])}
+                                  <Pencil className="size-3.5" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-[2.25rem_minmax(2.75rem,auto)_2.25rem] items-center overflow-hidden rounded-xl border border-primary/20 bg-primary/[0.035]">
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-9 rounded-none"
+                                  onClick={() => changeQuantity(product, -1)}
+                                  aria-label={t.decreaseQuantity}
+                                >
+                                  <Minus className="size-4" />
+                                </Button>
+                                <span className="border-x border-primary/15 px-1 text-center text-xs font-bold tabular-nums">
+                                  {quantityLabel(quantity, product.unit, product.package_size)}
+                                </span>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-9 rounded-none text-primary"
+                                  onClick={() => changeQuantity(product, 1)}
+                                  aria-label={t.increaseQuantity}
+                                >
+                                  <Plus className="size-4" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+
+                <button
                   type="button"
-                  variant="outline"
-                  className="h-11 w-full rounded-2xl border-dashed border-primary/35 text-primary"
+                  className="mt-2 inline-flex min-h-10 items-center gap-2 rounded-xl px-2 text-sm font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   onClick={() => setCartOpen(false)}
                 >
-                  <Plus className="size-4" /> {t.continueShopping}
-                </Button>
-              </div>
+                  <Pencil className="size-4" /> {t.editProducts}
+                </button>
+              </section>
             ) : (
-              <div className="grid min-h-56 place-items-center rounded-3xl border border-dashed border-border bg-card/60 p-6 text-center">
+              <div className="grid min-h-48 place-items-center rounded-3xl border border-dashed border-border bg-card/60 p-6 text-center">
                 <div>
                   <span className="mx-auto mb-3 grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary">
                     <ShoppingCart className="size-7" />
@@ -3238,27 +3316,21 @@ export function FamilyTracker({
               </div>
             )}
 
-            <section className="mt-4 overflow-hidden rounded-2xl border border-border bg-card">
+            <section className="mt-4 overflow-hidden rounded-2xl border border-primary/15 bg-primary/[0.025]">
               <button
                 type="button"
-                className="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-start transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                className="flex min-h-20 w-full items-center gap-3 px-4 py-3 text-start transition-colors hover:bg-primary/[0.055] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
                 onClick={() => setMissingNoteExpanded((current) => !current)}
                 aria-expanded={missingNoteExpanded}
                 aria-controls="missing-products-panel"
               >
-                <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#ffb454]/15 text-[#a65f00] dark:text-[#ffb454]">
-                  <MessageSquareText className="size-4" />
-                </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold">
-                    {missingNoteExpanded ? t.hideMissingProducts : t.addMissingProducts}
+                  <span className="block text-base font-semibold">{t.missingSomething}</span>
+                  <span className="mt-1 block truncate text-sm text-muted-foreground">
+                    {missingProductsNote.trim() || t.missingSomethingHint}
                   </span>
-                  {!missingNoteExpanded && missingProductsNote.trim() && (
-                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">{missingProductsNote}</span>
-                  )}
                 </span>
-                <span className="text-xs text-muted-foreground">{t.optional}</span>
-                <ChevronRight className={`size-4 shrink-0 text-muted-foreground transition-transform ${missingNoteExpanded ? "rotate-90" : language === "ar" ? "rotate-180" : ""}`} />
+                <ChevronRight className={`size-5 shrink-0 text-muted-foreground transition-transform ${missingNoteExpanded ? "rotate-90" : language === "ar" ? "rotate-180" : ""}`} />
               </button>
               {missingNoteExpanded && (
                 <div id="missing-products-panel" className="border-t border-border p-3">
@@ -3277,66 +3349,33 @@ export function FamilyTracker({
             </section>
           </div>
 
-          <SheetFooter className="shrink-0 gap-3 border-t border-border bg-card/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-12px_30px_-24px_rgba(0,0,0,0.55)] backdrop-blur sm:px-5">
-            <div>
-              <p className="mb-1.5 text-xs font-semibold text-muted-foreground">{t.paymentSource}</p>
-              <div role="radiogroup" aria-label={t.paymentSource} className="grid grid-cols-2 gap-1 rounded-2xl bg-muted/70 p-1">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={draftWalletScope === "family"}
-                  onClick={() => setDraftWalletScope("family")}
-                  className={`flex min-w-0 items-center gap-2 rounded-xl px-3 py-2.5 text-start transition ${draftWalletScope === "family" ? "bg-card text-primary shadow-sm ring-1 ring-primary/20" : "text-muted-foreground hover:bg-card/60"}`}
-                >
-                  <WalletCards className="size-4 shrink-0" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[11px] font-semibold">{t.familyWalletLabel}</span>
-                    <strong className="block truncate text-sm tabular-nums">{money(familyWalletBalanceCents)}</strong>
-                  </span>
-                  {draftWalletScope === "family" && <Check className="size-4 shrink-0" />}
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={draftWalletScope === "personal"}
-                  onClick={() => setDraftWalletScope("personal")}
-                  className={`flex min-w-0 items-center gap-2 rounded-xl px-3 py-2.5 text-start transition ${draftWalletScope === "personal" ? "bg-card text-primary shadow-sm ring-1 ring-primary/20" : "text-muted-foreground hover:bg-card/60"}`}
-                >
-                  <WalletCards className="size-4 shrink-0" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[11px] font-semibold">{t.personalWalletLabel}</span>
-                    <strong className="block truncate text-sm tabular-nums">{money(personalWalletBalanceCents)}</strong>
-                  </span>
-                  {draftWalletScope === "personal" && <Check className="size-4 shrink-0" />}
-                </button>
+          <SheetFooter className="shrink-0 gap-3 border-t border-border bg-background/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-12px_30px_-24px_rgba(0,0,0,0.55)] backdrop-blur sm:px-5">
+            <div className="grid gap-1.5 text-sm" aria-live="polite">
+              <div className="flex items-center justify-between gap-4 text-muted-foreground">
+                <span>{t.productsTotal}</span>
+                <strong className="font-semibold tabular-nums text-foreground">{money(draftTotal)}</strong>
+              </div>
+              <div className="flex items-center justify-between gap-4 text-muted-foreground">
+                <span>{t.serviceFee}</span>
+                <strong className="font-semibold tabular-nums text-foreground">
+                  {money(hasDraftOrder ? deliveryServiceFeeCents : 0)}
+                </strong>
+              </div>
+              <div className="mt-1 flex items-center justify-between gap-4 border-t border-border pt-2 text-base">
+                <strong>{t.totalLabel}</strong>
+                <strong className="text-xl tabular-nums tracking-tight">{money(draftGrandTotal)}</strong>
               </div>
             </div>
-
-            <div className="flex items-end justify-between gap-4 rounded-2xl bg-primary/[0.065] px-4 py-3" aria-live="polite">
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-muted-foreground">{t.orderSummary}</p>
-                <p className="mt-1 truncate text-xs text-muted-foreground">
-                  {money(draftTotal)} + {money(deliveryServiceFeeCents)} {t.serviceFee.toLocaleLowerCase()}
-                </p>
-              </div>
-              <div className="shrink-0 text-end">
-                <p className="text-[11px] text-muted-foreground">{t.totalWithService}</p>
-                <strong className="text-xl tabular-nums tracking-tight text-primary">{money(draftGrandTotal)}</strong>
-              </div>
-            </div>
-
             <Button
               size="lg"
               className="h-14 w-full rounded-2xl text-base font-semibold shadow-sm"
-              disabled={(!draftProducts.length && !missingProductsNote.trim()) || busy}
+              disabled={!hasDraftOrder || busy}
               onClick={() => void submitCart()}
             >
-              {busy ? <Loader2 className="animate-spin" /> : <Check className="size-5" />}
-              <span>{editingCartId ? t.update : t.submit}</span>
-              <span className="text-primary-foreground/70">·</span>
-              <span className="font-bold tabular-nums">{money(draftGrandTotal)}</span>
-              <ChevronRight className={`ms-auto size-5 ${language === "ar" ? "rotate-180" : ""}`} />
+              {busy && <Loader2 className="animate-spin" />}
+              <span>{editingCartId ? t.update : t.confirmAndSend}</span>
             </Button>
+            <p className="text-center text-[11px] leading-4 text-muted-foreground">{t.visibleImmediately}</p>
           </SheetFooter>
         </SheetContent>
       </Sheet>
