@@ -32,7 +32,7 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const HOUSE_CATALOG_IMAGE_VERSION = "4";
+const HOUSE_CATALOG_IMAGE_VERSION = "5";
 const HOUSE_CATALOG_IMAGES = [
   [1, "Lait entier", "/products/milk-jouda.png"],
   [3, "Huile d’olive", "https://storage.googleapis.com/crftobringo-sharing-ma-prelive/ftp/CRF/images/571202-1-2.jpg"],
@@ -50,6 +50,10 @@ const HOUSE_CATALOG_PRICE_UPDATES = [
   [7, "Thé vert", 2000],
 ] as const;
 const HOUSE_CATALOG_PACKAGE_UPDATES = [[1, "Lait entier", "0.5 L"]] as const;
+const EXTERNAL_CATALOG_IMAGE_UPDATES = [
+  ["bringo", "1482682", "/products/bringo-delicia-apricot-jam-37cl.jpg"],
+  ["bringo", "16307", "/products/bringo-amgalita-pastry-flour-1kg.jpg"],
+] as const;
 const PRODUCT_CATEGORIES = ["food", "cleaning", "hygiene", "school", "household", "health"];
 const PRODUCT_IMAGE_KEY_PATTERN =
   /^product-images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/;
@@ -324,6 +328,13 @@ async function syncHouseCatalogImages() {
         .update({ package_size: packageSize, updated_at: updatedAt })
         .eq("id", id)
         .eq("name_fr", nameFr),
+    ),
+    ...EXTERNAL_CATALOG_IMAGE_UPDATES.map(([externalSource, externalId, imageUrl]) =>
+      db
+        .from("products")
+        .update({ image_url: imageUrl, image_position: "0% 0%", updated_at: updatedAt })
+        .eq("external_source", externalSource)
+        .eq("external_id", externalId),
     ),
   ]);
   for (const result of updates) throwIfSupabaseError(result.error);

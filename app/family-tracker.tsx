@@ -1204,7 +1204,10 @@ function ProductImage({
     }
   }
 
-  if (!safeRemoteImage && position === "none") {
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
+  const remoteImageFailed = Boolean(safeRemoteImage && failedImageUrl === safeRemoteImage);
+
+  if ((safeRemoteImage && remoteImageFailed) || (!safeRemoteImage && position === "none")) {
     return (
       <div
         role="img"
@@ -1216,17 +1219,35 @@ function ProductImage({
     );
   }
 
+  if (safeRemoteImage) {
+    return (
+      <div
+        role="img"
+        aria-label={name}
+        className={`relative overflow-hidden bg-white ${className}`}
+      >
+        <Image
+          src={safeRemoteImage}
+          alt=""
+          fill
+          sizes="(max-width: 640px) 50vw, 260px"
+          unoptimized
+          className="object-contain"
+          onError={() => setFailedImageUrl(safeRemoteImage)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       role="img"
       aria-label={name}
-      className={`bg-center bg-no-repeat ${safeRemoteImage ? "bg-white" : ""} ${className}`}
+      className={`bg-center bg-no-repeat ${className}`}
       style={{
-        backgroundImage: safeRemoteImage
-          ? `url("${safeRemoteImage}")`
-          : "url('/product-sprite.png')",
-        backgroundPosition: safeRemoteImage ? "center" : position,
-        backgroundSize: safeRemoteImage ? "contain" : "200% 200%",
+        backgroundImage: "url('/product-sprite.png')",
+        backgroundPosition: position,
+        backgroundSize: "200% 200%",
       }}
     />
   );
