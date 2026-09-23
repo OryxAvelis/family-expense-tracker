@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Entrer dans ma famille · DarnaFlow",
+  description: "Un accès simple et privé à votre espace familial DarnaFlow.",
 };
 
 export default async function FamilyEntrancePage({

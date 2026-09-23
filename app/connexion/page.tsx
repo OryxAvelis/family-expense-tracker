@@ -11,7 +11,8 @@ import {
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Connexion · Dépenses famille",
+  title: "Ma famille · DarnaFlow",
+  description: "Choisissez votre profil familial et entrez avec votre code personnel.",
 };
 
 export default async function LoginPage({
