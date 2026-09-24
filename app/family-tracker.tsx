@@ -6647,10 +6647,10 @@ function BuyerMobileHeader({
             <Button
               type="button"
               variant="outline"
-              className="h-11 w-[5.5rem] min-w-0 shrink-0 gap-1.5 rounded-xl border-border bg-card/80 px-2 shadow-sm focus-visible:ring-2 focus-visible:ring-primary min-[360px]:w-auto min-[360px]:max-w-[8.5rem] min-[360px]:gap-2 min-[360px]:px-2.5"
+              className="h-11 w-24 min-w-0 shrink-0 gap-1.5 rounded-xl border-border bg-card/80 px-2 shadow-sm focus-visible:ring-2 focus-visible:ring-primary min-[360px]:w-auto min-[360px]:max-w-[8.5rem] min-[360px]:gap-2 min-[360px]:px-2.5"
               aria-label={copy.accountMenu}
             >
-              <ProfileAvatar user={currentUser} version={profileImageVersion} className="size-7 shrink-0 rounded-lg text-[8px]" />
+              <ProfileAvatar user={currentUser} version={profileImageVersion} className="hidden size-7 shrink-0 rounded-lg text-[8px] min-[360px]:grid" />
               <span className="truncate text-xs font-semibold">{t.account}</span>
               <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
             </Button>
