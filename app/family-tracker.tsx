@@ -9,6 +9,7 @@ import {
   BellRing,
   Camera,
   Check,
+  ChevronDown,
   ChevronRight,
   CircleCheck,
   ClipboardCheck,
@@ -42,6 +43,7 @@ import {
   Undo2,
   UserCheck,
   UserPlus,
+  Users,
   WalletCards,
   X,
 } from "lucide-react";
@@ -5045,6 +5047,18 @@ function AdminDashboard({
   language: Language;
   profileImageVersion: number;
 }) {
+  const [requestGroup, setRequestGroup] = useState<"orders" | "accounts" | "plans" | null>(null);
+  const activeRequestGroup = requestGroup ?? (pendingCarts.length ? "orders" : pendingUsers.length ? "accounts" : pendingPlanPayments.length ? "plans" : "orders");
+  const requestCopy = {
+    fr: { orders: "Commandes", accounts: "Comptes", plans: "Forfaits", family: "Famille et acheteur", manage: "Ajouter une personne ou consulter le compte acheteur", needsBuyer: "Créer le compte acheteur pour organiser les courses", title: "La maison, en un coup d’œil." },
+    en: { orders: "Orders", accounts: "Accounts", plans: "Plans", family: "Family and buyer", manage: "Add a person or view the buyer account", needsBuyer: "Create a buyer account to organize shopping", title: "Your household at a glance." },
+    ar: { orders: "الطلبات", accounts: "الحسابات", plans: "الاشتراكات", family: "العائلة والمكلّف بالشراء", manage: "إضافة شخص أو عرض حساب المكلّف بالشراء", needsBuyer: "إنشاء حساب المكلّف بالشراء لتنظيم المشتريات", title: "البيت في لمحة." },
+  }[language];
+  const requestGroups = [
+    { id: "orders", label: requestCopy.orders, count: pendingCarts.length },
+    { id: "accounts", label: requestCopy.accounts, count: pendingUsers.length },
+    { id: "plans", label: requestCopy.plans, count: pendingPlanPayments.length },
+  ];
   const [catalogSearch, setCatalogSearch] = useState("");
   const [catalogCategory, setCatalogCategory] = useState("all");
   const catalogProducts = data.products.filter((product) =>
@@ -5413,17 +5427,17 @@ function AdminDashboard({
   const budgetRemaining = Math.max(data.monthlyBudgetCents - currentMonthlyTotal, 0);
 
   return (
-    <section className="mx-auto max-w-7xl px-5 pb-10 pt-7 sm:px-8 lg:px-12 lg:pt-10">
-      <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <section className="mx-auto max-w-7xl px-5 pb-10 pt-4 sm:px-8 lg:px-12 lg:pt-10">
+      <div className="mb-4 flex flex-col gap-3 sm:mb-7 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="mb-2 text-sm font-semibold text-[#b76500] dark:text-[#ffb454]">{t.admin}</p>
-          <h1 className="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">La maison, en un coup d’œil.</h1>
+          <h1 className="text-2xl font-bold tracking-[-0.04em] sm:text-4xl">{requestCopy.title}</h1>
         </div>
         <OfflinePurchaseDialog data={data} productName={productName} money={money} parsePrice={parsePrice} act={act} actService={actService} busy={busy} />
       </div>
 
       <Tabs value={view} onValueChange={(value) => setView(value as AdminView)}>
-        <TabsList className="mb-7 h-11 w-full justify-start gap-1 overflow-x-auto overflow-y-hidden rounded-2xl bg-muted/60 p-1 sm:w-fit">
+        <TabsList className="mb-4 h-11 w-full justify-start gap-1 overflow-x-auto overflow-y-hidden rounded-2xl bg-muted/60 p-1 sm:w-fit">
           <TabsTrigger value="requests" className="h-9 rounded-xl px-4">
             <ListChecks /> {t.requests}
             {pendingCarts.length + pendingUsers.length + pendingPlanPayments.length > 0 && (
@@ -5437,287 +5451,307 @@ function AdminDashboard({
         </TabsList>
 
         <TabsContent value="requests">
-          <DirectMemberCreator
-            language={language}
-            members={data.users}
-            busy={busy}
-            onCreate={(name, pin, successMessage) =>
-              act({ action: "create_member", name, pin }, successMessage)
-            }
-          />
-
-          <section className="mb-8 overflow-hidden rounded-3xl border border-primary/20 bg-card">
-            <div className="flex items-start gap-3 border-b border-border bg-primary/[0.045] p-4 sm:p-5">
-              <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
-                {familyBuyer ? <UserCheck className="size-5" /> : <UserPlus className="size-5" />}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-lg font-semibold">{buyerCopy.title}</h2>
-                  <Badge variant={familyBuyer ? "default" : "outline"}>{familyBuyer ? buyerCopy.ready : "1 / famille"}</Badge>
-                </div>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">{buyerCopy.help}</p>
+          <Tabs value={activeRequestGroup} onValueChange={(value) => setRequestGroup(value as "orders" | "accounts" | "plans")}>
+            <TabsList aria-label={t.requests} className="mb-2 grid w-full group-data-[orientation=horizontal]/tabs:h-auto grid-cols-3 gap-1 rounded-2xl bg-muted/60 p-1">
+              {requestGroups.map((group) => <TabsTrigger key={group.id} value={group.id} className="h-auto min-w-0 flex-col gap-1 rounded-xl px-2 py-2 text-xs sm:flex-row sm:gap-2 sm:text-sm">
+                <span>{group.label}</span><Badge variant={group.count ? "default" : "outline"} className="h-5 min-w-5 justify-center px-1.5">{group.count}</Badge>
+              </TabsTrigger>)}
+            </TabsList>
+            <TabsContent value="orders">
+              <div className="mb-4">
+                <h2 className="text-xl font-semibold">{t.awaiting}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{t.choosePriority}</p>
               </div>
-            </div>
-
-            {familyBuyer ? (
-              <div className="flex items-center gap-3 p-4 sm:p-5">
-                <span className="grid size-11 place-items-center rounded-2xl bg-secondary font-bold text-primary">{familyBuyer.initials}</span>
-                <div className="min-w-0">
-                  <p className="truncate font-semibold">{familyBuyer.name}</p>
-                  <p className="truncate text-sm text-muted-foreground">{buyerCopy.ready}</p>
-                </div>
-                <CircleCheck className="ms-auto size-6 shrink-0 text-primary" aria-hidden="true" />
-              </div>
-            ) : (
-              <form className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5" onSubmit={(event) => void createBuyer(event)}>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="family-buyer-name">{buyerCopy.name}</Label>
-                  <Input id="family-buyer-name" value={buyerName} onChange={(event) => setBuyerName(event.target.value)} required maxLength={80} autoComplete="name" className="h-11 rounded-xl" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="family-buyer-pin">{buyerCopy.pin}</Label>
-                  <Input id="family-buyer-pin" type="password" inputMode="numeric" pattern="[0-9]{4}" minLength={4} maxLength={4} value={buyerPin} onChange={(event) => setBuyerPin(event.target.value.replace(/\D/g, "").slice(0, 4))} required autoComplete="new-password" className="h-11 rounded-xl" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="family-buyer-pin-confirmation">{buyerCopy.confirmPin}</Label>
-                  <Input id="family-buyer-pin-confirmation" type="password" inputMode="numeric" pattern="[0-9]{4}" minLength={4} maxLength={4} value={buyerPinConfirmation} onChange={(event) => setBuyerPinConfirmation(event.target.value.replace(/\D/g, "").slice(0, 4))} required autoComplete="new-password" className="h-11 rounded-xl" />
-                </div>
-                <Button type="submit" className="mt-1 h-11 rounded-xl sm:col-span-2" disabled={busy || !buyerName.trim() || buyerPin.length !== 4 || buyerPinConfirmation.length !== 4}>
-                  {busy ? <Loader2 className="animate-spin" /> : <UserPlus />} {buyerCopy.create}
-                </Button>
-              </form>
-            )}
-          </section>
-
-          {pendingUsers.length > 0 && <div className="mb-8 rounded-3xl border border-primary/20 bg-primary/[0.035] p-4 sm:p-5">
-            <div className="mb-4 flex items-start gap-3">
-              <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
-                <UserPlus className="size-5" />
-              </span>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-lg font-semibold">{t.accountRequests}</h2>
-                  {pendingUsers.length > 0 && <Badge>{pendingUsers.length}</Badge>}
-                </div>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">{t.accountRequestsHelp}</p>
-              </div>
-            </div>
-
-            {pendingUsers.length ? (
-              <div className="grid gap-3 lg:grid-cols-2">
-                {pendingUsers.map((member) => (
-                  <article key={member.id} className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-center">
-                    <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-secondary font-bold text-primary">
-                      {member.initials}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold">{member.name}</p>
-                      <p className="truncate text-xs text-muted-foreground">@{member.username}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {t.requestedOn}{" "}
-                        {new Date(member.created_at).toLocaleString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", {
-                          dateStyle: "medium",
-                          timeStyle: "short",
-                        })}
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
-                      <Button
-                        variant="outline"
-                        className="h-10 min-w-0 rounded-xl px-3 text-destructive hover:text-destructive"
-                        disabled={busy}
-                        onClick={() => setMemberToReject(member)}
-                      >
-                        <X /> {t.rejectAccount}
-                      </Button>
-                      <Button
-                        className="h-10 min-w-0 rounded-xl px-3"
-                        disabled={busy}
-                        onClick={() => void act({ action: "approve_user", userId: member.id }, t.accountApproved)}
-                      >
-                        <UserCheck /> {t.approveAccount}
-                      </Button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-border bg-card/50 px-4 py-5 text-center text-sm text-muted-foreground">
-                <UserCheck className="mx-auto mb-2 size-6 text-primary" />
-                {t.noAccountRequests}
-              </div>
-            )}
-          </div>}
-
-          <div className="mb-8 rounded-3xl border border-[#f3a72f]/35 bg-[#f3a72f]/[0.06] p-4 sm:p-5">
-            <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start">
-              <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-[#f3a72f]/15 text-[#c57900] dark:text-[#ffbd57]">
-                <Crown className="size-5" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-lg font-semibold">Demandes de forfait</h2>
-                  {pendingPlanPayments.length > 0 && <Badge className="bg-[#f3a72f] text-[#2d1e07] hover:bg-[#f3a72f]">{pendingPlanPayments.length}</Badge>}
-                </div>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">Confirmez uniquement après avoir reçu le montant indiqué.</p>
-              </div>
-              <Button
-                variant={planPushState === "enabled" ? "outline" : "default"}
-                className="rounded-xl sm:shrink-0"
-                disabled={planPushState === "checking" || planPushState === "working" || planPushState === "blocked" || planPushState === "unavailable"}
-                onClick={() => void togglePlanPushNotifications()}
-              >
-                {planPushState === "working" ? <Loader2 className="animate-spin" /> : <BellRing />}
-                {planPushState === "enabled" ? "Désactiver les alertes" : planPushState === "blocked" ? "Alertes bloquées" : planPushState === "unavailable" ? "Alertes indisponibles" : "M’alerter hors du site"}
-              </Button>
-            </div>
-
-            {pendingPlanPayments.length ? (
-              <div className="grid gap-3 lg:grid-cols-2">
-                {pendingPlanPayments.map((payment) => (
-                  <article key={payment.id} className="rounded-2xl border border-border bg-card p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold">{payment.user_name}</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {payment.request_type === "trial" ? "Essai personnel gratuit · 7 jours" : payment.scope === "family" ? "Participation au forfait familial" : "Forfait personnel"} · <span className="font-bold uppercase">{payment.plan}</span>
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {new Date(payment.created_at).toLocaleString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", { dateStyle: "medium", timeStyle: "short" })}
-                        </p>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {pendingCarts.length ? pendingCarts.map((cart) => (
+                  <article key={cart.id} className="rounded-3xl border border-border bg-card p-5">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <ProfileAvatar
+                          user={{ id: cart.member_id, name: cart.member_name, initials: cart.member_initials }}
+                          version={profileImageVersion}
+                          className="size-11 rounded-2xl text-sm"
+                        />
+                        <div className="min-w-0">
+                          <p className="font-semibold">{cart.member_name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(cart.submitted_at).toLocaleString(language === "ar" ? "ar-MA" : "fr-MA", { dateStyle: "medium", timeStyle: "short" })}
+                          </p>
+                        </div>
                       </div>
-                      <strong className="shrink-0 text-lg text-primary">{payment.request_type === "trial" ? "GRATUIT" : money(payment.amount_cents)}</strong>
+                      <Badge variant="outline" className="shrink-0 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                        {itemsFor(cart.id).length} {t.items}
+                      </Badge>
                     </div>
-                    {payment.proof_key && (
-                      <a
-                        href={`/api/services/proofs?paymentId=${encodeURIComponent(payment.id)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-3 inline-flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/5 px-3 py-2 text-sm font-semibold text-primary hover:bg-primary/10"
-                      >
-                        <ReceiptText className="size-4" />
-                        Voir le justificatif{payment.proof_name ? ` · ${payment.proof_name}` : ""}
-                      </a>
-                    )}
+                    <div className="space-y-2">
+                      {itemsFor(cart.id).map((item) => (
+                        <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-muted/45 px-3 py-2.5 text-sm">
+                          <span className="truncate">{productName(item)}</span>
+                          <span className="shrink-0 text-muted-foreground">{itemRequestLabel(item)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <MissingProductsNote
+                      note={cart.missing_products_note}
+                      label={t.missingProducts}
+                      className="mt-3"
+                    />
+                    <div className="mt-3 flex items-center justify-between rounded-xl bg-primary/[0.055] px-3 py-2 text-sm">
+                      <span className="text-muted-foreground">{t.serviceFee}</span>
+                      <strong>{money(serviceFeeCents)}</strong>
+                    </div>
                     <div className="mt-4 grid grid-cols-2 gap-2">
                       <Button
                         variant="outline"
-                        className="rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        className="h-11 rounded-xl border-border"
                         disabled={busy}
-                        onClick={() => void actService({ action: "reject_payment", paymentId: payment.id }, "Demande de forfait refusée.")}
+                        onClick={() => void act({ action: "set_priority", actorRole: "admin", cartId: cart.id, priority: "normal" }, "Priorité normale enregistrée.")}
                       >
-                        <X /> Refuser
+                        <Clock3 /> {t.normal}
                       </Button>
                       <Button
-                        className="rounded-xl"
+                        className="h-11 rounded-xl bg-[#ffb454] text-[#211609] hover:bg-[#ffc16d]"
                         disabled={busy}
-                        onClick={() => void actService({ action: "confirm_payment", paymentId: payment.id }, payment.request_type === "trial" ? "Essai approuvé et activé pour 7 jours." : "Paiement confirmé et forfait activé.")}
+                        onClick={() => void act({ action: "set_priority", actorRole: "admin", cartId: cart.id, priority: "urgent" }, "Priorité urgente enregistrée.")}
                       >
-                        <Check /> {payment.request_type === "trial" ? "Approuver" : "Confirmer"}
+                        <AlertTriangle /> {t.urgent}
                       </Button>
                     </div>
                   </article>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-border bg-card/50 px-4 py-5 text-center text-sm text-muted-foreground">
-                <CircleCheck className="mx-auto mb-2 size-6 text-primary" />
-                Aucune demande de forfait en attente.
-              </div>
-            )}
-            <details className="mt-4 rounded-2xl border border-border bg-card">
-              <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 font-semibold">
-                <ReceiptText className="size-4 text-primary" />
-                Historique des forfaits
-                <Badge variant="outline" className="ms-auto">{planPaymentHistory.length}</Badge>
-              </summary>
-              <div className="max-h-80 space-y-2 overflow-y-auto border-t border-border p-3">
-                {planPaymentHistory.length ? planPaymentHistory.map((payment) => (
-                  <article key={payment.id} className="flex flex-col gap-2 rounded-xl bg-muted/40 p-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">{payment.user_name} · {payment.request_type === "trial" ? "ESSAI PRO" : payment.plan.toUpperCase()}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {payment.scope === "family" ? "Familial" : "Personnel"} · {new Date(payment.created_at).toLocaleDateString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA")}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {payment.proof_key && <a href={`/api/services/proofs?paymentId=${encodeURIComponent(payment.id)}`} target="_blank" rel="noreferrer" aria-label={`Voir le justificatif de ${payment.user_name}`} className="rounded-lg p-2 text-primary hover:bg-primary/10"><ReceiptText className="size-4" /></a>}
-                      <strong className="text-sm">{payment.request_type === "trial" ? "GRATUIT" : money(payment.amount_cents)}</strong>
-                      <Badge variant={payment.status === "confirmed" ? "default" : "outline"} className={payment.status === "rejected" ? "border-destructive/30 text-destructive" : ""}>{payment.status === "confirmed" ? "Confirmé" : "Refusé"}</Badge>
-                    </div>
-                  </article>
-                )) : <p className="py-5 text-center text-sm text-muted-foreground">Aucun historique pour le moment.</p>}
-              </div>
-            </details>
-          </div>
-
-          <div className="mb-4">
-            <h2 className="text-xl font-semibold">{t.awaiting}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{t.choosePriority}</p>
-          </div>
-          <div className="grid gap-4 lg:grid-cols-2">
-            {pendingCarts.length ? pendingCarts.map((cart) => (
-              <article key={cart.id} className="rounded-3xl border border-border bg-card p-5">
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <ProfileAvatar
-                      user={{ id: cart.member_id, name: cart.member_name, initials: cart.member_initials }}
-                      version={profileImageVersion}
-                      className="size-11 rounded-2xl text-sm"
-                    />
-                    <div className="min-w-0">
-                      <p className="font-semibold">{cart.member_name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(cart.submitted_at).toLocaleString(language === "ar" ? "ar-MA" : "fr-MA", { dateStyle: "medium", timeStyle: "short" })}
-                      </p>
-                    </div>
+                )) : (
+                  <div className="col-span-full rounded-3xl border border-dashed border-border bg-card/50 p-10 text-center text-muted-foreground">
+                    <CircleCheck className="mx-auto mb-3 size-8 text-primary" />{t.noRequests}
                   </div>
-                  <Badge variant="outline" className="shrink-0 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
-                    {itemsFor(cart.id).length} {t.items}
-                  </Badge>
-                </div>
-                <div className="space-y-2">
-                  {itemsFor(cart.id).map((item) => (
-                    <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-muted/45 px-3 py-2.5 text-sm">
-                      <span className="truncate">{productName(item)}</span>
-                      <span className="shrink-0 text-muted-foreground">{itemRequestLabel(item)}</span>
-                    </div>
-                  ))}
-                </div>
-                <MissingProductsNote
-                  note={cart.missing_products_note}
-                  label={t.missingProducts}
-                  className="mt-3"
-                />
-                <div className="mt-3 flex items-center justify-between rounded-xl bg-primary/[0.055] px-3 py-2 text-sm">
-                  <span className="text-muted-foreground">{t.serviceFee}</span>
-                  <strong>{money(serviceFeeCents)}</strong>
-                </div>
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <Button
-                    variant="outline"
-                    className="h-11 rounded-xl border-border"
-                    disabled={busy}
-                    onClick={() => void act({ action: "set_priority", actorRole: "admin", cartId: cart.id, priority: "normal" }, "Priorité normale enregistrée.")}
-                  >
-                    <Clock3 /> {t.normal}
-                  </Button>
-                  <Button
-                    className="h-11 rounded-xl bg-[#ffb454] text-[#211609] hover:bg-[#ffc16d]"
-                    disabled={busy}
-                    onClick={() => void act({ action: "set_priority", actorRole: "admin", cartId: cart.id, priority: "urgent" }, "Priorité urgente enregistrée.")}
-                  >
-                    <AlertTriangle /> {t.urgent}
-                  </Button>
-                </div>
-              </article>
-            )) : (
-              <div className="col-span-full rounded-3xl border border-dashed border-border bg-card/50 p-10 text-center text-muted-foreground">
-                <CircleCheck className="mx-auto mb-3 size-8 text-primary" />{t.noRequests}
+                )}
               </div>
-            )}
-          </div>
+            </TabsContent>
+            <TabsContent value="accounts">
+              <div className="mb-8 rounded-3xl border border-primary/20 bg-primary/[0.035] p-4 sm:p-5">
+                <div className="mb-4 flex items-start gap-3">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
+                    <UserPlus className="size-5" />
+                  </span>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-lg font-semibold">{t.accountRequests}</h2>
+                      {pendingUsers.length > 0 && <Badge>{pendingUsers.length}</Badge>}
+                    </div>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{t.accountRequestsHelp}</p>
+                  </div>
+                </div>
+
+                {pendingUsers.length ? (
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {pendingUsers.map((member) => (
+                      <article key={member.id} className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-4 sm:flex-row sm:items-center">
+                        <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-secondary font-bold text-primary">
+                          {member.initials}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-semibold">{member.name}</p>
+                          <p className="truncate text-xs text-muted-foreground">@{member.username}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t.requestedOn}{" "}
+                            {new Date(member.created_at).toLocaleString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })}
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
+                          <Button
+                            variant="outline"
+                            className="h-10 min-w-0 rounded-xl px-3 text-destructive hover:text-destructive"
+                            disabled={busy}
+                            onClick={() => setMemberToReject(member)}
+                          >
+                            <X /> {t.rejectAccount}
+                          </Button>
+                          <Button
+                            className="h-10 min-w-0 rounded-xl px-3"
+                            disabled={busy}
+                            onClick={() => void act({ action: "approve_user", userId: member.id }, t.accountApproved)}
+                          >
+                            <UserCheck /> {t.approveAccount}
+                          </Button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-border bg-card/50 px-4 py-5 text-center text-sm text-muted-foreground">
+                    <UserCheck className="mx-auto mb-2 size-6 text-primary" />
+                    {t.noAccountRequests}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+            <TabsContent value="plans">
+              <div className="mb-8 rounded-3xl border border-[#f3a72f]/35 bg-[#f3a72f]/[0.06] p-4 sm:p-5">
+                <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-[#f3a72f]/15 text-[#c57900] dark:text-[#ffbd57]">
+                    <Crown className="size-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-lg font-semibold">Demandes de forfait</h2>
+                      {pendingPlanPayments.length > 0 && <Badge className="bg-[#f3a72f] text-[#2d1e07] hover:bg-[#f3a72f]">{pendingPlanPayments.length}</Badge>}
+                    </div>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">Confirmez uniquement après avoir reçu le montant indiqué.</p>
+                  </div>
+                  <Button
+                    variant={planPushState === "enabled" ? "outline" : "default"}
+                    className="rounded-xl sm:shrink-0"
+                    disabled={planPushState === "checking" || planPushState === "working" || planPushState === "blocked" || planPushState === "unavailable"}
+                    onClick={() => void togglePlanPushNotifications()}
+                  >
+                    {planPushState === "working" ? <Loader2 className="animate-spin" /> : <BellRing />}
+                    {planPushState === "enabled" ? "Désactiver les alertes" : planPushState === "blocked" ? "Alertes bloquées" : planPushState === "unavailable" ? "Alertes indisponibles" : "M’alerter hors du site"}
+                  </Button>
+                </div>
+
+                {pendingPlanPayments.length ? (
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {pendingPlanPayments.map((payment) => (
+                      <article key={payment.id} className="rounded-2xl border border-border bg-card p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold">{payment.user_name}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {payment.request_type === "trial" ? "Essai personnel gratuit · 7 jours" : payment.scope === "family" ? "Participation au forfait familial" : "Forfait personnel"} · <span className="font-bold uppercase">{payment.plan}</span>
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {new Date(payment.created_at).toLocaleString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", { dateStyle: "medium", timeStyle: "short" })}
+                            </p>
+                          </div>
+                          <strong className="shrink-0 text-lg text-primary">{payment.request_type === "trial" ? "GRATUIT" : money(payment.amount_cents)}</strong>
+                        </div>
+                        {payment.proof_key && (
+                          <a
+                            href={`/api/services/proofs?paymentId=${encodeURIComponent(payment.id)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-3 inline-flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/5 px-3 py-2 text-sm font-semibold text-primary hover:bg-primary/10"
+                          >
+                            <ReceiptText className="size-4" />
+                            Voir le justificatif{payment.proof_name ? ` · ${payment.proof_name}` : ""}
+                          </a>
+                        )}
+                        <div className="mt-4 grid grid-cols-2 gap-2">
+                          <Button
+                            variant="outline"
+                            className="rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            disabled={busy}
+                            onClick={() => void actService({ action: "reject_payment", paymentId: payment.id }, "Demande de forfait refusée.")}
+                          >
+                            <X /> Refuser
+                          </Button>
+                          <Button
+                            className="rounded-xl"
+                            disabled={busy}
+                            onClick={() => void actService({ action: "confirm_payment", paymentId: payment.id }, payment.request_type === "trial" ? "Essai approuvé et activé pour 7 jours." : "Paiement confirmé et forfait activé.")}
+                          >
+                            <Check /> {payment.request_type === "trial" ? "Approuver" : "Confirmer"}
+                          </Button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-border bg-card/50 px-4 py-5 text-center text-sm text-muted-foreground">
+                    <CircleCheck className="mx-auto mb-2 size-6 text-primary" />
+                    Aucune demande de forfait en attente.
+                  </div>
+                )}
+                <details className="mt-4 rounded-2xl border border-border bg-card">
+                  <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 font-semibold">
+                    <ReceiptText className="size-4 text-primary" />
+                    Historique des forfaits
+                    <Badge variant="outline" className="ms-auto">{planPaymentHistory.length}</Badge>
+                  </summary>
+                  <div className="max-h-80 space-y-2 overflow-y-auto border-t border-border p-3">
+                    {planPaymentHistory.length ? planPaymentHistory.map((payment) => (
+                      <article key={payment.id} className="flex flex-col gap-2 rounded-xl bg-muted/40 p-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{payment.user_name} · {payment.request_type === "trial" ? "ESSAI PRO" : payment.plan.toUpperCase()}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {payment.scope === "family" ? "Familial" : "Personnel"} · {new Date(payment.created_at).toLocaleDateString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA")}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {payment.proof_key && <a href={`/api/services/proofs?paymentId=${encodeURIComponent(payment.id)}`} target="_blank" rel="noreferrer" aria-label={`Voir le justificatif de ${payment.user_name}`} className="rounded-lg p-2 text-primary hover:bg-primary/10"><ReceiptText className="size-4" /></a>}
+                          <strong className="text-sm">{payment.request_type === "trial" ? "GRATUIT" : money(payment.amount_cents)}</strong>
+                          <Badge variant={payment.status === "confirmed" ? "default" : "outline"} className={payment.status === "rejected" ? "border-destructive/30 text-destructive" : ""}>{payment.status === "confirmed" ? "Confirmé" : "Refusé"}</Badge>
+                        </div>
+                      </article>
+                    )) : <p className="py-5 text-center text-sm text-muted-foreground">Aucun historique pour le moment.</p>}
+                  </div>
+                </details>
+              </div>
+            </TabsContent>
+          </Tabs>
+
+          <details className="group mt-6 rounded-2xl border border-border bg-card">
+            <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl p-4 font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+              <Users className="size-5 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1">{requestCopy.family}<span className="mt-1 block text-xs font-normal text-muted-foreground">{familyBuyer ? requestCopy.manage : requestCopy.needsBuyer}</span></span>
+              <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="border-t border-border p-3 sm:p-5">
+              <DirectMemberCreator
+                language={language}
+                members={data.users}
+                busy={busy}
+                onCreate={(name, pin, successMessage) =>
+                  act({ action: "create_member", name, pin }, successMessage)
+                }
+              />
+
+              <section className="mb-8 overflow-hidden rounded-3xl border border-primary/20 bg-card">
+                <div className="flex items-start gap-3 border-b border-border bg-primary/[0.045] p-4 sm:p-5">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
+                    {familyBuyer ? <UserCheck className="size-5" /> : <UserPlus className="size-5" />}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-lg font-semibold">{buyerCopy.title}</h2>
+                      <Badge variant={familyBuyer ? "default" : "outline"}>{familyBuyer ? buyerCopy.ready : "1 / famille"}</Badge>
+                    </div>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{buyerCopy.help}</p>
+                  </div>
+                </div>
+
+                {familyBuyer ? (
+                  <div className="flex items-center gap-3 p-4 sm:p-5">
+                    <span className="grid size-11 place-items-center rounded-2xl bg-secondary font-bold text-primary">{familyBuyer.initials}</span>
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold">{familyBuyer.name}</p>
+                      <p className="truncate text-sm text-muted-foreground">{buyerCopy.ready}</p>
+                    </div>
+                    <CircleCheck className="ms-auto size-6 shrink-0 text-primary" aria-hidden="true" />
+                  </div>
+                ) : (
+                  <form className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5" onSubmit={(event) => void createBuyer(event)}>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label htmlFor="family-buyer-name">{buyerCopy.name}</Label>
+                      <Input id="family-buyer-name" value={buyerName} onChange={(event) => setBuyerName(event.target.value)} required maxLength={80} autoComplete="name" className="h-11 rounded-xl" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="family-buyer-pin">{buyerCopy.pin}</Label>
+                      <Input id="family-buyer-pin" type="password" inputMode="numeric" pattern="[0-9]{4}" minLength={4} maxLength={4} value={buyerPin} onChange={(event) => setBuyerPin(event.target.value.replace(/\D/g, "").slice(0, 4))} required autoComplete="new-password" className="h-11 rounded-xl" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="family-buyer-pin-confirmation">{buyerCopy.confirmPin}</Label>
+                      <Input id="family-buyer-pin-confirmation" type="password" inputMode="numeric" pattern="[0-9]{4}" minLength={4} maxLength={4} value={buyerPinConfirmation} onChange={(event) => setBuyerPinConfirmation(event.target.value.replace(/\D/g, "").slice(0, 4))} required autoComplete="new-password" className="h-11 rounded-xl" />
+                    </div>
+                    <Button type="submit" className="mt-1 h-11 rounded-xl sm:col-span-2" disabled={busy || !buyerName.trim() || buyerPin.length !== 4 || buyerPinConfirmation.length !== 4}>
+                      {busy ? <Loader2 className="animate-spin" /> : <UserPlus />} {buyerCopy.create}
+                    </Button>
+                  </form>
+                )}
+              </section>
+            </div>
+          </details>
         </TabsContent>
 
         <TabsContent value="history">
