@@ -109,6 +109,7 @@ import { AdminCartHistory } from "@/app/admin-cart-history";
 import { CartDraftControls, draftCopy } from "@/components/cart-draft-controls";
 import { useCartDraft } from "@/hooks/use-cart-draft";
 import { hasCartDraft, type CartDraft } from "@/lib/cart-draft";
+import { newestCompletedFirst, matchesHistoryFilters } from "@/lib/history";
 import { useFamilyTheme } from "@/hooks/use-family-theme";
 import type { FamilySessionUser } from "@/lib/family-auth";
 import type { ServiceTask } from "@/lib/family-services";
@@ -2186,7 +2187,7 @@ export function FamilyTracker({
   const deliveryQueue =
     data?.carts.filter((cart) => ["pending", "ready", "shopping"].includes(cart.status)) ?? [];
   const deliveryHistory =
-    data?.carts.filter((cart) => cart.status === "completed").slice().reverse() ?? [];
+    data?.carts.filter((cart) => cart.status === "completed").sort(newestCompletedFirst) ?? [];
   const memberActive =
     data?.carts.filter(
       (cart) =>
@@ -2196,8 +2197,7 @@ export function FamilyTracker({
   const memberHistory =
     data?.carts
       .filter((cart) => cart.member_id === memberId && cart.status === "completed")
-      .slice()
-      .reverse() ?? [];
+      .sort(newestCompletedFirst) ?? [];
 
   const currentMonth = new Date().toISOString().slice(0, 7);
   const currentMonthlyTotal =
@@ -6529,6 +6529,17 @@ function DeliveryDashboard({
   serviceTasks: ServiceTask[];
   actService: (body: Record<string, unknown>, success: string) => Promise<boolean>;
 }) {
+  const [historyMember, setHistoryMember] = useState("");
+  const [historyFrom, setHistoryFrom] = useState("");
+  const [historyTo, setHistoryTo] = useState("");
+  const historyCopy = {
+    fr: { all: "Tous les membres", member: "Membre", from: "Terminé à partir du", to: "Jusqu’au", reset: "Effacer les filtres", newest: "Les plus récents en premier", details: "Voir les articles", requested: "Demandé", unknown: "Date de fin non renseignée", empty: "Aucun historique pour le moment.", noMatch: "Aucun résultat pour ces filtres.", invalid: "La date de fin doit suivre la date de début.", settings: "Portefeuille, budget et notifications", completed: "Service terminé" },
+    en: { all: "All members", member: "Member", from: "Completed from", to: "Through", reset: "Clear filters", newest: "Newest first", details: "View items", requested: "Requested", unknown: "Completion date unavailable", empty: "No history yet.", noMatch: "No results match these filters.", invalid: "The end date must follow the start date.", settings: "Wallet, budget and notifications", completed: "Service completed" },
+    ar: { all: "كل الأعضاء", member: "العضو", from: "أُنجز ابتداءً من", to: "إلى", reset: "مسح الفلاتر", newest: "الأحدث أولاً", details: "عرض المنتجات", requested: "مطلوب", unknown: "تاريخ الإنجاز غير متوفر", empty: "لا يوجد سجل بعد.", noMatch: "لا توجد نتائج لهذه الفلاتر.", invalid: "يجب أن يكون تاريخ النهاية بعد تاريخ البداية.", settings: "المحفظة والميزانية والإشعارات", completed: "خدمة مكتملة" },
+  }[language];
+  const completedDate = (value: string | null) => value && Number.isFinite(Date.parse(value))
+    ? new Date(value).toLocaleString(language === "ar" ? "ar-MA" : language === "en" ? "en-GB" : "fr-MA", { timeZone: "Africa/Casablanca", dateStyle: "medium", timeStyle: "short" })
+    : historyCopy.unknown;
   const [selectedCartId, setSelectedCartId] = useState<number | null>(null);
   const [pushState, setPushState] = useState<
     "checking" | "disabled" | "enabled" | "blocked" | "unavailable" | "working"
@@ -6553,7 +6564,13 @@ function DeliveryDashboard({
       0,
     );
   const activeServiceTasks = serviceTasks.filter((task) => task.status === "pending" || task.status === "in_progress");
-  const completedServiceTasks = serviceTasks.filter((task) => task.status === "completed");
+  const completedWork = [
+    ...history.map((cart) => ({ kind: "cart" as const, id: cart.id, completed_at: cart.completed_at, memberId: cart.member_id, memberName: cart.member_name, cart })),
+    ...serviceTasks.filter((task) => task.status === "completed").map((task) => ({ kind: "service" as const, id: task.id, completed_at: task.completed_at, memberId: task.creator_id, memberName: task.creator_name, task })),
+  ].sort(newestCompletedFirst);
+  const historyMembers = [...new Map(completedWork.map((entry) => [entry.memberId, entry.memberName])).entries()];
+  const invalidDates = Boolean(historyFrom && historyTo && historyFrom > historyTo);
+  const filteredWork = completedWork.filter((entry) => matchesHistoryFilters(entry, historyMember, historyFrom, historyTo));
   const serviceStatusLabel = (task: ServiceTask) => {
     if (task.status === "in_progress") return language === "ar" ? "قيد الإنجاز" : language === "en" ? "In progress" : "En cours";
     return language === "ar" ? "للقيام" : language === "en" ? "To do" : "À faire";
@@ -6648,128 +6665,25 @@ function DeliveryDashboard({
 
   return (
     <section className="mx-auto max-w-7xl px-5 pb-10 pt-7 sm:px-8 lg:px-12 lg:pt-10">
-      <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="mb-2 text-sm font-semibold text-[#b76500] dark:text-[#ffb454]">{t.delivery}</p>
           <h1 className="text-3xl font-bold tracking-[-0.04em] sm:text-4xl">
             {view === "queue" ? t.queue : view === "history" ? t.history : t.memberBalances}
           </h1>
         </div>
-        <div className="flex max-w-full overflow-x-auto rounded-2xl bg-muted/60 p-1">
-          <Button variant="ghost" className={`rounded-xl ${view === "queue" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`} onClick={() => setView("queue")}>
-            <ShoppingBasket /> {t.queue}
+        <nav aria-label={t.delivery} className="grid w-full grid-cols-3 gap-1 rounded-2xl bg-muted/60 p-1 lg:hidden">
+          <Button variant="ghost" aria-current={view === "queue" ? "page" : undefined} className={`h-auto min-w-0 flex-col whitespace-normal rounded-xl px-1 py-2 ${view === "queue" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`} onClick={() => setView("queue")}>
+            <ShoppingBasket /> <span className="text-xs">{t.queue}</span>
           </Button>
-          <Button variant="ghost" className={`rounded-xl ${view === "history" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`} onClick={() => setView("history")}>
-            <ListChecks /> {t.history}
+          <Button variant="ghost" aria-current={view === "history" ? "page" : undefined} className={`h-auto min-w-0 flex-col whitespace-normal rounded-xl px-1 py-2 ${view === "history" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`} onClick={() => setView("history")}>
+            <ListChecks /> <span className="text-xs">{t.history}</span>
           </Button>
-          <Button variant="ghost" className={`rounded-xl ${view === "balances" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`} onClick={() => setView("balances")}>
-            <WalletCards /> {t.balances}
+          <Button variant="ghost" aria-current={view === "balances" ? "page" : undefined} className={`h-auto min-w-0 flex-col whitespace-normal rounded-xl px-1 py-2 ${view === "balances" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`} onClick={() => setView("balances")}>
+            <WalletCards /> <span className="text-xs">{t.balances}</span>
           </Button>
-        </div>
+        </nav>
       </div>
-
-      {view !== "balances" && <div className="mb-5 grid gap-4 lg:grid-cols-2">
-        <article className="rounded-3xl border border-primary/15 bg-primary/[0.055] p-4 sm:p-5 lg:col-span-2">
-          <div className="mb-4 flex flex-wrap items-center gap-3">
-            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
-              <WalletCards className="size-5" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold">{t.wallet}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t.allTime} · {wallet.completedOrders} {t.completedOrders} · {wallet.completedMissions} missions
-              </p>
-            </div>
-            <Badge variant="outline" className="border-primary/20 bg-card/70 text-primary">
-              +{money(wallet.earnedThisMonthCents)} {t.serviceEarnings.toLocaleLowerCase()}
-            </Badge>
-          </div>
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
-            {[
-              [t.earned, wallet.earnedCents, "text-foreground"],
-              [t.paid, wallet.paidCents, "text-primary"],
-              [t.unpaid, wallet.unpaidCents, "text-[#b76500] dark:text-[#ffb454]"],
-            ].map(([label, value, color]) => (
-              <div key={String(label)} className="min-w-0 rounded-2xl border border-border/80 bg-card/75 p-3 sm:p-4">
-                <p className="truncate text-xs text-muted-foreground">{label}</p>
-                <p className={`mt-1 truncate text-base font-bold tabular-nums sm:text-xl ${color}`}>
-                  {money(Number(value))}
-                </p>
-              </div>
-            ))}
-          </div>
-          {wallet.completedMissions > 0 && (
-            <div className="mt-3 flex items-center justify-between rounded-xl border border-primary/15 bg-primary/[0.055] px-3 py-2 text-xs">
-              <span className="text-muted-foreground">Missions maison terminées</span>
-              <strong className="text-primary">{wallet.completedMissions} · +{money(wallet.missionEarnedCents)}</strong>
-            </div>
-          )}
-        </article>
-
-        <article className="rounded-3xl border border-border bg-card p-4 sm:p-5">
-          <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
-              <PiggyBank className="size-5" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold">{t.budget}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{t.monthlyBudget}</p>
-            </div>
-          </div>
-          {monthlyBudgetCents > 0 ? (
-            <div className="mt-4">
-              <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-                <strong>{money(currentMonthlyTotal)}</strong>
-                <span className="text-muted-foreground">/ {money(monthlyBudgetCents)}</span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-muted">
-                <div
-                  className={`h-full rounded-full transition-[width] duration-700 ${budgetRatio >= 1 ? "bg-destructive" : budgetRatio >= 0.8 ? "bg-[#d98200]" : "bg-primary"}`}
-                  style={{ width: `${Math.min(budgetRatio * 100, 100)}%` }}
-                />
-              </div>
-              <p className={`mt-3 text-xs font-medium ${budgetRatio >= 0.8 ? "text-[#b76500] dark:text-[#ffb454]" : "text-muted-foreground"}`}>
-                {budgetRatio >= 1
-                  ? t.budgetExceeded
-                  : budgetRatio >= 0.8
-                    ? t.budgetWarning
-                    : `${t.budgetRemaining}: ${money(budgetRemaining)}`}
-              </p>
-            </div>
-          ) : (
-            <p className="mt-5 text-sm text-muted-foreground">{t.budgetNotSet}</p>
-          )}
-        </article>
-
-        <article className="rounded-3xl border border-border bg-card p-4 sm:p-5">
-          <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
-              <BellRing className="size-5" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold">{t.notificationsNewOrders}</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                {pushState === "enabled"
-                  ? t.notificationsEnabled
-                  : pushState === "blocked"
-                    ? t.notificationsBlocked
-                    : pushState === "unavailable"
-                      ? t.notificationsUnavailable
-                      : t.notificationsHelp}
-              </p>
-            </div>
-          </div>
-          <Button
-            variant={pushState === "enabled" ? "outline" : "default"}
-            className="mt-4 w-full rounded-xl"
-            disabled={pushState === "checking" || pushState === "working" || pushState === "blocked" || pushState === "unavailable"}
-            onClick={() => void togglePushNotifications()}
-          >
-            {pushState === "working" ? <Loader2 className="animate-spin" /> : <BellRing />}
-            {pushState === "enabled" ? t.disableNotifications : t.enableNotifications}
-          </Button>
-        </article>
-      </div>}
 
       {view === "queue" && activeServiceTasks.length > 0 && (
         <section className="mb-5 rounded-[2rem] border border-primary/20 bg-primary/[0.035] p-4 sm:p-6">
@@ -6879,15 +6793,15 @@ function DeliveryDashboard({
 
               <div className="space-y-3">
                 {activeItems.map((item) => (
-                  <div key={item.id} className="grid gap-3 rounded-2xl border border-border bg-muted/35 p-3 sm:grid-cols-[64px_1fr_125px_auto] sm:items-center">
+                  <div key={item.id} className="grid grid-cols-[64px_minmax(0,1fr)] gap-3 rounded-2xl border border-border bg-muted/35 p-3 sm:grid-cols-[64px_1fr_125px_auto] sm:items-center">
                     <ProductImage position={item.image_position} imageUrl={item.image_url} name={productName(item)} className="size-16 rounded-xl" />
                     <div className="min-w-0">
-                      <p className="truncate font-semibold">{productName(item)}</p>
+                      <p className="break-words font-semibold">{productName(item)}</p>
                       <p className="mt-1 text-sm text-muted-foreground">
                         {itemRequestLabel(item)}
                       </p>
                     </div>
-                    <div>
+                    <div className="col-span-2 min-w-0 sm:col-span-1">
                       <Label htmlFor={`delivery-price-${item.id}`} className="mb-1.5 text-xs text-muted-foreground">
                         {isAmountItem(item) ? t.amountToSpend : t.price}
                       </Label>
@@ -6902,14 +6816,14 @@ function DeliveryDashboard({
                         <span className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DH</span>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 sm:flex">
+                    <div className="col-span-2 grid grid-cols-2 gap-2 sm:col-span-1 sm:flex">
                       <Button
                         size="icon"
                         variant={item.purchase_status === "bought" ? "default" : "outline"}
                         className="h-11 w-full rounded-xl border-border sm:size-11"
                         disabled={busy}
                         onClick={() => void act({ action: "update_item", actorRole: "delivery", itemId: item.id, purchaseStatus: "bought", actualUnitPriceCents: parsePrice(prices[item.id] ?? "") }, "Article marqué acheté.")}
-                        aria-label={t.bought}
+                        aria-label={`${t.bought} · ${productName(item)}`} aria-pressed={item.purchase_status === "bought"}
                       >
                         <Check />
                       </Button>
@@ -6919,7 +6833,7 @@ function DeliveryDashboard({
                         className="h-11 w-full rounded-xl border-border sm:size-11"
                         disabled={busy}
                         onClick={() => void act({ action: "update_item", actorRole: "delivery", itemId: item.id, purchaseStatus: "unbought", actualUnitPriceCents: parsePrice(prices[item.id] ?? "") }, "Article marqué non acheté.")}
-                        aria-label={t.unbought}
+                        aria-label={`${t.unbought} · ${productName(item)}`} aria-pressed={item.purchase_status === "unbought"}
                       >
                         <X />
                       </Button>
@@ -6985,32 +6899,54 @@ function DeliveryDashboard({
         )
       ) : (
         <div className="space-y-3">
-          {completedServiceTasks.map((task) => (
-            <article key={task.id} className="rounded-2xl border border-border bg-card p-4">
-              <div className="flex flex-wrap items-center gap-4">
-                <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary"><Sparkles className="size-5" /></span>
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold">{task.creator_name} · {task.title}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{task.completed_at ? new Date(task.completed_at).toLocaleDateString(language === "ar" ? "ar-MA" : language === "en" ? "en-MA" : "fr-MA", { dateStyle: "medium" }) : ""}</p>
-                  {task.description && <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{task.description}</p>}
-                </div>
-                <Badge variant="outline" className="border-primary/20 text-primary">Service terminé</Badge>
-                <strong>+{money(task.reward_cents)}</strong>
-              </div>
-            </article>
-          ))}
-          {history.map((cart) => {
+          <p className="text-sm text-muted-foreground">{historyCopy.newest}</p>
+          <div className="grid gap-3 rounded-2xl border border-border bg-card p-4 sm:grid-cols-3">
+            <div className="min-w-0">
+              <Label htmlFor="buyer-history-member" className="mb-2">{historyCopy.member}</Label>
+              <select id="buyer-history-member" value={historyMember} onChange={(event) => setHistoryMember(event.target.value)} className="h-11 w-full min-w-0 rounded-xl border border-input bg-background px-3 text-sm">
+                <option value="">{historyCopy.all}</option>
+                {historyMembers.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+              </select>
+            </div>
+            <div className="min-w-0"><Label htmlFor="buyer-history-from" className="mb-2">{historyCopy.from}</Label><Input id="buyer-history-from" type="date" value={historyFrom} onChange={(event) => setHistoryFrom(event.target.value)} aria-invalid={invalidDates} aria-describedby={invalidDates ? "buyer-history-date-error" : undefined} className="h-11 min-w-0 max-w-full rounded-xl" /></div>
+            <div className="min-w-0"><Label htmlFor="buyer-history-to" className="mb-2">{historyCopy.to}</Label><Input id="buyer-history-to" type="date" value={historyTo} onChange={(event) => setHistoryTo(event.target.value)} aria-invalid={invalidDates} aria-describedby={invalidDates ? "buyer-history-date-error" : undefined} className="h-11 min-w-0 max-w-full rounded-xl" /></div>
+            {invalidDates && <p id="buyer-history-date-error" role="alert" className="text-sm text-destructive sm:col-span-3">{historyCopy.invalid}</p>}
+            {(historyMember || historyFrom || historyTo) && <Button variant="outline" className="sm:col-span-3" onClick={() => { setHistoryMember(""); setHistoryFrom(""); setHistoryTo(""); }}>{historyCopy.reset}</Button>}
+          </div>
+          {filteredWork.map((entry) => {
+            if (entry.kind === "service") {
+              const task = entry.task;
+              return (
+                <article key={`service-${task.id}`} className="rounded-2xl border border-border bg-card p-4">
+                  <div className="flex items-start gap-3">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary"><Sparkles className="size-5" /></span>
+                    <div className="min-w-0 flex-1"><p className="break-words font-semibold">{task.creator_name} · {task.title}</p><p className="mt-1 text-xs text-muted-foreground">{completedDate(task.completed_at)}</p></div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3"><Badge variant="outline" className="whitespace-normal border-primary/20 text-primary">{historyCopy.completed}</Badge><strong className="break-words">+{money(task.reward_cents)}</strong></div>
+                  {task.description && <p className="mt-3 whitespace-pre-wrap break-words text-sm text-muted-foreground">{task.description}</p>}
+                </article>
+              );
+            }
+            const cart = entry.cart;
             const boughtItems = itemsFor(cart.id).filter((item) => item.purchase_status === "bought");
             const purchasedTotal = boughtItems.reduce((sum, item) => sum + cartItemTotalCents(item), 0);
             const total = purchasedTotal + cart.service_fee_cents;
             return (
-              <article key={cart.id} className="rounded-2xl border border-border bg-card p-4">
-                <div className="flex flex-wrap items-center gap-4">
-                  <span className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary"><Check /></span>
-                  <div className="min-w-0 flex-1"><p className="font-semibold">{cart.member_name} · #{cart.id}</p><p className="mt-1 text-xs text-muted-foreground">{cart.completed_at ? new Date(cart.completed_at).toLocaleDateString("fr-MA", { dateStyle: "medium" }) : ""}</p><p className="mt-1 text-xs text-primary">{t.serviceFee}: {money(cart.service_fee_cents)}</p></div>
-                  <Badge variant="outline" className="border-border">{boughtItems.length}/{itemsFor(cart.id).length} {t.bought.toLocaleLowerCase()}</Badge>
-                  <strong>{money(total)}</strong>
+              <article key={`cart-${cart.id}`} className="rounded-2xl border border-border bg-card p-4">
+                <div className="flex items-start gap-3">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary"><Check /></span>
+                  <div className="min-w-0 flex-1"><p className="break-words font-semibold">{cart.member_name} · #{cart.id}</p><p className="mt-1 text-xs text-muted-foreground">{completedDate(cart.completed_at)}</p><p className="mt-1 text-xs text-primary">{t.serviceFee}: {money(cart.service_fee_cents)}</p></div>
                 </div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+                  <Badge variant="outline" className="whitespace-normal border-border">{boughtItems.length}/{itemsFor(cart.id).length} {t.bought.toLocaleLowerCase()}</Badge>
+                  <strong className="break-words">{money(total)}</strong>
+                </div>
+                <details className="mt-3 rounded-xl bg-muted/40 p-3">
+                  <summary className="cursor-pointer text-sm font-medium">{historyCopy.details} ({itemsFor(cart.id).length})</summary>
+                  <ul className="mt-3 space-y-3">
+                    {itemsFor(cart.id).map((item) => <li key={item.id} className="space-y-1 border-t border-border pt-2 text-sm"><p className="break-words font-medium">{productName(item)}</p><p className="break-words text-xs text-muted-foreground">{itemRequestLabel(item)}</p><p>{item.purchase_status === "bought" ? `${t.bought} · ${money(cartItemTotalCents(item))}` : item.purchase_status === "unbought" ? t.unbought : historyCopy.requested}</p></li>)}
+                  </ul>
+                </details>
                 <MissingProductsNote
                   note={cart.missing_products_note}
                   label={t.missingProducts}
@@ -7024,13 +6960,118 @@ function DeliveryDashboard({
               </article>
             );
           })}
-          {!completedServiceTasks.length && !history.length && (
+          {!filteredWork.length && !invalidDates && (
             <div className="rounded-[2rem] border border-dashed border-primary/20 bg-primary/[0.035] p-12 text-center">
-              <CircleCheck className="mx-auto mb-4 size-10 text-primary" /><p className="font-semibold">Aucun historique pour le moment.</p>
+              <CircleCheck className="mx-auto mb-4 size-10 text-primary" /><p className="font-semibold">{completedWork.length ? historyCopy.noMatch : historyCopy.empty}</p>
             </div>
           )}
         </div>
       )}
+      <details className="mt-6 rounded-3xl border border-border bg-card/50 p-4">
+        <summary className="cursor-pointer text-sm font-semibold leading-6">{historyCopy.settings}</summary>
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <article className="rounded-3xl border border-primary/15 bg-primary/[0.055] p-4 sm:p-5 lg:col-span-2">
+          <div className="mb-4 grid grid-cols-[44px_minmax(0,1fr)] items-center gap-3 sm:flex sm:flex-wrap">
+            <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary/12 text-primary">
+              <WalletCards className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">{t.wallet}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t.allTime} · {wallet.completedOrders} {t.completedOrders} · {wallet.completedMissions} missions
+              </p>
+            </div>
+            <Badge variant="outline" className="col-span-2 max-w-full whitespace-normal border-primary/20 bg-card/70 text-primary">
+              +{money(wallet.earnedThisMonthCents)} {t.serviceEarnings.toLocaleLowerCase()}
+            </Badge>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3 sm:gap-3">
+            {[
+              [t.earned, wallet.earnedCents, "text-foreground"],
+              [t.paid, wallet.paidCents, "text-primary"],
+              [t.unpaid, wallet.unpaidCents, "text-[#b76500] dark:text-[#ffb454]"],
+            ].map(([label, value, color]) => (
+              <div key={String(label)} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-2xl border border-border/80 bg-card/75 p-3 sm:block sm:p-4">
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className={`break-words text-base sm:mt-1 font-bold tabular-nums sm:text-xl ${color}`}>
+                  {money(Number(value))}
+                </p>
+              </div>
+            ))}
+          </div>
+          {wallet.completedMissions > 0 && (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary/15 bg-primary/[0.055] px-3 py-2 text-xs">
+              <span className="text-muted-foreground">Missions maison terminées</span>
+              <strong className="text-primary">{wallet.completedMissions} · +{money(wallet.missionEarnedCents)}</strong>
+            </div>
+          )}
+        </article>
+
+        <article className="rounded-3xl border border-border bg-card p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+              <PiggyBank className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">{t.budget}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{t.monthlyBudget}</p>
+            </div>
+          </div>
+          {monthlyBudgetCents > 0 ? (
+            <div className="mt-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-3 text-sm">
+                <strong>{money(currentMonthlyTotal)}</strong>
+                <span className="text-muted-foreground">/ {money(monthlyBudgetCents)}</span>
+              </div>
+              <div role="progressbar" aria-label={t.monthlyBudget} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(Math.round(budgetRatio * 100), 100)} aria-valuetext={`${money(currentMonthlyTotal)} / ${money(monthlyBudgetCents)}`} className="h-2 overflow-hidden rounded-full bg-muted">
+                <div
+                  className={`h-full rounded-full transition-[width] duration-700 ${budgetRatio >= 1 ? "bg-destructive" : budgetRatio >= 0.8 ? "bg-[#d98200]" : "bg-primary"}`}
+                  style={{ width: `${Math.min(budgetRatio * 100, 100)}%` }}
+                />
+              </div>
+              <p className={`mt-3 text-xs font-medium ${budgetRatio >= 0.8 ? "text-[#b76500] dark:text-[#ffb454]" : "text-muted-foreground"}`}>
+                {budgetRatio >= 1
+                  ? t.budgetExceeded
+                  : budgetRatio >= 0.8
+                    ? t.budgetWarning
+                    : `${t.budgetRemaining}: ${money(budgetRemaining)}`}
+              </p>
+            </div>
+          ) : (
+            <p className="mt-5 text-sm text-muted-foreground">{t.budgetNotSet}</p>
+          )}
+        </article>
+
+        <article className="rounded-3xl border border-border bg-card p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+              <BellRing className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">{t.notificationsNewOrders}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {pushState === "enabled"
+                  ? t.notificationsEnabled
+                  : pushState === "blocked"
+                    ? t.notificationsBlocked
+                    : pushState === "unavailable"
+                      ? t.notificationsUnavailable
+                      : t.notificationsHelp}
+              </p>
+            </div>
+          </div>
+          <Button
+            variant={pushState === "enabled" ? "outline" : "default"}
+            className="mt-4 w-full rounded-xl"
+            disabled={pushState === "checking" || pushState === "working" || pushState === "blocked" || pushState === "unavailable"}
+            onClick={() => void togglePushNotifications()}
+          >
+            {pushState === "working" ? <Loader2 className="animate-spin" /> : <BellRing />}
+            {pushState === "enabled" ? t.disableNotifications : t.enableNotifications}
+          </Button>
+        </article>
+        </div>
+      </details>
     </section>
   );
 }
