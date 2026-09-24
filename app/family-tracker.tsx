@@ -6602,14 +6602,14 @@ function BuyerMobileHeader({
   };
 
   return (
-    <div className="mx-auto max-w-7xl lg:hidden" dir={language === "ar" ? "rtl" : "ltr"}>
-      <div className="flex min-h-11 items-center gap-2">
+    <div className="mx-auto w-full min-w-0 max-w-7xl overflow-x-clip lg:hidden" dir={language === "ar" ? "rtl" : "ltr"}>
+      <div className="flex min-h-11 w-full min-w-0 items-center gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          <div className="relative size-9 shrink-0 overflow-hidden rounded-xl shadow-sm">
+          <div className="relative size-8 shrink-0 overflow-hidden rounded-xl shadow-sm min-[360px]:size-9">
             <Image src="/icons/icon-192.png" alt="" fill sizes="36px" className="object-cover" priority />
           </div>
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold tracking-[-0.01em] text-primary">{t.brand}</p>
+            <p className="truncate text-sm font-bold tracking-[-0.01em] text-primary">DarnaFlow</p>
             <p className="truncate text-[11px] text-muted-foreground">{t.delivery}</p>
           </div>
         </div>
@@ -6647,7 +6647,7 @@ function BuyerMobileHeader({
             <Button
               type="button"
               variant="outline"
-              className="h-11 max-w-[8.5rem] gap-2 rounded-xl border-border bg-card/80 px-2.5 shadow-sm focus-visible:ring-2 focus-visible:ring-primary"
+              className="h-11 w-[5.5rem] min-w-0 shrink-0 gap-1.5 rounded-xl border-border bg-card/80 px-2 shadow-sm focus-visible:ring-2 focus-visible:ring-primary min-[360px]:w-auto min-[360px]:max-w-[8.5rem] min-[360px]:gap-2 min-[360px]:px-2.5"
               aria-label={copy.accountMenu}
             >
               <ProfileAvatar user={currentUser} version={profileImageVersion} className="size-7 shrink-0 rounded-lg text-[8px]" />
@@ -6707,7 +6707,7 @@ function BuyerMobileHeader({
         </Popover>
       </div>
 
-      <nav aria-label={copy.navigation} className="mt-2 grid grid-cols-4 gap-1 rounded-2xl bg-muted/60 p-1">
+      <nav aria-label={copy.navigation} className="mt-2 grid w-full min-w-0 grid-cols-4 gap-1 rounded-2xl bg-muted/60 p-1">
         {navItems.map(({ key, label, fullLabel, Icon }) => {
           const active = view === key;
           return (
