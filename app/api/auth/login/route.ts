@@ -4,7 +4,7 @@ import {
   consumeFamilyAuthAttempt,
   createFamilySession,
   ensureFamilyAuthUsers,
-  familyRolePath,
+  familyLoginPath,
   familySessionCookie,
 } from "@/lib/family-auth";
 
@@ -17,6 +17,7 @@ export async function POST(request: Request) {
       memberId?: unknown;
       password?: unknown;
       familyCode?: unknown;
+      returnTo?: unknown;
     };
     const username = typeof body.username === "string" ? body.username : "";
     const memberId = typeof body.memberId === "number" ? body.memberId : Number(body.memberId);
@@ -67,9 +68,6 @@ export async function POST(request: Request) {
     }
 
     const session = await createFamilySession(result.user.id, result.user.familyId);
-    const directEntry = request.headers.get("cookie")
-      ?.split(";")
-      .some((cookie) => cookie.trim() === "family_direct_entry=1") ?? false;
     return Response.json(
       {
         user: {
@@ -79,7 +77,7 @@ export async function POST(request: Request) {
           role: result.user.role,
           initials: result.user.initials,
         },
-        route: directEntry ? familyRolePath(result.user.role) : "/abonnement",
+        route: familyLoginPath(result.user.role, body.returnTo),
       },
       { headers: { "set-cookie": familySessionCookie(session.token, request) } },
     );

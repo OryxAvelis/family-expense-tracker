@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Toaster } from "@/components/ui/sonner";
-import { Switch } from "@/components/ui/switch";
 import { useFamilyTheme } from "@/hooks/use-family-theme";
 import type { FamilySessionUser } from "@/lib/family-auth";
 
@@ -54,7 +53,6 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
   const [subscriptionScope, setSubscriptionScope] = useState<"family" | "personal">("family");
   const [celebrate, setCelebrate] = useState(false);
   const [referenceTime, setReferenceTime] = useState(0);
-  const [directEntry, setDirectEntry] = useState(false);
   const [proofBusy, setProofBusy] = useState("");
 
   const load = useCallback(async () => {
@@ -80,20 +78,6 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [load]);
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      setDirectEntry(document.cookie.split("; ").some((entry) => entry === "family_direct_entry=1"));
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, []);
-
-  const updateDirectEntry = (enabled: boolean) => {
-    setDirectEntry(enabled);
-    document.cookie = enabled
-      ? "family_direct_entry=1; Path=/; Max-Age=31536000; SameSite=Lax"
-      : "family_direct_entry=; Path=/; Max-Age=0; SameSite=Lax";
-    toast.success(enabled ? "Votre espace s’ouvrira directement la prochaine fois." : "Les forfaits resteront votre première page.");
-  };
 
   const uploadProof = async (paymentId: string, file: File) => {
     if (file.size > 5 * 1024 * 1024) {
@@ -165,7 +149,7 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
       </header>
 
       <section className="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-12">
-        <div className="mx-auto max-w-3xl text-center"><Badge className="rounded-full bg-[#ffad42] px-4 py-1 text-[#30200b] hover:bg-[#ffad42]">PLUS DE TEMPS, MOINS DE DÉPENSES</Badge><h1 className="mt-5 text-4xl font-black tracking-[-0.055em] sm:text-6xl">Un forfait pour la maison. Un autre pour vous.</h1><p className="mx-auto mt-4 max-w-2xl text-muted-foreground">Choisissez le côté familial pour les besoins communs, ou le côté personnel pour commander vos propres services.</p><div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row"><Link href={rolePath(currentUser.role)}><Button size="lg" className="h-12 rounded-2xl px-6"><ShoppingBasket/>Continuer vers mon espace</Button></Link><label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm"><Switch checked={directEntry} onCheckedChange={updateDirectEntry} aria-label="Ouvrir directement mon espace à la prochaine connexion"/><span className="text-start">Ouvrir directement la prochaine fois</span></label></div></div>
+        <div className="mx-auto max-w-3xl text-center"><Badge className="rounded-full bg-[#ffad42] px-4 py-1 text-[#30200b] hover:bg-[#ffad42]">PLUS DE TEMPS, MOINS DE DÉPENSES</Badge><h1 className="mt-5 text-4xl font-black tracking-[-0.055em] sm:text-6xl">Un forfait pour la maison. Un autre pour vous.</h1><p className="mx-auto mt-4 max-w-2xl text-muted-foreground">Choisissez le côté familial pour les besoins communs, ou le côté personnel pour commander vos propres services.</p><div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row"><Link href={rolePath(currentUser.role)}><Button size="lg" className="h-12 rounded-2xl px-6"><ShoppingBasket/>Continuer vers mon espace</Button></Link></div></div>
 
         <div className="mx-auto mt-8 grid max-w-2xl grid-cols-1 gap-2 rounded-[1.4rem] border border-border bg-card p-2 shadow-sm min-[430px]:grid-cols-2">
           <Button className="h-auto rounded-2xl py-4" variant={subscriptionScope === "family" ? "default" : "ghost"} onClick={() => setSubscriptionScope("family")}><Users/><span className="text-start"><strong className="block">Forfait familial</strong><small className="font-normal opacity-75">Payé ensemble, partagé par tous</small></span></Button>

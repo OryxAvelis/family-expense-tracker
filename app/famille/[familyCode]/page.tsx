@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { FamilyEntrance } from "@/app/family-entrance";
@@ -19,8 +18,7 @@ export default async function FamilyEntrancePage({
 }) {
   const user = await getPageFamilyUser();
   if (user) {
-    const directEntry = (await cookies()).get("family_direct_entry")?.value === "1";
-    redirect(directEntry ? familyRolePath(user.role) : "/abonnement");
+    redirect(familyRolePath(user.role));
   }
 
   const { familyCode } = await params;

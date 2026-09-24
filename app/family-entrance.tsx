@@ -121,8 +121,10 @@ function MemberPortrait({
 
 export function FamilyEntrance({
   familyCode,
+  returnTo,
 }: {
   familyCode?: string;
+  returnTo?: string;
 }) {
   const [directory, setDirectory] = useState<FamilyDirectory | null>(null);
   const [language, setLanguage] = useState<EntranceLanguage>("fr");
@@ -231,6 +233,7 @@ export function FamilyEntrance({
           memberId: selected.id,
           password: pin,
           familyCode,
+          returnTo,
         }),
       });
       const payload = (await response.json()) as { error?: string; route?: string };

@@ -531,6 +531,14 @@ export function familyRolePath(role: FamilyRole) {
   return "/membre";
 }
 
+/** Resume a known page after login; other roles and arbitrary URLs use the user's workspace. */
+export function familyLoginPath(role: FamilyRole, returnTo?: unknown) {
+  const workspace = familyRolePath(role);
+  if (typeof returnTo !== "string" || /[\\\u0000-\u001f\u007f]/.test(returnTo)) return workspace;
+  const pathname = returnTo.split(/[?#]/, 1)[0];
+  return [workspace, "/services", "/abonnement"].includes(pathname) ? returnTo : workspace;
+}
+
 export function familySessionCookie(token: string, request: Request) {
   const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
   return `${FAMILY_SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_MAX_AGE_SECONDS}${secure}`;
