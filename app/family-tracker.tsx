@@ -110,7 +110,7 @@ import { CartDraftControls, draftCopy } from "@/components/cart-draft-controls";
 import { useCartDraft } from "@/hooks/use-cart-draft";
 import { hasCartDraft, type CartDraft } from "@/lib/cart-draft";
 import { newestCompletedFirst, matchesHistoryFilters } from "@/lib/history";
-import { useFamilyTheme } from "@/hooks/use-family-theme";
+import { useFamilyTheme, type FamilyTheme } from "@/hooks/use-family-theme";
 import type { FamilySessionUser } from "@/lib/family-auth";
 import type { ServiceTask } from "@/lib/family-services";
 import { SERVICE_TEMPLATES } from "@/lib/service-catalog";
@@ -2384,8 +2384,39 @@ export function FamilyTracker({
       </aside>
 
       <div className="min-h-screen pb-[calc(6rem+env(safe-area-inset-bottom))] lg:ps-64 lg:pb-0">
-        <header className="sticky top-0 z-20 border-b border-border/80 bg-background/88 px-3 py-3 backdrop-blur-xl sm:px-8 lg:px-12">
-          <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 sm:gap-3">
+        <header className="sticky top-0 z-20 border-b border-border/80 bg-background/88 px-3 py-2 backdrop-blur-xl sm:px-8 lg:px-12 lg:py-3">
+          {role === "delivery" && (
+            <BuyerMobileHeader
+              currentUser={currentUser}
+              profileImageVersion={profileImageVersion}
+              language={language}
+              setLanguage={updateLanguage}
+              theme={theme}
+              toggleTheme={toggleTheme}
+              view={deliveryView}
+              setView={setDeliveryView}
+              queueCount={deliveryQueue.length}
+              notificationCount={notificationCount}
+              budgetMessage={budgetAlert
+                ? currentMonthlyTotal >= monthlyBudgetCents
+                  ? t.budgetExceeded
+                  : t.budgetWarning
+                : null}
+              hasUnsavedWork={data.items.some((item) => {
+                const value = deliveryPrices[item.id];
+                return value !== undefined && value !== (item.actual_unit_price_cents / 100).toFixed(2);
+              })}
+              onOpenProfile={() => setProfileDialogOpen(true)}
+              onLogout={() => {
+                void fetch("/api/auth/logout", { method: "POST" }).finally(() => {
+                  window.location.assign("/connexion");
+                });
+              }}
+              t={t}
+            />
+          )}
+
+          <div className={`mx-auto max-w-7xl items-center justify-between gap-2 sm:gap-3 ${role === "delivery" ? "hidden lg:flex" : "flex"}`}>
             <div className="flex min-w-0 items-center gap-3 max-[639px]:hidden lg:hidden">
               <div className="relative size-10 shrink-0 overflow-hidden rounded-2xl lg:hidden">
                 <Image src="/icons/icon-192.png" alt="" fill sizes="40px" className="object-cover" priority />
@@ -2923,7 +2954,6 @@ export function FamilyTracker({
             queue={deliveryQueue}
             history={deliveryHistory}
             view={deliveryView}
-            setView={setDeliveryView}
             itemsFor={itemsFor}
             productName={productName}
             itemRequestLabel={itemRequestLabel}
@@ -6478,11 +6508,255 @@ function ReceiptScannerPanel({
   );
 }
 
+function BuyerMobileHeader({
+  currentUser,
+  profileImageVersion,
+  language,
+  setLanguage,
+  theme,
+  toggleTheme,
+  view,
+  setView,
+  queueCount,
+  notificationCount,
+  budgetMessage,
+  hasUnsavedWork,
+  onOpenProfile,
+  onLogout,
+  t,
+}: {
+  currentUser: FamilySessionUser;
+  profileImageVersion: number;
+  language: Language;
+  setLanguage: (language: Language) => void;
+  theme: FamilyTheme;
+  toggleTheme: () => void;
+  view: "queue" | "history" | "balances";
+  setView: (view: "queue" | "history" | "balances") => void;
+  queueCount: number;
+  notificationCount: number;
+  budgetMessage: string | null;
+  hasUnsavedWork: boolean;
+  onOpenProfile: () => void;
+  onLogout: () => void;
+  t: CopySet;
+}) {
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const copy = {
+    fr: {
+      accountMenu: "Menu du compte",
+      navigation: "Navigation de l’acheteur",
+      queue: "À acheter",
+      services: "Services",
+      preferences: "Préférences",
+      profile: "Mon profil",
+      unread: "non lues",
+      logoutTitle: "Quitter avec des prix non enregistrés ?",
+      logoutHelp: "Certains prix saisis ne sont pas encore enregistrés. Restez ici pour les terminer, ou quittez en sachant qu’ils seront perdus.",
+      stay: "Rester ici",
+      leave: "Quitter quand même",
+    },
+    ar: {
+      accountMenu: "قائمة الحساب",
+      navigation: "تنقل المكلّف بالشراء",
+      queue: "للشراء",
+      services: "الخدمات",
+      preferences: "التفضيلات",
+      profile: "ملفي الشخصي",
+      unread: "غير مقروءة",
+      logoutTitle: "الخروج مع وجود أسعار غير محفوظة؟",
+      logoutHelp: "بعض الأسعار التي أدخلتها لم تُحفظ بعد. ابق هنا لإتمامها، أو اخرج مع العلم أنها ستُفقد.",
+      stay: "البقاء هنا",
+      leave: "الخروج على أي حال",
+    },
+    en: {
+      accountMenu: "Account menu",
+      navigation: "Buyer navigation",
+      queue: "To buy",
+      services: "Services",
+      preferences: "Preferences",
+      profile: "My profile",
+      unread: "unread",
+      logoutTitle: "Leave with unsaved prices?",
+      logoutHelp: "Some entered prices have not been saved yet. Stay here to finish them, or leave knowing they will be lost.",
+      stay: "Stay here",
+      leave: "Leave anyway",
+    },
+  }[language];
+  const notificationLabel = notificationCount > 0
+    ? `${t.notifications}, ${notificationCount} ${copy.unread}`
+    : t.notifications;
+  const navItems = [
+    { key: "queue" as const, label: copy.queue, fullLabel: t.queue, Icon: ShoppingBasket },
+    { key: "history" as const, label: t.history, fullLabel: t.history, Icon: ListChecks },
+    { key: "balances" as const, label: t.balances, fullLabel: t.memberBalances, Icon: WalletCards },
+  ];
+  const requestLogout = () => {
+    setAccountOpen(false);
+    if (hasUnsavedWork) {
+      setLogoutConfirmOpen(true);
+      return;
+    }
+    onLogout();
+  };
+
+  return (
+    <div className="mx-auto max-w-7xl lg:hidden" dir={language === "ar" ? "rtl" : "ltr"}>
+      <div className="flex min-h-11 items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <div className="relative size-9 shrink-0 overflow-hidden rounded-xl shadow-sm">
+            <Image src="/icons/icon-192.png" alt="" fill sizes="36px" className="object-cover" priority />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-bold tracking-[-0.01em] text-primary">{t.brand}</p>
+            <p className="truncate text-[11px] text-muted-foreground">{t.delivery}</p>
+          </div>
+        </div>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              className="relative h-11 min-w-11 rounded-xl border-border bg-card/80 px-2.5 shadow-sm focus-visible:ring-2 focus-visible:ring-primary min-[360px]:gap-2"
+              aria-label={notificationLabel}
+            >
+              <Bell className="size-[1.15rem]" aria-hidden="true" />
+              <span className="hidden text-xs font-semibold min-[360px]:inline">{t.notifications}</span>
+              {notificationCount > 0 && (
+                <span className="absolute -end-1 -top-1 grid min-h-5 min-w-5 place-items-center rounded-full bg-[#ffb454] px-1 text-[10px] font-black text-[#24180b] ring-2 ring-background" aria-hidden="true">
+                  {notificationCount > 99 ? "99+" : notificationCount}
+                </span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align={language === "ar" ? "start" : "end"} className="w-[min(19rem,calc(100vw-1.5rem))] rounded-2xl border-border bg-card p-4" dir={language === "ar" ? "rtl" : "ltr"}>
+            <p className="font-semibold">{t.notifications}</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {queueCount} {t.carts.toLocaleLowerCase()}.
+              {budgetMessage && (
+                <span className="mt-2 block font-medium text-[#b76500] dark:text-[#ffb454]">{budgetMessage}</span>
+              )}
+            </p>
+          </PopoverContent>
+        </Popover>
+
+        <Popover open={accountOpen} onOpenChange={setAccountOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 max-w-[8.5rem] gap-2 rounded-xl border-border bg-card/80 px-2.5 shadow-sm focus-visible:ring-2 focus-visible:ring-primary"
+              aria-label={copy.accountMenu}
+            >
+              <ProfileAvatar user={currentUser} version={profileImageVersion} className="size-7 shrink-0 rounded-lg text-[8px]" />
+              <span className="truncate text-xs font-semibold">{t.account}</span>
+              <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align={language === "ar" ? "start" : "end"} className="w-[min(20rem,calc(100vw-1.5rem))] rounded-2xl border-border bg-card p-2" dir={language === "ar" ? "rtl" : "ltr"}>
+            <div className="flex items-center gap-3 rounded-xl bg-muted/50 p-3">
+              <ProfileAvatar user={currentUser} version={profileImageVersion} className="size-11 shrink-0 rounded-xl text-xs" />
+              <div className="min-w-0">
+                <p className="truncate font-semibold">{currentUser.name}</p>
+                <p className="truncate text-xs text-muted-foreground">{roleNames.delivery[language]}</p>
+              </div>
+            </div>
+
+            <Button
+              type="button"
+              variant="ghost"
+              className="mt-1 h-11 w-full justify-start rounded-xl px-3"
+              onClick={() => {
+                setAccountOpen(false);
+                onOpenProfile();
+              }}
+            >
+              <Pencil className="size-4" aria-hidden="true" />
+              {copy.profile}
+            </Button>
+
+            <Separator className="my-1" />
+            <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{copy.preferences}</p>
+            <div className="flex min-h-11 items-center gap-2 rounded-xl px-3">
+              <Languages className="size-4 shrink-0 text-primary" aria-hidden="true" />
+              <span className="min-w-0 flex-1 text-sm">{t.languageSetting}</span>
+              <Select value={language} onValueChange={(value) => setLanguage(value as Language)}>
+                <SelectTrigger aria-label={t.languageSetting} className="h-10 w-[6.5rem] rounded-xl border-border bg-background px-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(languageNames) as Language[]).map((key) => (
+                    <SelectItem key={key} value={key}>{languageNames[key]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button type="button" variant="ghost" className="h-11 w-full justify-start rounded-xl px-3" onClick={toggleTheme}>
+              {theme === "dark" ? <Sun className="size-4" aria-hidden="true" /> : <Moon className="size-4" aria-hidden="true" />}
+              {theme === "dark" ? t.lightMode : t.darkMode}
+            </Button>
+
+            <Separator className="my-1" />
+            <Button type="button" variant="ghost" className="h-11 w-full justify-start rounded-xl px-3 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={requestLogout}>
+              <LogOut className="size-4" aria-hidden="true" />
+              {t.logout}
+            </Button>
+          </PopoverContent>
+        </Popover>
+      </div>
+
+      <nav aria-label={copy.navigation} className="mt-2 grid grid-cols-4 gap-1 rounded-2xl bg-muted/60 p-1">
+        {navItems.map(({ key, label, fullLabel, Icon }) => {
+          const active = view === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setView(key)}
+              aria-current={active ? "page" : undefined}
+              aria-label={fullLabel}
+              className={`relative flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 ${active ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:bg-card/70 hover:text-foreground"}`}
+            >
+              <Icon className="size-[1.15rem] shrink-0" aria-hidden="true" />
+              <span className="w-full whitespace-normal break-words text-[10px] font-semibold leading-[1.05] min-[360px]:text-[11px]">{label}</span>
+              {key === "queue" && queueCount > 0 && (
+                <span className="absolute end-1 top-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[9px] font-black text-primary-foreground" aria-hidden="true">{queueCount > 99 ? "99+" : queueCount}</span>
+              )}
+            </button>
+          );
+        })}
+        <Link
+          href="/services"
+          aria-label={copy.services}
+          className="flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 py-1.5 text-center text-muted-foreground transition hover:bg-card/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+        >
+          <ClipboardCheck className="size-[1.15rem] shrink-0" aria-hidden="true" />
+          <span className="w-full whitespace-normal break-words text-[10px] font-semibold leading-[1.05] min-[360px]:text-[11px]">{copy.services}</span>
+        </Link>
+      </nav>
+
+      <AlertDialog open={logoutConfirmOpen} onOpenChange={setLogoutConfirmOpen}>
+        <AlertDialogContent dir={language === "ar" ? "rtl" : "ltr"} className="rounded-3xl border-border bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{copy.logoutTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{copy.logoutHelp}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{copy.stay}</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={onLogout}>{copy.leave}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
 function DeliveryDashboard({
   queue,
   history,
   view,
-  setView,
   itemsFor,
   productName,
   itemRequestLabel,
@@ -6507,7 +6781,6 @@ function DeliveryDashboard({
   queue: Cart[];
   history: Cart[];
   view: "queue" | "history" | "balances";
-  setView: (view: "queue" | "history" | "balances") => void;
   itemsFor: (cartId: number) => CartItem[];
   productName: (product: Pick<Product, "name_fr" | "name_ar" | "name_en">) => string;
   itemRequestLabel: (item: CartItem) => string;
@@ -6672,17 +6945,6 @@ function DeliveryDashboard({
             {view === "queue" ? t.queue : view === "history" ? t.history : t.memberBalances}
           </h1>
         </div>
-        <nav aria-label={t.delivery} className="grid w-full grid-cols-3 gap-1 rounded-2xl bg-muted/60 p-1 lg:hidden">
-          <Button variant="ghost" aria-current={view === "queue" ? "page" : undefined} className={`h-auto min-w-0 flex-col whitespace-normal rounded-xl px-1 py-2 ${view === "queue" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`} onClick={() => setView("queue")}>
-            <ShoppingBasket /> <span className="text-xs">{t.queue}</span>
-          </Button>
-          <Button variant="ghost" aria-current={view === "history" ? "page" : undefined} className={`h-auto min-w-0 flex-col whitespace-normal rounded-xl px-1 py-2 ${view === "history" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`} onClick={() => setView("history")}>
-            <ListChecks /> <span className="text-xs">{t.history}</span>
-          </Button>
-          <Button variant="ghost" aria-current={view === "balances" ? "page" : undefined} className={`h-auto min-w-0 flex-col whitespace-normal rounded-xl px-1 py-2 ${view === "balances" ? "bg-primary/12 text-primary" : "text-muted-foreground"}`} onClick={() => setView("balances")}>
-            <WalletCards /> <span className="text-xs">{t.balances}</span>
-          </Button>
-        </nav>
       </div>
 
       {view === "queue" && activeServiceTasks.length > 0 && (
