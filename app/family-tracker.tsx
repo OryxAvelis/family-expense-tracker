@@ -108,6 +108,7 @@ import { useFamilyTheme } from "@/hooks/use-family-theme";
 import type { FamilySessionUser } from "@/lib/family-auth";
 import type { ServiceTask } from "@/lib/family-services";
 import { SERVICE_TEMPLATES } from "@/lib/service-catalog";
+import { reconcilePriceInputs, submittedPriceInputs, type PriceInputs } from "@/lib/price-inputs";
 
 type Language = "fr" | "ar" | "en";
 type Role = "member" | "admin" | "delivery";
@@ -1350,6 +1351,9 @@ export function FamilyTracker({
   const [draftWalletScope, setDraftWalletScope] = useState<"family" | "personal">("family");
   const [deliveryPrices, setDeliveryPrices] = useState<Record<number, string>>({});
   const [productPrices, setProductPrices] = useState<Record<number, string>>({});
+  const savedDeliveryPrices = useRef<PriceInputs>({});
+  const savedProductPrices = useRef<PriceInputs>({});
+  const dataRequestVersion = useRef(0);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [scanDialogOpen, setScanDialogOpen] = useState(false);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
@@ -1384,17 +1388,30 @@ export function FamilyTracker({
     search.trim().length >= 2 &&
     myMarketSearchingQuery === normalizeProductSearch(search);
 
-  const applyData = useCallback((payload: AppData) => {
-    setData(payload);
-    setDeliveryPrices(
-      Object.fromEntries(payload.items.map((item) => [item.id, (item.actual_unit_price_cents / 100).toFixed(2)])),
+  const applyData = useCallback((payload: AppData, submitted?: ReturnType<typeof submittedPriceInputs>) => {
+    // A successful mutation must invalidate refreshes started before it completed.
+    dataRequestVersion.current += 1;
+    const nextDeliveryPrices = Object.fromEntries(
+      payload.items.map((item) => [item.id, (item.actual_unit_price_cents / 100).toFixed(2)]),
     );
-    setProductPrices(
-      Object.fromEntries(payload.products.map((product) => [product.id, (product.unit_price_cents / 100).toFixed(2)])),
+    const nextProductPrices = Object.fromEntries(
+      payload.products.map((product) => [product.id, (product.unit_price_cents / 100).toFixed(2)]),
+    );
+    const previousDeliveryPrices = savedDeliveryPrices.current;
+    const previousProductPrices = savedProductPrices.current;
+    savedDeliveryPrices.current = nextDeliveryPrices;
+    savedProductPrices.current = nextProductPrices;
+    setData(payload);
+    setDeliveryPrices((current) =>
+      reconcilePriceInputs(current, previousDeliveryPrices, nextDeliveryPrices, submitted?.items),
+    );
+    setProductPrices((current) =>
+      reconcilePriceInputs(current, previousProductPrices, nextProductPrices, submitted?.products),
     );
   }, []);
 
   const loadData = useCallback(async () => {
+    const requestVersion = ++dataRequestVersion.current;
     try {
       setLoadError("");
       const [response, servicesResponse] = await Promise.all([
@@ -1404,6 +1421,7 @@ export function FamilyTracker({
           : Promise.resolve(null),
       ]);
       const payload = (await response.json()) as AppData & { error?: string };
+      if (requestVersion !== dataRequestVersion.current) return;
       if (response.status === 401) {
         window.location.replace("/connexion");
         return;
@@ -1411,6 +1429,7 @@ export function FamilyTracker({
       if (!response.ok) throw new Error(payload.error || "Impossible de charger les données.");
       if (servicesResponse) {
         const servicesPayload = (await servicesResponse.json()) as { payments?: PlanPayment[]; tasks?: ServiceTask[]; error?: string };
+        if (requestVersion !== dataRequestVersion.current) return;
         if (servicesResponse.status === 401) {
           window.location.replace("/connexion");
           return;
@@ -1423,6 +1442,7 @@ export function FamilyTracker({
       }
       applyData(payload);
     } catch (error) {
+      if (requestVersion !== dataRequestVersion.current) return;
       setLoadError(error instanceof Error ? error.message : "Impossible de charger les données.");
     }
   }, [applyData, role]);
@@ -1530,6 +1550,7 @@ export function FamilyTracker({
   }, [language]);
 
   const act = async (body: Record<string, unknown>, success: string) => {
+    const submitted = submittedPriceInputs(body, productPrices, deliveryPrices);
     try {
       setBusy(true);
       const response = await fetch("/api/family", {
@@ -1543,7 +1564,7 @@ export function FamilyTracker({
         return false;
       }
       if (!response.ok) throw new Error(payload.error || "Action impossible.");
-      applyData(payload);
+      applyData(payload, submitted);
       toast.success(success);
       return true;
     } catch (error) {
