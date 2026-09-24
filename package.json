@@ -15,6 +15,7 @@
     "test:catalogue": "node --experimental-strip-types --test scripts/catalogue.test.mjs",
     "test:cart": "node --experimental-strip-types --test scripts/cart-draft.test.mjs",
     "test:login": "node --experimental-strip-types --test scripts/login-navigation.test.mjs",
+    "test:analytics": "node --experimental-strip-types --test scripts/analytics.test.mjs",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

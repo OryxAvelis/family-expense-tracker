@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { purchasedLineTotal } from "@/lib/spending";
 import { BarChart3, PieChart as PieChartIcon, ShoppingBasket } from "lucide-react";
 import {
   Bar,
@@ -140,18 +141,6 @@ const categoryColors = [
   "#f59e0b",
 ];
 
-const AMOUNT_REQUEST_SENTINEL_CENTS = 2_147_483_647;
-
-function normalizedAmount(item: AnalyticsItem) {
-  const amount =
-    Number(item.requested_unit_price_cents) === AMOUNT_REQUEST_SENTINEL_CENTS
-      ? Number(item.actual_unit_price_cents)
-      : Math.round(
-          (Number(item.actual_unit_price_cents) * Number(item.quantity_hundredths)) / 100,
-        );
-  return Number.isFinite(amount) && amount > 0 ? amount : 0;
-}
-
 function shortenedName(name: string) {
   const cleanName = name.trim();
   return cleanName.length > 10 ? `${cleanName.slice(0, 9)}…` : cleanName;
@@ -243,7 +232,7 @@ export function AdminAnalyticsCharts({
       const cart = cartsById.get(item.cart_id);
       if (!cart) continue;
 
-      const amount = normalizedAmount(item);
+      const amount = purchasedLineTotal(item);
       if (!amount) continue;
 
       const category = productsById.get(item.product_id)?.category || "other";
@@ -368,7 +357,7 @@ export function AdminAnalyticsCharts({
                     className="size-2.5 shrink-0 rounded-full"
                     style={{ backgroundColor: entry.color }}
                   />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{entry.name}</span>
+                  <span className="min-w-0 flex-1 text-sm font-medium">{entry.name}<strong className="mt-0.5 block tabular-nums">{formatMoney(entry.value)}</strong></span>
                   <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                     {percentageFormatter.format(entry.percentage)}
                   </span>
@@ -452,10 +441,10 @@ export function AdminAnalyticsCharts({
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <ul className="sr-only">
+            <ul className="mt-3 grid gap-2" aria-label={t.memberTitle}>
               {memberData.map((member) => (
-                <li key={member.id}>
-                  {member.name}: {formatMoney(member.value)}
+                <li key={member.id} className="flex justify-between gap-3 rounded-xl bg-muted/35 px-3 py-2.5 text-sm">
+                  <span className="min-w-0 break-words">{member.name}</span><strong className="shrink-0 tabular-nums">{formatMoney(member.value)}</strong>
                 </li>
               ))}
             </ul>

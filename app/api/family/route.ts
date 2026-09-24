@@ -1,3 +1,4 @@
+import { monthlySpending, type SpendingItem } from "@/lib/spending";
 import {
   ARCHIVED_DEFAULT_MEMBER_USERNAMES,
   familyInitials,
@@ -559,7 +560,7 @@ async function readState(viewer: FamilyRequestUser) {
     : carts;
   const visibleCartIds = visibleCarts.map((cart) => cart.id);
 
-  let items: Array<Record<string, unknown>> = [];
+  let items: Array<Record<string, unknown> & SpendingItem> = [];
   if (visibleCartIds.length) {
     const allItems: ItemRow[] = [];
     for (let batch = 0; batch < visibleCartIds.length; batch += 100) {
@@ -594,54 +595,9 @@ async function readState(viewer: FamilyRequestUser) {
     });
   }
 
-  const monthlyTotals: Array<{ month: string; total_cents: number; carts_count: number }> = [];
-  if (viewer.role === "admin") {
-    const { data, error } = await db
-      .from("carts")
-      .select(
-        "id, member_id, completed_at, cart_items(quantity_hundredths, requested_unit_price_cents, actual_unit_price_cents, purchase_status)",
-      )
-      .eq("family_id", viewer.familyId)
-      .eq("status", "completed")
-      .not("completed_at", "is", null)
-      .limit(1000);
-    throwIfSupabaseError(error);
-
-    const months = new Map<string, { total_cents: number; carts: Set<number> }>();
-    for (const cart of (data ?? []) as unknown as Array<{
-      id: number;
-      member_id: number;
-      completed_at: string;
-      cart_items: Array<{
-        quantity_hundredths: number;
-        requested_unit_price_cents: number;
-        actual_unit_price_cents: number;
-        purchase_status: string;
-      }>;
-    }>) {
-      if (!activeMemberIds.includes(Number(cart.member_id))) continue;
-      const month = cart.completed_at.slice(0, 7);
-      const entry = months.get(month) ?? { total_cents: 0, carts: new Set<number>() };
-      entry.carts.add(Number(cart.id));
-      const storedFee = metadata.get(`${CART_SERVICE_FEE_PREFIX}${cart.id}`);
-      entry.total_cents += storedFee === undefined ? DELIVERY_SERVICE_FEE_CENTS : metaInteger(storedFee);
-      for (const item of cart.cart_items) {
-        if (item.purchase_status !== "bought") continue;
-        entry.total_cents += storedItemTotalCents(item);
-      }
-      months.set(month, entry);
-    }
-    monthlyTotals.push(
-      ...[...months.entries()]
-        .sort(([left], [right]) => right.localeCompare(left))
-        .slice(0, 12)
-        .map(([month, value]) => ({
-          month,
-          total_cents: value.total_cents,
-          carts_count: value.carts.size,
-        })),
-    );
-  }
+  // Use the same fully paginated orders/items as the charts, including their stored fees.
+  const completedMemberCarts = carts.filter((cart) => cart.status === "completed" && activeMemberIds.includes(cart.member_id));
+  const monthlyTotals = viewer.role === "admin" ? monthlySpending(completedMemberCarts, items) : [];
 
   let deliveryWallet = {
     completedOrders: 0,
@@ -655,18 +611,7 @@ async function readState(viewer: FamilyRequestUser) {
     earnedThisMonthCents: 0,
   };
   if (viewer.role === "admin" || viewer.role === "delivery") {
-    let completedOrderRows: Array<{ id: number; completed_at: string | null }> = [];
-    if (activeMemberIds.length) {
-      const { data, error } = await db
-        .from("carts")
-        .select("id, completed_at")
-        .eq("family_id", viewer.familyId)
-        .eq("status", "completed")
-        .in("member_id", activeMemberIds)
-        .limit(1000);
-      throwIfSupabaseError(error);
-      completedOrderRows = (data ?? []) as Array<{ id: number; completed_at: string | null }>;
-    }
+    const completedOrderRows = completedMemberCarts;
     const completedOrders = completedOrderRows.length;
     const orderEarnedCents = completedOrderRows.reduce((sum, cart) => {
       const storedFee = metadata.get(`${CART_SERVICE_FEE_PREFIX}${cart.id}`);
@@ -1690,17 +1635,17 @@ export async function POST(request: Request) {
           .eq("active", true);
         throwIfSupabaseError(membersError);
         const memberIds = (activeMembers ?? []).map((member) => Number(member.id));
-        let completedCartIds: number[] = [];
+        const completedCartIds: number[] = [];
         if (memberIds.length) {
-          const { data: completedCarts, error: cartsError } = await db
-            .from("carts")
-            .select("id")
-            .eq("family_id", viewer.familyId)
-            .eq("status", "completed")
-            .in("member_id", memberIds)
-            .limit(1000);
-          throwIfSupabaseError(cartsError);
-          completedCartIds = (completedCarts ?? []).map((cart) => Number(cart.id));
+          for (let offset = 0; ; offset += 500) {
+            const { data: completedCarts, error: cartsError } = await db
+              .from("carts").select("id").eq("family_id", viewer.familyId)
+              .eq("status", "completed").in("member_id", memberIds)
+              .order("id").range(offset, offset + 499);
+            throwIfSupabaseError(cartsError);
+            completedCartIds.push(...(completedCarts ?? []).map((cart) => Number(cart.id)));
+            if ((completedCarts?.length ?? 0) < 500) break;
+          }
         }
         const accountingMeta = await readFamilyMeta(viewer.familyId);
         const metadata = new Map((accountingMeta ?? []).map((entry) => [String(entry.key), String(entry.value)]));

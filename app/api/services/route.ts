@@ -1,3 +1,4 @@
+import { calculateSavingsInsights, INSIGHT_WINDOW_DAYS, type InsightRow, type SavingsInsights } from "@/lib/savings-insights";
 import { getRequestFamilyUser } from "@/lib/family-auth";
 import {
   activePlanForScope,
@@ -78,53 +79,23 @@ function maybeActivateFamilyPlan(state: ServicesState) {
   return false;
 }
 
-async function buildInsights(familyId: string, plan: string) {
+async function buildInsights(familyId: string, plan: string): Promise<SavingsInsights> {
   if (plan !== "pro") return { locked: true, expensive: [], predictions: [], savings: [] };
   const db = getSupabaseAdmin();
-  const { data, error } = await db.from("cart_items")
-    .select("product_id, actual_unit_price_cents, quantity_hundredths, carts!inner(status, completed_at), products!inner(name_fr, unit_price_cents)")
-    .eq("family_id", familyId).eq("purchase_status", "bought").eq("carts.status", "completed").limit(1000);
-  throwIfSupabaseError(error);
-  type Row = { product_id: number; actual_unit_price_cents: number; carts: { completed_at: string }; products: { name_fr: string; unit_price_cents: number } };
-  const grouped = new Map<number, { name: string; current: number; prices: number[]; dates: string[] }>();
-  for (const raw of (data ?? []) as unknown as Row[]) {
-    const cart = Array.isArray(raw.carts) ? raw.carts[0] : raw.carts;
-    const product = Array.isArray(raw.products) ? raw.products[0] : raw.products;
-    if (!cart?.completed_at || !product) continue;
-    const item = grouped.get(raw.product_id) ?? {
-      name: product.name_fr,
-      current: product.unit_price_cents,
-      prices: [] as number[],
-      dates: [] as string[],
-    };
-    item.prices.push(raw.actual_unit_price_cents);
-    item.dates.push(cart.completed_at);
-    grouped.set(raw.product_id, item);
+  const to = new Date().toISOString();
+  const from = new Date(Date.parse(to) - INSIGHT_WINDOW_DAYS * 86_400_000).toISOString();
+  const rows: InsightRow[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await db.from("cart_items")
+      .select("id, cart_id, product_id, requested_unit_price_cents, actual_unit_price_cents, quantity_hundredths, carts!inner(status, completed_at), products!inner(name_fr, unit_price_cents, unit, package_size)")
+      .eq("family_id", familyId).eq("purchase_status", "bought").eq("carts.status", "completed")
+      .gte("carts.completed_at", from).lte("carts.completed_at", to)
+      .order("id").range(offset, offset + 499);
+    throwIfSupabaseError(error);
+    rows.push(...((data ?? []) as unknown as InsightRow[]));
+    if ((data?.length ?? 0) < 500) break;
   }
-  const expensive: Array<{ name: string; current_cents: number; average_cents: number; increase_percent: number }> = [];
-  const predictions: Array<{ name: string; next_date: string; purchases: number }> = [];
-  const savings: Array<{ name: string; possible_cents: number; best_price_cents: number }> = [];
-  for (const item of grouped.values()) {
-    const prior = item.prices.slice(0, -1);
-    if (prior.length >= 2) {
-      const average = Math.round(prior.reduce((sum, price) => sum + price, 0) / prior.length);
-      if (item.current > average * 1.15) expensive.push({ name: item.name, current_cents: item.current, average_cents: average, increase_percent: Math.round((item.current / average - 1) * 100) });
-      const best = Math.min(...prior);
-      if (item.current > best) savings.push({ name: item.name, possible_cents: item.current - best, best_price_cents: best });
-    }
-    const dates = [...new Set(item.dates.map((date) => date.slice(0, 10)))].sort();
-    if (dates.length >= 2) {
-      const intervals = dates.slice(1).map((date, index) => (new Date(date).getTime() - new Date(dates[index]).getTime()) / 86_400_000);
-      const averageDays = Math.max(1, Math.round(intervals.reduce((sum, days) => sum + days, 0) / intervals.length));
-      predictions.push({ name: item.name, next_date: addDaysIso(averageDays, new Date(dates.at(-1)!)).slice(0, 10), purchases: dates.length });
-    }
-  }
-  return {
-    locked: false,
-    expensive: expensive.sort((a, b) => b.increase_percent - a.increase_percent).slice(0, 5),
-    predictions: predictions.sort((a, b) => a.next_date.localeCompare(b.next_date)).slice(0, 5),
-    savings: savings.sort((a, b) => b.possible_cents - a.possible_cents).slice(0, 5),
-  };
+  return calculateSavingsInsights(rows, from, to);
 }
 
 async function responseFor(viewer: { id: number; role: string; familyId: string }, state: ServicesState, unlocked = false) {

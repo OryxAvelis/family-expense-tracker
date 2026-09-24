@@ -15,22 +15,17 @@ import { Progress } from "@/components/ui/progress";
 import { Toaster } from "@/components/ui/sonner";
 import { useFamilyTheme } from "@/hooks/use-family-theme";
 import type { FamilySessionUser } from "@/lib/family-auth";
+import type { SavingsInsights } from "@/lib/savings-insights";
 
 type Plan = "free" | "plus" | "pro";
 type Payment = { id: string; user_id: number; user_name: string; scope: "family" | "personal"; plan: "plus" | "pro"; amount_cents: number; status: "pending" | "confirmed" | "rejected"; request_type?: "payment" | "trial"; created_at: string; proof_key?: string | null; proof_name?: string | null };
 type Membership = { plan: "plus" | "pro"; ends_at: string; source: string } | null;
-type InsightData = {
-  locked: boolean;
-  expensive: Array<{ name: string; current_cents: number; average_cents: number; increase_percent: number }>;
-  predictions: Array<{ name: string; next_date: string; purchases: number }>;
-  savings: Array<{ name: string; possible_cents: number; best_price_cents: number }>;
-};
 type Data = {
   plan: Plan; usage: number; limit: number | null; familyFundCents: number; familyTargetPlan: "plus" | "pro";
   familyPlan: Plan; personalPlan: Plan; familyUsage: number; personalUsage: number;
   familyLimit: number | null; personalLimit: number | null;
   familyMembership: Membership; personalMembership: Membership; payments: Payment[];
-  votes: Array<{ user_id: number; plan: "plus" | "pro" }>; trialAvailable: boolean; insights: InsightData;
+  votes: Array<{ user_id: number; plan: "plus" | "pro" }>; trialAvailable: boolean; insights: SavingsInsights;
   unlocked?: boolean; error?: string;
 };
 
@@ -193,11 +188,16 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
           </div>
         </section>
 
-        <section className="mt-10"><div className="mb-5 flex items-end justify-between"><div><Badge variant="outline" className="mb-2 border-[#f3a72f]/40 text-[#c37a00]"><Sparkles/>PRO</Badge><h2 className="text-2xl font-black">Assistant économies</h2><p className="text-sm text-muted-foreground">Vos achats deviennent des décisions utiles.</p></div></div>
-          {data.insights.locked ? <div className="relative overflow-hidden rounded-[2rem] border border-[#f3a72f]/35 bg-card p-8 text-center"><div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#f3a72f]/8 via-transparent to-primary/8"/><Crown className="relative mx-auto size-10 text-[#f3a72f]"/><h3 className="relative mt-3 text-xl font-black">Débloquez votre analyse personnelle</h3><p className="relative mx-auto mt-2 max-w-xl text-sm text-muted-foreground">Pro repère les hausses, prévoit vos prochains besoins et montre où économiser.</p><Button className="relative mt-5 rounded-xl" onClick={() => void act({ action: "request_personal_plan", plan: "pro" }, "Demande Pro envoyée.")}>Débloquer avec Pro</Button></div> : <div className="grid gap-4 md:grid-cols-3">
-            <InsightCard icon={<TrendingUp/>} title="Prix en hausse" empty="Aucune hausse importante." items={data.insights.expensive.map((item) => `${item.name} · +${item.increase_percent}%`)} />
-            <InsightCard icon={<BellRing/>} title="Bientôt nécessaire" empty="Plus d’historique est nécessaire." items={data.insights.predictions.map((item) => `${item.name} · vers le ${new Date(item.next_date).toLocaleDateString("fr-MA")}`)} />
-            <InsightCard icon={<TrendingDown/>} title="Économies possibles" empty="Vos prix sont déjà bien optimisés." items={data.insights.savings.map((item) => `${item.name} · jusqu’à ${money(item.possible_cents)}`)} />
+        <section className="mt-10"><div className="mb-5 flex items-end justify-between"><div><Badge variant="outline" className="mb-2 border-[#f3a72f]/40 text-[#c37a00]"><Sparkles/>PRO</Badge><h2 className="text-2xl font-black">Assistant économies</h2><p className="text-sm text-muted-foreground">Prix catalogue comparés aux achats réalisés par la famille.</p></div></div>
+          {data.insights.window && <p className="mb-4 rounded-xl bg-muted/40 p-3 text-sm text-muted-foreground">
+            Du {new Date(data.insights.window.from).toLocaleDateString("fr-MA")} au {new Date(data.insights.window.to).toLocaleDateString("fr-MA")} · {data.insights.window.purchases} commandes · {data.insights.window.price_samples} prix comparables.
+            {" "}Les achats par montant ({data.insights.window.excluded_amount_purchases}) sont exclus des comparaisons de prix, car leur quantité réelle n’est pas connue.
+            {" "}Les écarts sont indiqués par unité ou paquet vendu ; les économies et dates restent des estimations.
+          </p>}
+          {data.insights.locked ? <div className="relative overflow-hidden rounded-[2rem] border border-[#f3a72f]/35 bg-card p-8 text-center"><div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#f3a72f]/8 via-transparent to-primary/8"/><Crown className="relative mx-auto size-10 text-[#f3a72f]"/><h3 className="relative mt-3 text-xl font-black">Débloquez les tendances de la famille</h3><p className="relative mx-auto mt-2 max-w-xl text-sm text-muted-foreground">Pro repère les hausses, prévoit vos prochains besoins et montre où économiser.</p><Button className="relative mt-5 rounded-xl" onClick={() => void act({ action: "request_personal_plan", plan: "pro" }, "Demande Pro envoyée.")}>Débloquer avec Pro</Button></div> : <div className="grid gap-4 md:grid-cols-3">
+            <InsightCard icon={<TrendingUp/>} title="Prix en hausse" empty="Pas assez de prix comparables, ou aucune hausse détectée." items={data.insights.expensive.map((item) => `${item.name} · +${item.increase_percent}% · ${item.samples} achats comparables`)} />
+            <InsightCard icon={<BellRing/>} title="Bientôt nécessaire" empty="Plus d’historique est nécessaire." items={data.insights.predictions.map((item) => `${item.name} · date estimée : ${new Date(item.next_date).toLocaleDateString("fr-MA")} · ${item.purchases} jours d’achat`)} />
+            <InsightCard icon={<TrendingDown/>} title="Économies possibles" empty="Pas assez de prix comparables, ou aucun écart détecté." items={data.insights.savings.map((item) => `${item.name} · écart de ${money(item.possible_cents)} / ${item.package_size ? `paquet (${item.package_size})` : item.unit} · ${item.samples} achats comparables`)} />
           </div>}
         </section>
       </section>

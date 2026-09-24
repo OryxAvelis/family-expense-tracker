@@ -3800,9 +3800,9 @@ function MemberBalancesManager({
           }
         }}>
             <div>
-              <Label className="mb-1.5 block text-xs">Membre contributeur</Label>
+              <Label htmlFor="family-wallet-member" className="mb-1.5 block text-xs">{language === "ar" ? "الفرد المساهم" : language === "en" ? "Contributing member" : "Membre contributeur"}</Label>
               <Select value={familyMemberId} onValueChange={setFamilyMemberId}>
-                <SelectTrigger className="h-10 rounded-xl"><SelectValue placeholder="Membre" /></SelectTrigger>
+                <SelectTrigger id="family-wallet-member" className="h-10 rounded-xl"><SelectValue placeholder={t.member} /></SelectTrigger>
                 <SelectContent>{wallets.map((wallet) => <SelectItem key={wallet.member_id} value={String(wallet.member_id)}>{wallet.member_name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
@@ -3824,10 +3824,10 @@ function MemberBalancesManager({
             </Button>
           </form>
 
-        <div className="grid grid-cols-3 gap-3 border-t border-border px-4 py-3 text-sm sm:px-5">
+        <div className="grid gap-2 border-t border-border px-4 py-3 text-sm sm:grid-cols-3 sm:gap-3 sm:px-5">
           <span className="text-muted-foreground">Contributions <strong className="ms-1 text-foreground">{money(familyWallet.credited_cents)}</strong></span>
-          <span className="text-center text-muted-foreground">Dépenses <strong className="ms-1 text-foreground">{money(familyWallet.spent_cents)}</strong></span>
-          <span className="text-end text-muted-foreground">{t.returnedMoney} <strong className="ms-1 text-foreground">{money(familyWallet.returned_cents)}</strong></span>
+          <span className="text-muted-foreground sm:text-center">Dépenses <strong className="ms-1 text-foreground">{money(familyWallet.spent_cents)}</strong></span>
+          <span className="text-muted-foreground sm:text-end">{t.returnedMoney} <strong className="ms-1 text-foreground">{money(familyWallet.returned_cents)}</strong></span>
         </div>
         {familyWallet.transactions.length > 0 && (
           <div className="border-t border-border px-4 py-2 sm:px-5">
@@ -3851,7 +3851,7 @@ function MemberBalancesManager({
 
       <div className="grid gap-3 lg:grid-cols-2">
         {wallets.map((wallet) => (
-          <article key={wallet.member_id} className="rounded-2xl border border-border bg-card p-4">
+          <article key={wallet.member_id} className="min-w-0 rounded-2xl border border-border bg-card p-4">
             <div className="flex items-center gap-3">
               <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-secondary font-bold text-primary">
                 {wallet.member_initials}
@@ -3877,7 +3877,7 @@ function MemberBalancesManager({
                 />
                 <span className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DH</span>
               </div>
-              <Button type="submit" className="h-10 rounded-xl" disabled={busy || !(amounts[wallet.member_id] ?? "").trim()}>
+              <Button type="submit" aria-label={`${t.addFunds} · ${wallet.member_name}`} className="h-10 rounded-xl" disabled={busy || !(amounts[wallet.member_id] ?? "").trim()}>
                 <Plus className="size-4" /> <span className="hidden sm:inline">{t.addFunds}</span>
               </Button>
               <Button type="button" variant="outline" className="col-span-2 h-10 rounded-xl border-[#d98200]/35 text-[#9a5700] hover:bg-[#ffb454]/10 hover:text-[#8a4e00] sm:col-span-1" disabled={busy || wallet.balance_cents <= 0 || !(amounts[wallet.member_id] ?? "").trim()} onClick={() => requestFundsReturn(wallet)}>
@@ -3885,10 +3885,10 @@ function MemberBalancesManager({
               </Button>
             </form>
 
-            <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+            <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
               <span>{t.moneyReceived}: {money(wallet.credited_cents)}</span>
-              <span className="text-center">{t.orderExpenses}: {money(wallet.spent_cents)}</span>
-              <span className="text-end">{t.returnedMoney}: {money(wallet.returned_cents)}</span>
+              <span className="sm:text-center">{t.orderExpenses}: {money(wallet.spent_cents)}</span>
+              <span className="sm:text-end">{t.returnedMoney}: {money(wallet.returned_cents)}</span>
             </div>
             {wallet.transactions[0] && (
               <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3 text-xs">
@@ -5437,17 +5437,17 @@ function AdminDashboard({
       </div>
 
       <Tabs value={view} onValueChange={(value) => setView(value as AdminView)}>
-        <TabsList className="mb-4 h-11 w-full justify-start gap-1 overflow-x-auto overflow-y-hidden rounded-2xl bg-muted/60 p-1 sm:w-fit">
-          <TabsTrigger value="requests" className="h-9 rounded-xl px-4">
-            <ListChecks /> {t.requests}
+        <TabsList aria-label={t.admin} className="mb-4 grid w-full grid-cols-5 items-stretch gap-1 rounded-2xl bg-muted/60 p-1 group-data-[orientation=horizontal]/tabs:h-auto lg:hidden">
+          <TabsTrigger value="requests" className="h-auto min-w-0 flex-col gap-1 rounded-xl px-1 py-2 text-[10px] sm:flex-row sm:px-3 sm:text-sm">
+            <ListChecks /> <span className="text-[11px] sm:text-sm">{t.requests}</span>
             {pendingCarts.length + pendingUsers.length + pendingPlanPayments.length > 0 && (
-              <Badge className="ms-1 h-5 min-w-5 px-1.5">{pendingCarts.length + pendingUsers.length + pendingPlanPayments.length}</Badge>
+              <Badge className="absolute -top-1 end-0 h-4 min-w-4 px-1 text-[9px]">{pendingCarts.length + pendingUsers.length + pendingPlanPayments.length}</Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="products" className="h-9 rounded-xl px-4"><PackagePlus /> {t.products}</TabsTrigger>
-          <TabsTrigger value="balances" className="h-9 rounded-xl px-4"><WalletCards /> {t.balances}</TabsTrigger>
-          <TabsTrigger value="history" className="h-9 rounded-xl px-4"><ListChecks /> {t.history}</TabsTrigger>
-          <TabsTrigger value="analytics" className="h-9 rounded-xl px-4"><BarChart3 /> {t.analytics}</TabsTrigger>
+          <TabsTrigger value="products" className="h-auto min-w-0 flex-col gap-1 rounded-xl px-1 py-2 text-[10px] sm:flex-row sm:px-3 sm:text-sm"><PackagePlus /> <span className="text-[11px] sm:text-sm">{t.products}</span></TabsTrigger>
+          <TabsTrigger value="balances" className="h-auto min-w-0 flex-col gap-1 rounded-xl px-1 py-2 text-[10px] sm:flex-row sm:px-3 sm:text-sm"><WalletCards /> <span className="text-[11px] sm:text-sm">{t.balances}</span></TabsTrigger>
+          <TabsTrigger value="history" className="h-auto min-w-0 flex-col gap-1 rounded-xl px-1 py-2 text-[10px] sm:flex-row sm:px-3 sm:text-sm"><ListChecks /> <span className="text-[11px] sm:text-sm">{t.history}</span></TabsTrigger>
+          <TabsTrigger value="analytics" className="h-auto min-w-0 flex-col gap-1 rounded-xl px-1 py-2 text-[10px] sm:flex-row sm:px-3 sm:text-sm"><BarChart3 /> <span className="text-[11px] sm:text-sm">{t.analytics}</span></TabsTrigger>
         </TabsList>
 
         <TabsContent value="requests">
@@ -6101,7 +6101,7 @@ function AdminDashboard({
                   />
                   <span className="pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DH</span>
                 </div>
-                <Button type="submit" className="h-11 rounded-xl" disabled={busy}>
+                <Button type="submit" aria-label={t.setBudget} className="h-11 rounded-xl" disabled={busy}>
                   {busy ? <Loader2 className="animate-spin" /> : <Check />}
                   <span className="hidden sm:inline">{t.setBudget}</span>
                 </Button>
@@ -6112,7 +6112,7 @@ function AdminDashboard({
                     <strong>{money(currentMonthlyTotal)}</strong>
                     <span className="text-muted-foreground">/ {money(data.monthlyBudgetCents)}</span>
                   </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-muted">
+                  <div role="progressbar" aria-label={t.monthlyBudget} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, Math.round(budgetRatio * 100))} aria-valuetext={`${money(currentMonthlyTotal)} / ${money(data.monthlyBudgetCents)}`} className="h-2 overflow-hidden rounded-full bg-muted">
                     <div
                       className={`h-full rounded-full transition-[width] duration-700 ${budgetRatio >= 1 ? "bg-destructive" : budgetRatio >= 0.8 ? "bg-[#d98200]" : "bg-primary"}`}
                       style={{ width: `${Math.min(budgetRatio * 100, 100)}%` }}
@@ -6151,7 +6151,7 @@ function AdminDashboard({
                 ].map(([label, value]) => (
                   <div key={String(label)} className="min-w-0 rounded-2xl bg-muted/45 p-3">
                     <p className="truncate text-xs text-muted-foreground">{label}</p>
-                    <p className="mt-1 truncate font-bold tabular-nums">{money(Number(value))}</p>
+                    <p className="mt-1 break-words font-bold tabular-nums">{money(Number(value))}</p>
                   </div>
                 ))}
               </div>
