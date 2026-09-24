@@ -12,6 +12,7 @@
     "start": "next start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "test:prices": "node --experimental-strip-types --test scripts/price-inputs.test.mjs",
+    "test:catalogue": "node --experimental-strip-types --test scripts/catalogue.test.mjs",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

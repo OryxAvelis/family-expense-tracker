@@ -1,3 +1,4 @@
+import { inferCatalogCategory } from "@/lib/catalogue";
 import { getRequestFamilyUser } from "@/lib/family-auth";
 import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 
@@ -229,36 +230,7 @@ async function fetchAnimalIds() {
 }
 
 function categoryForMyMarket(product: MyMarketProduct): ProductCategory {
-  const text = normalized(
-    [product.type, product.product_type, tagsText(product.tags), product.title]
-      .map((value) => cleanText(value, 500))
-      .join(" "),
-  );
-
-  if (/\b(CAHIER|STYLO|CRAYON|SCOLAIRE|PAPETERIE|ECOLE|CLASSEUR|CARTABLE)\b/.test(text)) {
-    return "school";
-  }
-  if (/\b(PHARMACIE|SANTE|VITAMINE|PANSEMENT|PARAPHARMACIE|COMPLEMENT)\b/.test(text)) {
-    return "health";
-  }
-  if (
-    /\b(HYGIENE|BEAUTE|GEL DOUCHE|SHAMPOOING|DENTIFRICE|DEODORANT|BEBE|MATERNITE|COUCHE|LINGETTE)\b/.test(
-      text,
-    )
-  ) {
-    return "hygiene";
-  }
-  if (
-    /\b(ENTRETIEN|NETTOYAGE|LESSIVE|DETERGENT|JAVEL|VAISSELLE|ASSOUPLISSANT|NETTOYANT|DEGRAISSANT|EPONGE|POUBELLE)\b/.test(
-      text,
-    )
-  ) {
-    return "cleaning";
-  }
-  if (/\b(MAISON|BRICOLAGE|JARDINAGE|ACCESSOIRE|USTENSILE|PILE|ELECTRIQUE|BOUGIE|BARBECUE)\b/.test(text)) {
-    return "household";
-  }
-  return "food";
+  return inferCatalogCategory(cleanText(product.title), [product.type, product.product_type, tagsText(product.tags)].map((value) => cleanText(value, 500)).join(" "));
 }
 
 function packageSize(product: MyMarketProduct, variant: MyMarketVariant) {

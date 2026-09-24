@@ -1,3 +1,4 @@
+import { extractPackageSize, inferCatalogCategory } from "@/lib/catalogue";
 import { getRequestFamilyUser } from "@/lib/family-auth";
 import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 
@@ -274,44 +275,11 @@ function safeImageUrl(value: unknown) {
 }
 
 function packageSize(value: unknown) {
-  const name = cleanText(value);
-  const match = name.match(
-    /(?:\d+\s*[x×]\s*)?\d+(?:[.,]\d+)?\s*(?:ml|cl|l|kg|g|mg|pi[eè]ces?|pcs?|unit[eé]s?|sachets?|capsules?|rouleaux?)\b/i,
-  );
-  return match ? match[0].replace(/\s+/g, " ") : null;
+  return extractPackageSize(cleanText(value));
 }
 
 function appCategory(product: MyMarketApiProduct): MyMarketCatalogProduct["category"] {
-  const text = normalized(
-    [product.product_type, tagsText(product.tags), product.title]
-      .map((value) => cleanText(value, 500))
-      .join(" "),
-  );
-
-  if (/\b(CAHIER|STYLO|CRAYON|SCOLAIRE|PAPETERIE|ECOLE|CLASSEUR|CARTABLE)\b/.test(text)) {
-    return "school";
-  }
-  if (/\b(PHARMACIE|SANTE|VITAMINE|PANSEMENT|PARAPHARMACIE|COMPLEMENT)\b/.test(text)) {
-    return "health";
-  }
-  if (
-    /\b(HYGIENE|BEAUTE|GEL DOUCHE|SHAMPOOING|DENTIFRICE|DEODORANT|BEBE|MATERNITE|COUCHE|LINGETTE)\b/.test(
-      text,
-    )
-  ) {
-    return "hygiene";
-  }
-  if (
-    /\b(ENTRETIEN|NETTOYAGE|LESSIVE|DETERGENT|JAVEL|VAISSELLE|ASSOUPLISSANT|NETTOYANT|DEGRAISSANT|EPONGE|POUBELLE)\b/.test(
-      text,
-    )
-  ) {
-    return "cleaning";
-  }
-  if (/\b(MAISON|BRICOLAGE|JARDINAGE|ACCESSOIRE|USTENSILE|PILE|ELECTRIQUE|BOUGIE|BARBECUE)\b/.test(text)) {
-    return "household";
-  }
-  return "food";
+  return inferCatalogCategory(cleanText(product.title), [product.product_type, tagsText(product.tags)].map((value) => cleanText(value, 500)).join(" "));
 }
 
 function isAnimalProduct(product: MyMarketApiProduct, animalIds: Set<string>) {

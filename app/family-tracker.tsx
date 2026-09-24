@@ -108,6 +108,8 @@ import { useFamilyTheme } from "@/hooks/use-family-theme";
 import type { FamilySessionUser } from "@/lib/family-auth";
 import type { ServiceTask } from "@/lib/family-services";
 import { SERVICE_TEMPLATES } from "@/lib/service-catalog";
+import { ProductSaleFields, type ProductSaleDraft } from "@/components/product-sale-fields";
+import { canPurchaseByAmount, formatQuantity, quantityStep, saleLabel, saleMode, validateOrderUnit, type SaleMode } from "@/lib/catalogue";
 import { reconcilePriceInputs, submittedPriceInputs, type PriceInputs } from "@/lib/price-inputs";
 
 type Language = "fr" | "ar" | "en";
@@ -170,7 +172,7 @@ type Product = {
   has_orders: number;
 };
 
-type ProductFormDraft = {
+type ProductFormDraft = ProductSaleDraft & {
   nameFr: string;
   nameAr: string;
   nameEn: string;
@@ -1374,6 +1376,8 @@ export function FamilyTracker({
     nameEn: "",
     category: "food",
     unit: "pièce",
+    saleMode: "piece" as SaleMode,
+    packageSize: "",
     price: "",
   });
   const { theme, toggleTheme } = useFamilyTheme();
@@ -1646,7 +1650,7 @@ export function FamilyTracker({
   );
 
   const addMyMarketProduct = useCallback(
-    async (source: RemoteCatalogProduct, mode: "quantity" | "amount" = "quantity") => {
+    async (source: RemoteCatalogProduct) => {
       try {
         const busyKey = `${source.source}:${source.external_id}`;
         setMyMarketBusyId(busyKey);
@@ -1677,15 +1681,6 @@ export function FamilyTracker({
           ...current,
           [product.id]: (product.unit_price_cents / 100).toFixed(2),
         }));
-        if (mode === "amount") {
-          setAmountProduct(product);
-          setAmountDh(
-            draftAmounts[product.id]
-              ? (draftAmounts[product.id] / 100).toFixed(2)
-              : "",
-          );
-          return;
-        }
         setDraft((current) => ({
           ...current,
           [product.id]: (current[product.id] ?? 0) + 100,
@@ -1702,7 +1697,7 @@ export function FamilyTracker({
         setMyMarketBusyId(null);
       }
     },
-    [draftAmounts, t.myMarketAdded],
+    [t.myMarketAdded],
   );
 
   const money = (cents: number) => {
@@ -1715,33 +1710,7 @@ export function FamilyTracker({
     unit: Product["unit"],
     packageSize?: string | null,
   ) => {
-    const numberLocale = language === "ar" ? "ar-MA" : language === "en" ? "en-MA" : "fr-MA";
-    const packageMatch = packageSize
-      ?.trim()
-      .match(/^(\d+(?:[.,]\d+)?)\s*(L|kg|pi(?:è|e)ces?)$/i);
-    const packageUnit = packageMatch?.[2]?.toLocaleLowerCase();
-    const matchingPackageUnit =
-      packageUnit === unit.toLocaleLowerCase() ||
-      (unit === "pièce" && packageUnit?.startsWith("pi"));
-    const packageAmount = matchingPackageUnit
-      ? Number(packageMatch?.[1]?.replace(",", ".") ?? 0)
-      : 0;
-    const amount = packageAmount > 0
-      ? (hundredths / 100) * packageAmount
-      : hundredths / 100;
-
-    if (packageSize && !packageAmount) {
-      const packageCount = new Intl.NumberFormat(numberLocale, { maximumFractionDigits: 2 }).format(amount);
-      return amount === 1 ? packageSize : `${packageCount} × ${packageSize}`;
-    }
-
-    const translatedUnit =
-      language === "ar"
-        ? ({ L: "لتر", kg: "كلغ", "pièce": "قطعة" } as const)[unit]
-        : language === "en"
-          ? ({ L: "L", kg: "kg", "pièce": "piece" } as const)[unit]
-          : unit;
-    return `${new Intl.NumberFormat(numberLocale, { maximumFractionDigits: 2 }).format(amount)} ${translatedUnit}`;
+    return formatQuantity(hundredths, { unit, package_size: packageSize }, language);
   };
 
   const amountQuantityLabel = (
@@ -1847,7 +1816,7 @@ export function FamilyTracker({
       key: `family-${product.id}`,
       name: productName(product),
       imageUrl: product.image_url,
-      packageSize: product.package_size || `1 ${product.unit}`,
+      packageSize: saleLabel(product, language),
       priceCents: product.unit_price_cents,
       source: "family" as const,
       score: productSearchScore(query, [
@@ -1876,7 +1845,7 @@ export function FamilyTracker({
     return [...local, ...remote]
       .sort((left, right) => right.score - left.score)
       .slice(0, 8);
-  }, [filteredMyMarketProducts, filteredProducts, productName, search]);
+  }, [filteredMyMarketProducts, filteredProducts, language, productName, search]);
 
   const draftProducts = Object.entries(draft)
     .filter(([, quantity]) => quantity > 0)
@@ -1989,6 +1958,9 @@ export function FamilyTracker({
               name: productName(product),
               category: product.category,
               unit: product.unit,
+              packageSize: product.package_size,
+              saleMode: saleMode(product),
+              quantityStep: quantityStep(product),
               unitPriceCents: product.unit_price_cents,
             })),
         };
@@ -2030,16 +2002,19 @@ export function FamilyTracker({
         }
         const next: Record<number, number> = {};
         for (const item of value.items) {
+          const product = data.products.find((product) => product.id === item.productId);
           if (
             !Number.isInteger(item.productId) ||
             !Number.isInteger(item.quantityHundredths) ||
-            !data.products.some((product) => product.id === item.productId)
+            !product
           ) {
             throw new Error("A cart item is invalid.");
           }
+          validateOrderUnit(product, item.quantityHundredths!);
           next[item.productId!] = item.quantityHundredths!;
         }
         setDraft(next);
+        setDraftAmounts({});
         setEditingCartId(null);
         setCartOpen(true);
         await afterPaint();
@@ -2070,6 +2045,7 @@ export function FamilyTracker({
           .map(([productId, quantityHundredths]) => ({
             productId: Number(productId),
             quantityHundredths,
+            ...(draftAmounts[Number(productId)] ? { amountCents: draftAmounts[Number(productId)] } : {}),
           }));
         if (!staged.length && !missingProductsNote.trim()) {
           throw new Error("The visible cart is empty.");
@@ -2090,6 +2066,7 @@ export function FamilyTracker({
         if (!response.ok) throw new Error(payload.error || "The cart could not be submitted.");
         applyData(payload);
         setDraft({});
+        setDraftAmounts({});
         setMissingProductsNote("");
         setMissingNoteExpanded(false);
         setCartOpen(false);
@@ -2105,7 +2082,7 @@ export function FamilyTracker({
     });
 
     return () => lifecycle.abort();
-  }, [applyData, currentUser.id, data, draft, draftWalletScope, missingProductsNote, productName, role]);
+  }, [applyData, currentUser.id, data, draft, draftAmounts, draftWalletScope, missingProductsNote, productName, role]);
 
   const addToCart = (product: Product) => {
     setDraftAmounts((current) => {
@@ -2121,12 +2098,13 @@ export function FamilyTracker({
   };
 
   const openAmountPicker = (product: Product) => {
+    if (!canPurchaseByAmount(product)) return;
     setAmountProduct(product);
     setAmountDh(draftAmounts[product.id] ? (draftAmounts[product.id] / 100).toFixed(2) : "");
   };
 
   const applyAmountToCart = () => {
-    if (!amountProduct) return;
+    if (!amountProduct || !canPurchaseByAmount(amountProduct)) return;
     const amountCents = Math.round(Number(amountDh.replace(",", ".")) * 100);
     if (!Number.isInteger(amountCents) || amountCents < 50 || amountCents > 10_000_000) {
       toast.error(t.invalidAmount);
@@ -2145,23 +2123,15 @@ export function FamilyTracker({
   };
 
   const changeQuantity = (product: Product, direction: 1 | -1) => {
-    const isRemoteMeasuredProduct =
-      (product.external_source === "mymarket" || product.external_source === "bringo") &&
-      (product.unit === "kg" ||
-        product.unit === "L" ||
-        /(?:kg|l)\s*$/i.test(product.package_size ?? ""));
-    const step = isRemoteMeasuredProduct
-      ? 50
-      : product.package_size || product.unit === "pièce"
-        ? 100
-        : 50;
+    const step = quantityStep(product);
     setDraftAmounts((current) => {
       const updated = { ...current };
       delete updated[product.id];
       return updated;
     });
     setDraft((current) => {
-      const next = Math.max(0, (current[product.id] ?? 0) + direction * step);
+      const previous = draftAmounts[product.id] !== undefined ? 0 : (current[product.id] ?? 0);
+      const next = Math.max(0, previous + direction * step);
       const updated = { ...current, [product.id]: next };
       if (!next) delete updated[product.id];
       return updated;
@@ -2778,7 +2748,7 @@ export function FamilyTracker({
                           />
                           <div className="p-3.5 sm:p-4">
                             <div className="mb-2 flex items-start justify-between gap-2">
-                              <h3 className="min-w-0 truncate font-semibold sm:text-lg">{productName(product)}</h3>
+                              <h3 className="min-w-0 break-words font-semibold sm:text-lg">{productName(product)}</h3>
                               <div className="flex shrink-0 items-center gap-1">
                                 {product.purchase_count >= 10 && (
                                   <Sparkles className="size-4 text-[#ffb454]" aria-label="Fréquent" />
@@ -2797,19 +2767,15 @@ export function FamilyTracker({
                                 </Button>
                               </div>
                             </div>
-                            <Badge variant="outline" className="mb-3 border-border bg-muted/45 text-muted-foreground">
-                              {product.package_size || `1 ${product.unit}`}
+                            <Badge variant="outline" className="mb-3 max-w-full whitespace-normal break-words border-border bg-muted/45 text-muted-foreground">
+                              {saleLabel(product, language)}
                             </Badge>
                             <div className="flex items-end justify-between gap-2">
                               <p className="text-lg font-bold tracking-tight sm:text-xl">
                                 {product.unit_price_cents > 0 ? money(product.unit_price_cents) : t.priceToConfirm}
                               </p>
                               <div className="flex shrink-0 items-center gap-1.5">
-                                {product.unit_price_cents > 0 &&
-                                  ((product.unit !== "pièce" && !product.package_size) ||
-                                    ((product.external_source === "mymarket" ||
-                                      product.external_source === "bringo") &&
-                                      measuredPackageSize(product.package_size))) && (
+                                {canPurchaseByAmount(product) && (
                                   <Button
                                     size="icon-sm"
                                     variant="outline"
@@ -2857,8 +2823,8 @@ export function FamilyTracker({
                               {product.name}
                             </h3>
                             <div className="mt-2 flex flex-wrap gap-1.5">
-                              <Badge variant="outline" className="border-border bg-muted/45 text-muted-foreground">
-                                {product.package_size || quantityLabel(100, "pièce")}
+                              <Badge variant="outline" className="max-w-full whitespace-normal break-words border-border bg-muted/45 text-muted-foreground">
+                                {saleLabel({ unit: "pièce", package_size: product.package_size }, language)}
                               </Badge>
                               <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary">
                                 {product.store}
@@ -2876,23 +2842,6 @@ export function FamilyTracker({
                                 </p>
                               </div>
                               <div className="flex shrink-0 items-center gap-1.5">
-                                {measuredPackageSize(product.package_size) && (
-                                  <Button
-                                    size="icon-sm"
-                                    variant="outline"
-                                    className="rounded-xl border-primary/25 text-primary"
-                                    disabled={myMarketBusyId === `${product.source}:${product.external_id}`}
-                                    onClick={() => void addMyMarketProduct(product, "amount")}
-                                    aria-label={`${t.buyByAmount}: ${product.name}`}
-                                    title={t.buyByAmount}
-                                  >
-                                    {myMarketBusyId === `${product.source}:${product.external_id}` ? (
-                                      <Loader2 className="animate-spin" />
-                                    ) : (
-                                      <WalletCards />
-                                    )}
-                                  </Button>
-                                )}
                                 <Button
                                   size="icon-sm"
                                   className="rounded-xl"
@@ -4394,7 +4343,7 @@ function OfflinePurchaseDialog({
   const directPaymentCents = Math.max(totalWithServiceCents - walletDebitCents, 0);
   const remainingBalanceCents = spendableBalanceCents - walletDebitCents;
 
-  const productStep = (product: Product) => product.unit === "pièce" || product.package_size ? 100 : 50;
+  const productStep = quantityStep;
   const changeQuantity = (product: Product, direction: 1 | -1) => {
     const step = productStep(product);
     setAmounts((current) => { const next = { ...current }; delete next[product.id]; return next; });
@@ -4415,13 +4364,13 @@ function OfflinePurchaseDialog({
   };
 
   const buyByAmount = (product: Product) => {
+    if (!canPurchaseByAmount(product)) return;
     setQuantities((current) => ({ ...current, [product.id]: 100 }));
     setAmounts((current) => ({ ...current, [product.id]: current[product.id] ?? "5" }));
   };
 
   const addRemoteProduct = async (
     source: RemoteCatalogProduct,
-    mode: "quantity" | "amount" = "quantity",
   ) => {
     const busyKey = `${source.source}:${source.external_id}`;
     try {
@@ -4451,12 +4400,11 @@ function OfflinePurchaseDialog({
       }));
       setQuantities((current) => ({
         ...current,
-        [product.id]: mode === "amount" ? 100 : (current[product.id] ?? 0) + 100,
+        [product.id]: (current[product.id] ?? 0) + 100,
       }));
       setAmounts((current) => {
         const updated = { ...current };
-        if (mode === "amount") updated[product.id] = updated[product.id] ?? "5";
-        else delete updated[product.id];
+        delete updated[product.id];
         return updated;
       });
       toast.success(`${productName(product)} ajouté au panier.`);
@@ -4746,14 +4694,14 @@ function OfflinePurchaseDialog({
                       <ProductImage position={product.image_position} name={productName(product)} imageUrl={product.image_url} className="aspect-[1.35]" />
                       <div className="flex flex-1 flex-col p-2.5">
                         <p className="line-clamp-2 text-sm font-semibold leading-5">{productName(product)}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{product.package_size || `1 ${product.unit}`}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{saleLabel(product)}</p>
                         <p className="mt-2 text-sm font-bold">{money(product.unit_price_cents)}</p>
                         <Button type="button" size="sm" variant="outline" className="mt-2 w-full rounded-xl border-primary/25 text-primary" onClick={() => changeQuantity(product, 1)}>
                           <Plus className="size-4" /> Ajouter
                         </Button>
-                        <Button type="button" size="sm" variant="ghost" className="mt-1 w-full rounded-xl text-primary" onClick={() => buyByAmount(product)}>
+                        {canPurchaseByAmount(product) && <Button type="button" size="sm" variant="ghost" className="mt-1 w-full rounded-xl text-primary" onClick={() => buyByAmount(product)}>
                           Par montant (DH)
-                        </Button>
+                        </Button>}
                       </div>
                     </article>
                   ))}
@@ -4766,7 +4714,7 @@ function OfflinePurchaseDialog({
                         <div className="flex flex-1 flex-col p-2.5">
                           <p className="line-clamp-2 text-sm font-semibold leading-5">{product.name}</p>
                           <div className="mt-1 flex flex-wrap gap-1">
-                            <span className="text-xs text-muted-foreground">{product.package_size || "1 pièce"}</span>
+                            <span className="text-xs text-muted-foreground">{saleLabel({ unit: "pièce", package_size: product.package_size })}</span>
                             <Badge variant="outline" className="h-5 border-primary/20 bg-primary/5 px-1.5 text-[10px] text-primary">
                               {product.store}
                             </Badge>
@@ -4774,9 +4722,6 @@ function OfflinePurchaseDialog({
                           <p className="mt-2 text-sm font-bold">{money(product.price_cents)}</p>
                           <Button type="button" size="sm" variant="outline" disabled={productBusy} className="mt-2 w-full rounded-xl border-primary/25 text-primary" onClick={() => void addRemoteProduct(product)}>
                             {productBusy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />} Ajouter
-                          </Button>
-                          <Button type="button" size="sm" variant="ghost" disabled={productBusy} className="mt-1 w-full rounded-xl text-primary" onClick={() => void addRemoteProduct(product, "amount")}>
-                            Par montant (DH)
                           </Button>
                         </div>
                       </article>
@@ -5123,6 +5068,12 @@ function AdminDashboard({
   language: Language;
   profileImageVersion: number;
 }) {
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [catalogCategory, setCatalogCategory] = useState("all");
+  const catalogProducts = data.products.filter((product) =>
+    (catalogCategory === "all" || product.category === catalogCategory) &&
+    (!catalogSearch.trim() || productSearchScore(catalogSearch, [product.name_fr, product.name_ar, product.name_en, product.package_size, CATEGORY_SEARCH_TERMS[product.category]]) > 0),
+  );
   const [newProductImage, setNewProductImage] = useState<File | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editProduct, setEditProduct] = useState<ProductFormDraft>({
@@ -5131,6 +5082,8 @@ function AdminDashboard({
     nameEn: "",
     category: "food",
     unit: "pièce",
+    saleMode: "piece" as SaleMode,
+    packageSize: "",
     price: "",
   });
   const [editProductImage, setEditProductImage] = useState<File | null>(null);
@@ -5302,6 +5255,8 @@ function AdminDashboard({
       nameEn: product.name_en,
       category: product.category,
       unit: product.unit,
+      saleMode: saleMode(product),
+      packageSize: product.package_size ?? "",
       price: (product.unit_price_cents / 100).toFixed(2),
     });
     setEditProductImage(null);
@@ -5346,7 +5301,7 @@ function AdminDashboard({
       );
       if (ok) {
         setAddDialogOpen(false);
-        setNewProduct({ nameFr: "", nameAr: "", nameEn: "", category: "food", unit: "pièce", price: "" });
+        setNewProduct({ nameFr: "", nameAr: "", nameEn: "", category: "food", unit: "pièce", saleMode: "piece", packageSize: "", price: "" });
         clearNewProductImage();
       }
     } catch (error) {
@@ -5879,22 +5834,16 @@ function AdminDashboard({
                     <div className="grid gap-2"><Label htmlFor="name-fr">Nom français</Label><Input id="name-fr" required value={newProduct.nameFr} onChange={(event) => setNewProduct((current) => ({ ...current, nameFr: event.target.value }))} /></div>
                     <div className="grid gap-2"><Label htmlFor="name-ar">Nom arabe</Label><Input id="name-ar" dir="rtl" value={newProduct.nameAr} onChange={(event) => setNewProduct((current) => ({ ...current, nameAr: event.target.value }))} /></div>
                     <div className="grid gap-2"><Label htmlFor="name-en">Nom anglais</Label><Input id="name-en" value={newProduct.nameEn} onChange={(event) => setNewProduct((current) => ({ ...current, nameEn: event.target.value }))} /></div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-3">
                       <div className="grid gap-2">
-                        <Label>Catégorie</Label>
+                        <Label htmlFor="newProduct-category">{language === "en" ? "Category" : language === "ar" ? "الفئة" : "Catégorie"}</Label>
                         <Select value={newProduct.category} onValueChange={(value) => setNewProduct((current) => ({ ...current, category: value }))}>
-                          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                          <SelectTrigger id="newProduct-category" className="w-full"><SelectValue /></SelectTrigger>
                           <SelectContent>{categoryKeys.slice(1).map((key) => <SelectItem key={key} value={key}>{t[key]}</SelectItem>)}</SelectContent>
                         </Select>
                       </div>
-                      <div className="grid gap-2">
-                        <Label>Unité</Label>
-                        <Select value={newProduct.unit} onValueChange={(value) => setNewProduct((current) => ({ ...current, unit: value }))}>
-                          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                          <SelectContent><SelectItem value="L">Litre</SelectItem><SelectItem value="kg">kg</SelectItem><SelectItem value="pièce">Pièce</SelectItem></SelectContent>
-                        </Select>
-                      </div>
                     </div>
+                    <ProductSaleFields id="new-sale" language={language} value={newProduct} onChange={(sale) => setNewProduct((current) => ({ ...current, ...sale }))} />
                     <div className="grid gap-2"><Label htmlFor="new-price">{t.price} (DH)</Label><Input id="new-price" inputMode="decimal" required placeholder="12,50" value={newProduct.price} onChange={(event) => setNewProduct((current) => ({ ...current, price: event.target.value }))} /></div>
                   </div>
                   <DialogFooter>
@@ -5905,14 +5854,22 @@ function AdminDashboard({
             </Dialog>
           </div>
 
+          <div className="grid gap-3 sm:grid-cols-[1fr_12rem]">
+            <Input value={catalogSearch} onChange={(event) => setCatalogSearch(event.target.value)} placeholder={t.search} aria-label={t.search} className="h-11 rounded-xl" />
+            <Select value={catalogCategory} onValueChange={setCatalogCategory}>
+              <SelectTrigger aria-label={language === "ar" ? "الفئة" : language === "en" ? "Category" : "Catégorie"} className="h-11 w-full rounded-xl"><SelectValue /></SelectTrigger>
+              <SelectContent>{categoryKeys.map((key) => <SelectItem key={key} value={key}>{t[key]}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          {!catalogProducts.length && <p className="py-6 text-center text-muted-foreground">{t.noProducts}</p>}
           <div className="grid gap-3 md:grid-cols-2">
-            {data.products.map((product) => (
+            {catalogProducts.map((product) => (
               <article key={product.id} className="flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-card p-3">
                 <ProductImage position={product.image_position} imageUrl={product.image_url} name={productName(product)} className="size-16 shrink-0 rounded-xl" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">{productName(product)}</p>
+                  <p className="break-words font-semibold">{productName(product)}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {product.package_size || `1 ${product.unit}`} · {t[product.category as keyof CopySet] ?? product.category}
+                    {saleLabel(product, language)} · {t[product.category as keyof CopySet] ?? product.category}
                   </p>
                 </div>
                 <div className="flex w-full items-center justify-end gap-2 border-t border-border/70 pt-3 xl:w-auto xl:border-0 xl:pt-0">
@@ -5947,7 +5904,7 @@ function AdminDashboard({
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    className="ms-3 rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
                     disabled={busy || imageUploadBusy}
                     onClick={() => setProductToRemove(product)}
                     aria-label={`${t.deleteProduct}: ${productName(product)}`}
@@ -6055,23 +6012,16 @@ function AdminDashboard({
                     <div className="grid gap-2"><Label htmlFor="edit-name-fr">Nom français</Label><Input id="edit-name-fr" required value={editProduct.nameFr} onChange={(event) => setEditProduct((current) => ({ ...current, nameFr: event.target.value }))} /></div>
                     <div className="grid gap-2"><Label htmlFor="edit-name-ar">Nom arabe</Label><Input id="edit-name-ar" dir="rtl" value={editProduct.nameAr} onChange={(event) => setEditProduct((current) => ({ ...current, nameAr: event.target.value }))} /></div>
                     <div className="grid gap-2"><Label htmlFor="edit-name-en">Nom anglais</Label><Input id="edit-name-en" value={editProduct.nameEn} onChange={(event) => setEditProduct((current) => ({ ...current, nameEn: event.target.value }))} /></div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-3">
                       <div className="grid gap-2">
-                        <Label>Catégorie</Label>
+                        <Label htmlFor="editProduct-category">{language === "en" ? "Category" : language === "ar" ? "الفئة" : "Catégorie"}</Label>
                         <Select value={editProduct.category} onValueChange={(value) => setEditProduct((current) => ({ ...current, category: value }))}>
-                          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                          <SelectTrigger id="editProduct-category" className="w-full"><SelectValue /></SelectTrigger>
                           <SelectContent>{categoryKeys.slice(1).map((key) => <SelectItem key={key} value={key}>{t[key]}</SelectItem>)}</SelectContent>
                         </Select>
                       </div>
-                      <div className="grid gap-2">
-                        <Label>Unité</Label>
-                        <Select disabled={Boolean(editingProduct.has_orders)} value={editProduct.unit} onValueChange={(value) => setEditProduct((current) => ({ ...current, unit: value }))}>
-                          <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                          <SelectContent><SelectItem value="L">Litre</SelectItem><SelectItem value="kg">kg</SelectItem><SelectItem value="pièce">Pièce</SelectItem></SelectContent>
-                        </Select>
-                        {Boolean(editingProduct.has_orders) && <p className="text-xs text-muted-foreground">{t.unitLocked}</p>}
-                      </div>
                     </div>
+                    <ProductSaleFields id="edit-sale" language={language} value={editProduct} locked={Boolean(editingProduct.has_orders)} onChange={(sale) => setEditProduct((current) => ({ ...current, ...sale }))} />
                     <div className="grid gap-2"><Label htmlFor="edit-price">{t.price} (DH)</Label><Input id="edit-price" inputMode="decimal" required value={editProduct.price} onChange={(event) => setEditProduct((current) => ({ ...current, price: event.target.value }))} /></div>
                   </div>
                   <DialogFooter>

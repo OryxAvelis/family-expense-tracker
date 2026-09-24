@@ -23,6 +23,7 @@ import {
 } from "@/lib/push-notifications";
 import { getSupabaseAdmin, throwIfSupabaseError } from "@/lib/supabase-server";
 import { effectivePlan, parseServicesState, serviceFeeForPlan, SERVICES_META_KEY } from "@/lib/family-services";
+import { extractPackageSize, MISCLASSIFIED_FOODS, parseProductSale, validateOrderUnit } from "@/lib/catalogue";
 import {
   addFamilyWalletTransaction,
   FAMILY_WALLET_META_KEY,
@@ -179,17 +180,6 @@ function storedItemTotalCents(item: {
   return item.requested_unit_price_cents === AMOUNT_REQUEST_SENTINEL_CENTS
     ? item.actual_unit_price_cents
     : Math.round((item.actual_unit_price_cents * item.quantity_hundredths) / 100);
-}
-
-function canPurchaseByAmount(
-  product: Pick<ProductRow, "unit" | "unit_price_cents" | "package_size" | "external_source">,
-) {
-  if (product.unit_price_cents <= 0) return false;
-  if (product.unit !== "pièce" && !product.package_size) return true;
-  return (
-    (product.external_source === "mymarket" || product.external_source === "bringo") &&
-    /^(\d+(?:[.,]\d+)?)\s*(?:kg|g|l|cl|ml)$/i.test(product.package_size?.trim() ?? "")
-  );
 }
 
 function asPositiveInt(value: unknown, field: string) {
@@ -361,6 +351,40 @@ async function syncHouseCatalogImages() {
     .from("app_meta")
     .upsert({ key: "house_catalog_image_version", value: HOUSE_CATALOG_IMAGE_VERSION });
   throwIfSupabaseError(metaError);
+}
+
+async function syncCatalogDescriptions() {
+  const db = getSupabaseAdmin();
+  const key = "catalogue_descriptions_v1";
+  const { data: synced, error } = await db.from("app_meta").select("value").eq("key", key).maybeSingle();
+  throwIfSupabaseError(error);
+  if (synced?.value === "1") return;
+
+  const { error: categoryError } = await db.from("products")
+    .update({ category: "food", updated_at: nowIso() })
+    .eq("category", "household").in("name_fr", MISCLASSIFIED_FOODS);
+  throwIfSupabaseError(categoryError);
+  // Confirmed by the household owner: tea is priced per item, lentils per kilogram.
+  for (const [name, previousUnit, unit] of [["Thé vert", "kg", "pièce"], ["Lentilles", "pièce", "kg"]]) {
+    const { error: unitError } = await db.from("products")
+      .update({ unit, updated_at: nowIso() })
+      .eq("name_fr", name).eq("unit", previousUnit).is("package_size", null);
+    throwIfSupabaseError(unitError);
+  }
+  const { data: products, error: productsError } = await db.from("products")
+    .select("id, name_fr").eq("unit", "pièce").is("package_size", null);
+  throwIfSupabaseError(productsError);
+  for (const product of products ?? []) {
+    const packageSize = extractPackageSize(product.name_fr);
+    if (!packageSize) continue;
+    // Descriptions only: one stored item still means one sellable pack. Prices stay unchanged.
+    const { error: updateError } = await db.from("products")
+      .update({ package_size: packageSize, updated_at: nowIso() })
+      .eq("id", product.id).eq("name_fr", product.name_fr).eq("unit", "pièce").is("package_size", null);
+    throwIfSupabaseError(updateError);
+  }
+  const { error: savedError } = await db.from("app_meta").upsert({ key, value: "1" });
+  throwIfSupabaseError(savedError);
 }
 
 function cartOrder(
@@ -704,6 +728,7 @@ export async function GET(request: Request) {
     const viewer = await getRequestFamilyUser(request);
     if (!viewer) return Response.json({ error: "Connexion requise." }, { status: 401 });
     await syncHouseCatalogImages();
+    await syncCatalogDescriptions();
     return Response.json(await readState(viewer));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erreur inattendue.";
@@ -859,11 +884,7 @@ export async function POST(request: Request) {
           }
           for (const product of productRows) {
             const order = orderById.get(Number(product.id));
-            if (order?.amountCents !== null && order?.amountCents !== undefined) {
-              if (!canPurchaseByAmount(product)) {
-                throw new Error("Ce produit ne peut pas être acheté par montant.");
-              }
-            }
+            if (order) validateOrderUnit(product, order.quantityHundredths, order.amountCents);
           }
         }
 
@@ -935,7 +956,7 @@ export async function POST(request: Request) {
         if (!items.length && !missingProductsNote) throw new Error("Le panier est vide.");
         const { data: cart, error: cartError } = await db
           .from("carts")
-          .select("id, cart_items(product_id, requested_unit_price_cents)")
+          .select("id, cart_items(product_id, requested_unit_price_cents, quantity_hundredths)")
           .eq("family_id", viewer.familyId)
           .eq("id", cartId)
           .eq("member_id", viewer.id)
@@ -947,6 +968,9 @@ export async function POST(request: Request) {
           cart.cart_items.filter((item) => item.requested_unit_price_cents === AMOUNT_REQUEST_SENTINEL_CENTS)
             .map((item) => Number(item.product_id)),
         );
+        const existingQuantities = new Map(cart.cart_items
+          .filter((item) => item.requested_unit_price_cents !== AMOUNT_REQUEST_SENTINEL_CENTS)
+          .map((item) => [Number(item.product_id), Number(item.quantity_hundredths)]));
 
         const orderById = new Map<number, { quantityHundredths: number; amountCents: number | null }>();
         for (const raw of items) {
@@ -977,10 +1001,11 @@ export async function POST(request: Request) {
           }
           for (const product of productRows) {
             const order = orderById.get(Number(product.id));
-            if (order?.amountCents !== null && order?.amountCents !== undefined) {
-              if (!canPurchaseByAmount(product) && !existingAmountProductIds.has(Number(product.id))) {
-                throw new Error("Ce produit ne peut pas être acheté par montant.");
-              }
+            // Existing amount orders remain editable; newly added lines follow the catalogue rules.
+            const unchangedLegacyQuantity = order?.amountCents === null &&
+              order.quantityHundredths === existingQuantities.get(Number(product.id));
+            if (order && !unchangedLegacyQuantity && !(order.amountCents !== null && existingAmountProductIds.has(Number(product.id)))) {
+              validateOrderUnit(product, order.quantityHundredths, order.amountCents);
             }
           }
         }
@@ -1246,11 +1271,15 @@ export async function POST(request: Request) {
         const productIds = [...itemByProduct.keys()];
         const { data: products, error: productsError } = await db
           .from("products")
-          .select("id, unit_price_cents")
+          .select("id, unit_price_cents, unit, package_size")
           .eq("active", true)
           .in("id", productIds);
         throwIfSupabaseError(productsError);
         if (!products || products.length !== productIds.length) throw new Error("Un produit est indisponible.");
+        for (const product of products) {
+          const item = itemByProduct.get(Number(product.id));
+          if (item) validateOrderUnit(product, item.quantityHundredths, item.amountCents);
+        }
 
         const timestamp = nowIso();
         const { data: created, error: cartError } = await db
@@ -1728,6 +1757,7 @@ export async function POST(request: Request) {
         const nameFr = asText(body.nameFr);
         const category = asText(body.category);
         const unit = asText(body.unit);
+        const sale = parseProductSale(body);
         if (!nameFr || !PRODUCT_CATEGORIES.includes(category) || !["L", "kg", "pièce"].includes(unit)) {
           throw new Error("Les informations du produit sont incomplètes.");
         }
@@ -1737,6 +1767,7 @@ export async function POST(request: Request) {
           name_en: asText(body.nameEn),
           category,
           unit,
+          package_size: sale.package_size,
           unit_price_cents: asPositiveInt(body.unitPriceCents, "unitPriceCents"),
           image_position: "none",
           image_url: asProductImageUrl(body.imageUrl),
@@ -1761,24 +1792,24 @@ export async function POST(request: Request) {
 
         const { data: currentProduct, error: currentError } = await db
           .from("products")
-          .select("image_url, unit")
+          .select("image_url, unit, package_size")
           .eq("id", productId)
           .eq("active", true)
           .maybeSingle();
         throwIfSupabaseError(currentError);
         if (!currentProduct) throw new Error("Produit introuvable.");
+        const sale = parseProductSale(body, currentProduct);
 
-        if (unit !== currentProduct.unit) {
+        if (unit !== currentProduct.unit || sale.package_size !== currentProduct.package_size) {
           const { data: previousOrder, error: orderError } = await db
             .from("cart_items")
             .select("id")
-            .eq("family_id", viewer.familyId)
             .eq("product_id", productId)
             .limit(1)
             .maybeSingle();
           throwIfSupabaseError(orderError);
           if (previousOrder) {
-            throw new Error("L’unité ne peut plus être modifiée après la première commande.");
+            throw new Error("L’unité et le format ne peuvent plus être modifiés après la première commande. Créez un nouveau produit pour un autre format.");
           }
         }
 
@@ -1788,6 +1819,7 @@ export async function POST(request: Request) {
           name_en: asText(body.nameEn),
           category,
           unit,
+          package_size: sale.package_size,
           unit_price_cents: asPositiveInt(body.unitPriceCents, "unitPriceCents"),
           updated_at: nowIso(),
         };
