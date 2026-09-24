@@ -13,6 +13,8 @@ export type FamilySessionUser = {
   username: string;
   role: FamilyRole;
   initials: string;
+  /** Opaque household/member namespace for drafts; never an authentication token. */
+  draftScope?: string;
 };
 
 export type FamilyRequestUser = FamilySessionUser & {
@@ -512,6 +514,7 @@ export async function getPageFamilyUser() {
     username: user.username,
     role: user.role,
     initials: user.initials,
+    draftScope: await sha256(`cart-draft:v1:${user.familyId}:${user.id}`),
   } satisfies FamilySessionUser;
 }
 

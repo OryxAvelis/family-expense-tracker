@@ -104,6 +104,9 @@ import { AdminAnalyticsCharts } from "@/app/admin-analytics-charts";
 import { DirectMemberCreator } from "@/app/direct-member-creator";
 import { ProfileAvatar, ProfilePhotoEditor } from "@/app/profile-photo";
 import { AdminCartHistory } from "@/app/admin-cart-history";
+import { CartDraftControls, draftCopy } from "@/components/cart-draft-controls";
+import { useCartDraft } from "@/hooks/use-cart-draft";
+import { hasCartDraft, type CartDraft } from "@/lib/cart-draft";
 import { useFamilyTheme } from "@/hooks/use-family-theme";
 import type { FamilySessionUser } from "@/lib/family-auth";
 import type { ServiceTask } from "@/lib/family-services";
@@ -1343,14 +1346,16 @@ export function FamilyTracker({
   const [category, setCategory] = useState("all");
   const [showFavorites, setShowFavorites] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
-  const [draft, setDraft] = useState<Record<number, number>>({});
-  const [draftAmounts, setDraftAmounts] = useState<Record<number, number>>({});
+  const {
+    active: cartDraft, saved: savedDrafts, ready: draftReady, storageError: draftStorageError,
+    submitting: cartSubmitting, store: draftStore,
+    setMissingProductsNote, setDraftWalletScope,
+  } = useCartDraft(role === "member" ? currentUser.draftScope ?? null : null);
+  const { quantities: draft, amounts: draftAmounts, note: missingProductsNote, walletScope: draftWalletScope, editingCartId } = cartDraft;
+  const [pendingDraft, setPendingDraft] = useState<CartDraft | null>(null);
   const [amountProduct, setAmountProduct] = useState<Product | null>(null);
   const [amountDh, setAmountDh] = useState("");
-  const [missingProductsNote, setMissingProductsNote] = useState("");
   const [missingNoteExpanded, setMissingNoteExpanded] = useState(false);
-  const [editingCartId, setEditingCartId] = useState<number | null>(null);
-  const [draftWalletScope, setDraftWalletScope] = useState<"family" | "personal">("family");
   const [deliveryPrices, setDeliveryPrices] = useState<Record<number, string>>({});
   const [productPrices, setProductPrices] = useState<Record<number, string>>({});
   const savedDeliveryPrices = useRef<PriceInputs>({});
@@ -1388,6 +1393,7 @@ export function FamilyTracker({
   }, []);
 
   const t = words[language];
+  const dc = draftCopy[language];
   const myMarketSearching =
     search.trim().length >= 2 &&
     myMarketSearchingQuery === normalizeProductSearch(search);
@@ -1553,7 +1559,7 @@ export function FamilyTracker({
     document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
   }, [language]);
 
-  const act = async (body: Record<string, unknown>, success: string) => {
+  const act = useCallback(async (body: Record<string, unknown>, success: string) => {
     const submitted = submittedPriceInputs(body, productPrices, deliveryPrices);
     try {
       setBusy(true);
@@ -1577,7 +1583,7 @@ export function FamilyTracker({
     } finally {
       setBusy(false);
     }
-  };
+  }, [applyData, deliveryPrices, productPrices]);
 
   const actService = async (body: Record<string, unknown>, success: string) => {
     try {
@@ -1618,6 +1624,12 @@ export function FamilyTracker({
     [language],
   );
 
+  const addDraftProduct = useCallback((id: number) => draftStore.update((current) => {
+    const amounts = { ...current.amounts };
+    delete amounts[id];
+    return { ...current, amounts, quantities: { ...current.quantities, [id]: (current.amounts[id] ? 0 : current.quantities[id] ?? 0) + 100 } };
+  }), [draftStore]);
+
   const addScannedProduct = useCallback(
     (product: ScannedCatalogProduct) => {
       setData((current) =>
@@ -1635,18 +1647,10 @@ export function FamilyTracker({
         ...current,
         [product.id]: (product.unit_price_cents / 100).toFixed(2),
       }));
-      setDraft((current) => ({
-        ...current,
-        [product.id]: (current[product.id] ?? 0) + 100,
-      }));
-      setDraftAmounts((current) => {
-        const updated = { ...current };
-        delete updated[product.id];
-        return updated;
-      });
+      if (!addDraftProduct(product.id)) return;
       toast.success(t.scannedAdded);
     },
-    [t.scannedAdded],
+    [addDraftProduct, t.scannedAdded],
   );
 
   const addMyMarketProduct = useCallback(
@@ -1681,15 +1685,7 @@ export function FamilyTracker({
           ...current,
           [product.id]: (product.unit_price_cents / 100).toFixed(2),
         }));
-        setDraft((current) => ({
-          ...current,
-          [product.id]: (current[product.id] ?? 0) + 100,
-        }));
-        setDraftAmounts((current) => {
-          const updated = { ...current };
-          delete updated[product.id];
-          return updated;
-        });
+        if (!addDraftProduct(product.id)) return;
         toast.success(t.myMarketAdded);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Import du produit impossible.");
@@ -1697,7 +1693,7 @@ export function FamilyTracker({
         setMyMarketBusyId(null);
       }
     },
-    [t.myMarketAdded],
+    [addDraftProduct, t.myMarketAdded],
   );
 
   const money = (cents: number) => {
@@ -1867,7 +1863,9 @@ export function FamilyTracker({
         Math.round((entry.product.unit_price_cents * entry.quantity) / 100)),
     0,
   );
-  const hasDraftOrder = Boolean(draftProducts.length || missingProductsNote.trim());
+  const unavailableDraftIds = Object.keys(draft).map(Number).filter((id) => !data?.products.some((product) => product.id === id));
+  const editingCartUnavailable = Boolean(editingCartId && data && !data.carts.some((cart) => cart.id === editingCartId && ["pending", "ready"].includes(cart.status)));
+  const hasDraftOrder = Boolean(Object.keys(draft).length || missingProductsNote.trim());
   const draftGrandTotal = hasDraftOrder ? draftTotal + deliveryServiceFeeCents : 0;
   const amountCentsPreview = Math.round(Number(amountDh.replace(",", ".")) * 100);
   const amountQuantityPreview =
@@ -1879,6 +1877,40 @@ export function FamilyTracker({
           amountProduct.package_size,
         )
       : "—";
+
+  const submitCart = useCallback(async () => {
+    if (myMarketBusyId) return false;
+    const current = draftStore.getSnapshot().active;
+    if (!Object.keys(current.quantities).length && !current.note.trim()) return false;
+    if (!data || Object.keys(current.quantities).some((id) => !data.products.some((product) => product.id === Number(id))) ||
+      (current.editingCartId && !data.carts.some((cart) => cart.id === current.editingCartId && ["pending", "ready"].includes(cart.status)))) {
+      toast.error(dc.cannotSubmit);
+      return false;
+    }
+    const submitted = draftStore.beginSubmission();
+    if (!submitted) return false;
+    let ok = false;
+    try {
+      ok = await act({
+        action: submitted.editingCartId ? "update_cart" : "submit_cart",
+        actorRole: "member", memberId: currentUser.id,
+        ...(submitted.editingCartId ? { cartId: submitted.editingCartId } : {}),
+        missingProductsNote: submitted.note, walletScope: submitted.walletScope,
+        items: Object.entries(submitted.quantities).map(([id, quantity]) => ({
+          productId: Number(id), quantityHundredths: quantity,
+          ...(submitted.amounts[Number(id)] ? { amountCents: submitted.amounts[Number(id)] } : {}),
+        })),
+      }, submitted.editingCartId ? "Panier mis à jour." : "Commande visible par l’admin et le livreur.");
+      if (ok) {
+        setMissingNoteExpanded(false);
+        setCartOpen(false);
+        setMemberView("carts");
+      }
+      return ok;
+    } finally {
+      draftStore.finishSubmission(submitted, ok);
+    }
+  }, [act, currentUser.id, data, dc.cannotSubmit, draftStore, myMarketBusyId]);
 
   useEffect(() => {
     type ToolDefinition = {
@@ -1897,7 +1929,7 @@ export function FamilyTracker({
     };
 
     const context = (document as Document & { modelContext?: ModelContext }).modelContext;
-    if (!context?.registerTool || !data || role !== "member") return;
+    if (!context?.registerTool || !data || role !== "member" || !draftReady) return;
 
     const lifecycle = new AbortController();
     const afterPaint = () =>
@@ -2013,9 +2045,8 @@ export function FamilyTracker({
           validateOrderUnit(product, item.quantityHundredths!);
           next[item.productId!] = item.quantityHundredths!;
         }
-        setDraft(next);
-        setDraftAmounts({});
-        setEditingCartId(null);
+        if (draftStore.getSnapshot().submitting) throw new Error("A cart is being submitted.");
+        draftStore.replace({ ...draftStore.getSnapshot().active, quantities: next, amounts: {}, editingCartId: null });
         setCartOpen(true);
         await afterPaint();
         return { stagedItems: Object.keys(next).length, status: "draft" };
@@ -2040,60 +2071,18 @@ export function FamilyTracker({
         ) {
           throw new Error("This tool does not accept input fields.");
         }
-        const staged = Object.entries(draft)
-          .filter(([, quantity]) => quantity > 0)
-          .map(([productId, quantityHundredths]) => ({
-            productId: Number(productId),
-            quantityHundredths,
-            ...(draftAmounts[Number(productId)] ? { amountCents: draftAmounts[Number(productId)] } : {}),
-          }));
-        if (!staged.length && !missingProductsNote.trim()) {
-          throw new Error("The visible cart is empty.");
-        }
-        const response = await fetch("/api/family", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            action: "submit_cart",
-            actorRole: "member",
-            memberId: currentUser.id,
-            items: staged,
-            missingProductsNote,
-            walletScope: draftWalletScope,
-          }),
-        });
-        const payload = (await response.json()) as AppData & { error?: string };
-        if (!response.ok) throw new Error(payload.error || "The cart could not be submitted.");
-        applyData(payload);
-        setDraft({});
-        setDraftAmounts({});
-        setMissingProductsNote("");
-        setMissingNoteExpanded(false);
-        setCartOpen(false);
-        setMemberView("carts");
+        const submitted = await submitCart();
+        if (!submitted) throw new Error("The cart was not submitted. Check the visible cart and try again.");
         await afterPaint();
-        return {
-          status: "visible_to_admin_and_delivery",
-          memberId: currentUser.id,
-          itemCount: staged.length,
-          hasMissingProductsNote: Boolean(missingProductsNote.trim()),
-        };
+        return { status: "visible_to_admin_and_delivery", memberId: currentUser.id };
       },
     });
 
     return () => lifecycle.abort();
-  }, [applyData, currentUser.id, data, draft, draftAmounts, draftWalletScope, missingProductsNote, productName, role]);
+  }, [currentUser.id, data, draftReady, draftStore, productName, role, submitCart]);
 
   const addToCart = (product: Product) => {
-    setDraftAmounts((current) => {
-      const updated = { ...current };
-      delete updated[product.id];
-      return updated;
-    });
-    setDraft((current) => ({
-      ...current,
-      [product.id]: (current[product.id] ?? 0) + 100,
-    }));
+    if (!addDraftProduct(product.id)) return;
     toast.success(`${productName(product)} · +${quantityLabel(100, product.unit, product.package_size)}`);
   };
 
@@ -2104,7 +2093,7 @@ export function FamilyTracker({
   };
 
   const applyAmountToCart = () => {
-    if (!amountProduct || !canPurchaseByAmount(amountProduct)) return;
+    if (cartSubmitting || !amountProduct || !canPurchaseByAmount(amountProduct)) return;
     const amountCents = Math.round(Number(amountDh.replace(",", ".")) * 100);
     if (!Number.isInteger(amountCents) || amountCents < 50 || amountCents > 10_000_000) {
       toast.error(t.invalidAmount);
@@ -2114,8 +2103,10 @@ export function FamilyTracker({
       1,
       Math.round((amountCents * 100) / amountProduct.unit_price_cents),
     );
-    setDraft((current) => ({ ...current, [amountProduct.id]: estimatedHundredths }));
-    setDraftAmounts((current) => ({ ...current, [amountProduct.id]: amountCents }));
+    if (!draftStore.update((current) => ({ ...current,
+      quantities: { ...current.quantities, [amountProduct.id]: estimatedHundredths },
+      amounts: { ...current.amounts, [amountProduct.id]: amountCents },
+    }))) return;
     toast.success(`${productName(amountProduct)} · ${t.forAmount} ${money(amountCents)}`);
     setAmountProduct(null);
     setAmountDh("");
@@ -2123,101 +2114,58 @@ export function FamilyTracker({
   };
 
   const changeQuantity = (product: Product, direction: 1 | -1) => {
-    const step = quantityStep(product);
-    setDraftAmounts((current) => {
-      const updated = { ...current };
-      delete updated[product.id];
-      return updated;
-    });
-    setDraft((current) => {
-      const previous = draftAmounts[product.id] !== undefined ? 0 : (current[product.id] ?? 0);
-      const next = Math.max(0, previous + direction * step);
-      const updated = { ...current, [product.id]: next };
-      if (!next) delete updated[product.id];
-      return updated;
+    draftStore.update((current) => {
+      const previous = current.amounts[product.id] ? 0 : current.quantities[product.id] ?? 0;
+      const next = Math.max(0, previous + direction * quantityStep(product));
+      const quantities = { ...current.quantities };
+      const amounts = { ...current.amounts };
+      delete amounts[product.id];
+      if (next) quantities[product.id] = next;
+      else delete quantities[product.id];
+      return { ...current, quantities, amounts };
     });
   };
 
   const removeFromCart = (productId: number) => {
-    setDraft((current) => {
-      const updated = { ...current };
-      delete updated[productId];
-      return updated;
-    });
-    setDraftAmounts((current) => {
-      const updated = { ...current };
-      delete updated[productId];
-      return updated;
+    draftStore.update((current) => {
+      const quantities = { ...current.quantities };
+      const amounts = { ...current.amounts };
+      delete quantities[productId];
+      delete amounts[productId];
+      return { ...current, quantities, amounts };
     });
   };
 
-  const submitCart = async () => {
-    if (!draftProducts.length && !missingProductsNote.trim()) return;
-    const payload = {
-      action: editingCartId ? "update_cart" : "submit_cart",
-      actorRole: "member",
-      memberId: currentUser.id,
-      ...(editingCartId ? { cartId: editingCartId } : {}),
-      missingProductsNote,
-      walletScope: draftWalletScope,
-      items: draftProducts.map(({ product, quantity }) => ({
-        productId: product.id,
-        quantityHundredths: quantity,
-        ...(draftAmounts[product.id] ? { amountCents: draftAmounts[product.id] } : {}),
-      })),
-    };
-    const ok = await act(payload, editingCartId ? "Panier mis à jour." : "Commande visible par l’admin et le livreur.");
-    if (ok) {
-      setDraft({});
-      setDraftAmounts({});
-      setMissingProductsNote("");
-      setMissingNoteExpanded(false);
-      setEditingCartId(null);
-      setCartOpen(false);
-      setMemberView("carts");
+  const openDraft = (next: CartDraft) => {
+    if (cartSubmitting) return;
+    if (hasCartDraft(draftStore.getSnapshot().active)) {
+      setPendingDraft(next);
+      return;
     }
+    draftStore.replace(next);
+    setMissingNoteExpanded(Boolean(next.note.trim()));
+    setCartOpen(true);
+  };
+
+  const draftForOrder = (cart: Cart, edit: boolean): CartDraft => {
+    const cartItems = itemsFor(cart.id);
+    return {
+      quantities: Object.fromEntries(cartItems.map((item) => [item.product_id,
+        isAmountItem(item) ? Math.max(1, Math.round((item.quantity_hundredths * 100) / (item.catalog_unit_price_cents || 1))) : item.quantity_hundredths,
+      ])),
+      amounts: Object.fromEntries(cartItems.filter(isAmountItem).map((item) => [item.product_id, item.quantity_hundredths])),
+      note: cart.missing_products_note,
+      walletScope: cart.wallet_scope,
+      editingCartId: edit ? cart.id : null,
+    };
   };
 
   const editCart = (cart: Cart) => {
-    const cartItems = itemsFor(cart.id);
-    setDraft(Object.fromEntries(cartItems.map((item) => [
-      item.product_id,
-      isAmountItem(item)
-        ? Math.max(1, Math.round((item.quantity_hundredths * 100) / item.catalog_unit_price_cents))
-        : item.quantity_hundredths,
-    ])));
-    setDraftAmounts(Object.fromEntries(cartItems.filter(isAmountItem).map((item) => [item.product_id, item.quantity_hundredths])));
-    setMissingProductsNote(cart.missing_products_note);
-    setMissingNoteExpanded(Boolean(cart.missing_products_note.trim()));
-    setDraftWalletScope(cart.wallet_scope);
-    setEditingCartId(cart.id);
-    setCartOpen(true);
+    if (editingCartId === cart.id) { setCartOpen(true); return; }
+    openDraft(draftForOrder(cart, true));
   };
 
-  const repeatCart = (cart: Cart) => {
-    const repeatedItems = itemsFor(cart.id).filter((item) =>
-      data?.products.some((product) => product.id === item.product_id),
-    );
-    if (!repeatedItems.length && !cart.missing_products_note.trim()) return;
-    setDraft(
-      Object.fromEntries(
-        repeatedItems.map((item) => [
-          item.product_id,
-          isAmountItem(item)
-            ? Math.max(1, Math.round((item.quantity_hundredths * 100) / item.catalog_unit_price_cents))
-            : item.quantity_hundredths,
-        ]),
-      ),
-    );
-    setDraftAmounts(Object.fromEntries(repeatedItems.filter(isAmountItem).map((item) => [item.product_id, item.quantity_hundredths])));
-    setMissingProductsNote(cart.missing_products_note);
-    setMissingNoteExpanded(Boolean(cart.missing_products_note.trim()));
-    setEditingCartId(null);
-    setDraftWalletScope("family");
-    setCartOpen(true);
-    setMemberView("catalog");
-    toast.success(t.orderRepeated);
-  };
+  const repeatCart = (cart: Cart) => openDraft(draftForOrder(cart, false));
 
   const toggleFavorite = (product: Product) => {
     const isFavorite = data?.favoriteProductIds.includes(product.id) ?? false;
@@ -2265,7 +2213,7 @@ export function FamilyTracker({
         : memberActive.filter((cart) => cart.status !== "pending").length) +
     (budgetAlert ? 1 : 0);
 
-  if (!data && !loadError) {
+  if ((!data && !loadError) || (role === "member" && !draftReady)) {
     return (
       <main className="min-h-screen bg-background p-5 text-foreground sm:p-10">
         <div className="mx-auto max-w-6xl">
@@ -2565,7 +2513,7 @@ export function FamilyTracker({
                   <ShoppingCart />
                   <span className="hidden sm:inline">{t.cart}</span>
                   <span className="grid size-5 place-items-center rounded-full bg-background text-[10px] font-black text-foreground">
-                    {draftProducts.length}
+                    {Object.keys(draft).length}
                   </span>
                 </Button>
               )}
@@ -2594,6 +2542,10 @@ export function FamilyTracker({
                 {currentUser.name}
               </div>
             </div>
+
+            <CartDraftControls language={language} active={hasCartDraft(cartDraft)} saved={savedDrafts} storageError={draftStorageError} disabled={cartSubmitting}
+              onResume={() => setCartOpen(true)} onRetry={() => draftStore.retry()}
+              onRestore={(index) => { draftStore.restore(index); setCartOpen(true); setMissingNoteExpanded(true); }} />
 
             {memberView === "catalog" ? (
               <>
@@ -2780,6 +2732,7 @@ export function FamilyTracker({
                                     size="icon-sm"
                                     variant="outline"
                                     className="rounded-xl border-primary/25 text-primary"
+                                    disabled={cartSubmitting}
                                     onClick={() => openAmountPicker(product)}
                                     aria-label={`${t.buyByAmount}: ${productName(product)}`}
                                     title={t.buyByAmount}
@@ -2790,6 +2743,7 @@ export function FamilyTracker({
                                 <Button
                                   size="icon-sm"
                                   className="rounded-xl"
+                                  disabled={cartSubmitting}
                                   onClick={() => addToCart(product)}
                                   aria-label={`Ajouter ${productName(product)}`}
                                 >
@@ -2845,7 +2799,7 @@ export function FamilyTracker({
                                 <Button
                                   size="icon-sm"
                                   className="rounded-xl"
-                                  disabled={myMarketBusyId === `${product.source}:${product.external_id}`}
+                                  disabled={cartSubmitting || myMarketBusyId === `${product.source}:${product.external_id}`}
                                   onClick={() => void addMyMarketProduct(product)}
                                   aria-label={`${t.addProduct}: ${product.name}`}
                                 >
@@ -3118,6 +3072,21 @@ export function FamilyTracker({
         </DialogContent>
       </Dialog>
 
+      <AlertDialog open={Boolean(pendingDraft)} onOpenChange={(open) => { if (!open) setPendingDraft(null); }}>
+        <AlertDialogContent dir={language === "ar" ? "rtl" : "ltr"}>
+          <AlertDialogHeader><AlertDialogTitle>{dc.replaceTitle}</AlertDialogTitle><AlertDialogDescription>{dc.replaceHelp}</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{dc.keep}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              if (!pendingDraft) return;
+              draftStore.replace(pendingDraft);
+              setMissingNoteExpanded(Boolean(pendingDraft.note.trim()));
+              setPendingDraft(null); setCartOpen(true);
+            }}>{dc.replace}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Sheet
         open={cartOpen}
         onOpenChange={(open) => {
@@ -3138,7 +3107,15 @@ export function FamilyTracker({
             </SheetDescription>
           </SheetHeader>
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-5 pt-3 sm:px-5">
+          <fieldset disabled={cartSubmitting} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-5 pt-3 sm:px-5 disabled:opacity-70">
+            {draftStorageError && <p role="alert" className="mb-3 text-sm text-destructive">{dc.storageError}</p>}
+            {editingCartUnavailable && <div role="alert" className="mb-3 rounded-xl border border-border p-3 text-sm">
+              <p>{dc.editUnavailable}</p>
+              <Button type="button" variant="outline" className="mt-2" onClick={() => draftStore.setField("editingCartId", null)}>{dc.asNew}</Button>
+            </div>}
+            {unavailableDraftIds.map((id) => <div key={id} className="mb-3 rounded-xl border border-destructive/30 p-3 text-sm">
+              <p>{dc.unavailable}</p><Button type="button" variant="outline" className="mt-2" onClick={() => removeFromCart(id)}>{dc.remove}</Button>
+            </div>)}
             {hasDraftOrder && (
               <button
                 type="button"
@@ -3318,7 +3295,7 @@ export function FamilyTracker({
                 </div>
               )}
             </section>
-          </div>
+          </fieldset>
 
           <SheetFooter className="shrink-0 gap-3 border-t border-border bg-background/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-12px_30px_-24px_rgba(0,0,0,0.55)] backdrop-blur sm:px-5">
             <div className="grid gap-1.5 text-sm" aria-live="polite">
@@ -3340,7 +3317,7 @@ export function FamilyTracker({
             <Button
               size="lg"
               className="h-14 w-full rounded-2xl text-base font-semibold shadow-sm"
-              disabled={!hasDraftOrder || busy}
+              disabled={!hasDraftOrder || busy || cartSubmitting || Boolean(myMarketBusyId) || editingCartUnavailable || unavailableDraftIds.length > 0}
               onClick={() => void submitCart()}
             >
               {busy && <Loader2 className="animate-spin" />}
