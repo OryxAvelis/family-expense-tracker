@@ -432,7 +432,7 @@ export function FamilyEntrance({
                         <span className="size-13 shrink-0 rounded-2xl sm:size-14">
                           <MemberPortrait member={member} familyCode={familyCode} />
                         </span>
-                        <span title={member.name} className="min-w-0 flex-1 break-words text-base font-bold leading-tight sm:text-lg">{member.name}</span>
+                        <span title={member.name} className="min-w-0 flex-1 break-words text-sm font-bold leading-tight min-[480px]:text-base sm:text-lg">{member.name}</span>
                         {active && (
                           <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground" aria-hidden="true">
                             <Check className="size-4" strokeWidth={3} />
