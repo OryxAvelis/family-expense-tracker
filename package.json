@@ -15,6 +15,7 @@
     "test:catalogue": "node --experimental-strip-types --test scripts/catalogue.test.mjs",
     "test:cart": "node --experimental-strip-types --test scripts/cart-draft.test.mjs",
     "test:login": "node --experimental-strip-types --test scripts/login-navigation.test.mjs",
+    "test:pin": "node --experimental-strip-types --test scripts/family-pin.test.mjs",
     "test:history": "node --experimental-strip-types --test scripts/history.test.mjs",
     "test:analytics": "node --experimental-strip-types --test scripts/analytics.test.mjs",
     "test:services": "node --experimental-strip-types --test scripts/services-page.test.mjs",

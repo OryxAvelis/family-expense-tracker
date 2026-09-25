@@ -116,6 +116,7 @@ test("the entrance sends returnTo with the selected member and PIN", async () =>
   const submit = component.body.statements.find((node) => ts.isVariableStatement(node) && node.declarationList.declarations.some((d) => d.name.getText(ast) === "submit"));
   const requests = [], destinations = [];
   const context = { selected: { id: 7 }, pin: "1234", familyCode: "test-family", returnTo: "/abonnement", t: { wrongPin: "Invalid" },
+    isSupportedFamilyPin: (value) => /^(?:\d{4}|\d{6,12})$/.test(value),
     setError: () => {}, setBusy: () => {}, window: { location: { assign: (path) => destinations.push(path) } },
     fetch: async (url, options) => { requests.push({ url, body: JSON.parse(options.body) }); return Response.json({ route: "/abonnement" }); },
   };

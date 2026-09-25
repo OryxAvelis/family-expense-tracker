@@ -18,6 +18,14 @@ import {
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  isSupportedFamilyPin,
+  MAX_FAMILY_PIN_LENGTH,
+  normalizeFamilyPin,
+  resolveFamilyLoginFailure,
+} from "@/lib/family-pin";
 import { cn } from "@/lib/utils";
 
 type EntranceLanguage = "fr" | "ar" | "en";
@@ -40,11 +48,26 @@ const entranceCopy = {
     title: "Qui utilise le téléphone ?",
     hint: "Touchez votre photo.",
     pinTitle: "Entrez votre code",
-    pinHint: "Votre code personnel à 4 chiffres",
+    pinActionHint: "Écrivez le code ou utilisez le clavier.",
+    pinHint: "4 chiffres pour un ancien compte, ou 6 à 12 chiffres.",
+    pinLabel: "Code PIN",
+    pinCount: (count: number) => `${count} chiffre${count > 1 ? "s" : ""} saisi${count > 1 ? "s" : ""}`,
+    incompletePin: "Entrez 4 chiffres pour un ancien compte, ou 6 à 12 chiffres.",
+    incorrectPin: "Code incorrect. Vérifiez-le et réessayez.",
+    rateLimited: "Trop de tentatives. Attendez quelques minutes avant de réessayer.",
+    accountPending: "Ce compte attend encore l’approbation du responsable de la famille.",
+    familyProvisioning: "Cette famille est encore en préparation. Réessayez plus tard.",
+    familySuspended: "Cet espace familial est temporairement suspendu.",
+    serverFailure: "Connexion impossible pour le moment. Vérifiez votre connexion et réessayez.",
+    forgot: "Code oublié ?",
+    recoveryTitle: "Vous avez oublié votre code ?",
+    recoveryMember: "Demandez au responsable de votre famille de vérifier que votre compte est actif. Votre code reste secret et ne peut jamais être affiché.",
+    recoveryAdmin: "Le responsable peut vérifier le compte, mais DarnaFlow ne permet pas encore de voir ou de réinitialiser un code PIN.",
+    closeRecovery: "Fermer l’aide",
+    deleteDigit: "Effacer un chiffre",
     listen: "Écouter",
     enter: "Entrer dans la famille",
     choose: "Choisissez d’abord votre photo.",
-    wrongPin: "Ce code ne marche pas. Réessayez.",
     empty: "Aucune personne n’a encore été ajoutée.",
     ownerHelp: "Le responsable de la famille peut ajouter la première personne.",
     createFamily: "Créer une autre famille",
@@ -57,11 +80,26 @@ const entranceCopy = {
     title: "شكون كيستعمل التليفون؟",
     hint: "ضغط على صورتك.",
     pinTitle: "دخل الرقم ديالك",
-    pinHint: "الرقم ديالك فيه 4 أرقام",
+    pinActionHint: "كتب الرمز أو استعمل لوحة الأرقام.",
+    pinHint: "4 أرقام للحساب القديم، أو من 6 حتى 12 رقم.",
+    pinLabel: "الرمز السري PIN",
+    pinCount: (count: number) => `دخلتي ${count} رقم`,
+    incompletePin: "دخل 4 أرقام للحساب القديم، أو من 6 حتى 12 رقم.",
+    incorrectPin: "الرمز غير صحيح. تأكد منو وعاود جرب.",
+    rateLimited: "كاينين محاولات بزاف. تسنى شوية وعاود جرب.",
+    accountPending: "هاد الحساب مازال كيتسنى موافقة مسؤول العائلة.",
+    familyProvisioning: "هاد الدار مازالت كتوجد. عاود جرب من بعد.",
+    familySuspended: "هاد الفضاء العائلي موقوف مؤقتاً.",
+    serverFailure: "ما قدرناش ندخلوك دابا. تأكد من الإنترنت وعاود جرب.",
+    forgot: "نسيتي الرمز؟",
+    recoveryTitle: "نسيتي الرمز ديالك؟",
+    recoveryMember: "طلب من مسؤول العائلة يتأكد بلي الحساب ديالك خدام. الرمز ديالك سري وما يقدر حتى واحد يشوفو.",
+    recoveryAdmin: "مسؤول العائلة يقدر يتأكد من الحساب، ولكن DarnaFlow ما كيمكنش دابا من مشاهدة أو تغيير رمز PIN.",
+    closeRecovery: "سد المساعدة",
+    deleteDigit: "مسح رقم",
     listen: "سمعني",
     enter: "دخل للدار",
     choose: "اختار صورتك الأول.",
-    wrongPin: "هاد الرقم ما خدمش. عاود جرب.",
     empty: "ما تزاد حتى واحد دابا.",
     ownerHelp: "مول الدار يقدر يزيد أول شخص.",
     createFamily: "دير دار جديدة",
@@ -74,11 +112,26 @@ const entranceCopy = {
     title: "Who is using this phone?",
     hint: "Tap your photo.",
     pinTitle: "Enter your code",
-    pinHint: "Your personal 4-digit code",
+    pinActionHint: "Type your code or use the keypad.",
+    pinHint: "4 digits for a legacy account, or 6 to 12 digits.",
+    pinLabel: "PIN code",
+    pinCount: (count: number) => `${count} digit${count === 1 ? "" : "s"} entered`,
+    incompletePin: "Enter 4 digits for a legacy account, or 6 to 12 digits.",
+    incorrectPin: "Incorrect code. Check it and try again.",
+    rateLimited: "Too many attempts. Wait a few minutes before trying again.",
+    accountPending: "This account is still waiting for the family administrator’s approval.",
+    familyProvisioning: "This family is still being prepared. Try again later.",
+    familySuspended: "This family space is temporarily suspended.",
+    serverFailure: "Sign-in is unavailable right now. Check your connection and try again.",
+    forgot: "Forgot your code?",
+    recoveryTitle: "Forgot your code?",
+    recoveryMember: "Ask your family administrator to check that your account is active. Your code stays private and can never be displayed.",
+    recoveryAdmin: "The administrator can check the account, but DarnaFlow does not yet allow anyone to view or reset a PIN.",
+    closeRecovery: "Close help",
+    deleteDigit: "Delete one digit",
     listen: "Listen",
     enter: "Enter the family",
     choose: "Choose your photo first.",
-    wrongPin: "That code did not work. Try again.",
     empty: "Nobody has been added yet.",
     ownerHelp: "The family owner can add the first person.",
     createFamily: "Create another family",
@@ -133,7 +186,9 @@ export function FamilyEntrance({
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
   const pinPanelRef = useRef<HTMLDivElement>(null);
+  const pinInputRef = useRef<HTMLInputElement>(null);
   const t = entranceCopy[language];
   const direction = language === "ar" ? "rtl" : "ltr";
 
@@ -180,11 +235,15 @@ export function FamilyEntrance({
     setSelected(member);
     setPin("");
     setError("");
-    window.setTimeout(() => pinPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 80);
+    setRecoveryOpen(false);
+    window.setTimeout(() => {
+      pinPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      pinInputRef.current?.focus({ preventScroll: true });
+    }, 80);
   };
 
   const pressDigit = (digit: string) => {
-    if (busy || pin.length >= 12) return;
+    if (busy || pin.length >= MAX_FAMILY_PIN_LENGTH) return;
     setError("");
     setPin((current) => `${current}${digit}`);
   };
@@ -221,7 +280,11 @@ export function FamilyEntrance({
       setError(t.choose);
       return;
     }
-    if (!(/^(?:\d{4}|\d{6,12})$/).test(pin)) return;
+    if (!isSupportedFamilyPin(pin)) {
+      setError(t.incompletePin);
+      pinInputRef.current?.focus();
+      return;
+    }
 
     setBusy(true);
     setError("");
@@ -236,27 +299,28 @@ export function FamilyEntrance({
           returnTo,
         }),
       });
-      const payload = (await response.json()) as { error?: string; route?: string };
-      if (!response.ok || !payload.route) throw new Error(t.wrongPin);
+      const payload = (await response.json()) as { code?: string; error?: string; route?: string };
+      if (!response.ok) {
+        setError(t[resolveFamilyLoginFailure(payload.code, response.status)]);
+        setPin("");
+        pinInputRef.current?.focus();
+        return;
+      }
+      if (!payload.route) {
+        setError(t.serverFailure);
+        setPin("");
+        pinInputRef.current?.focus();
+        return;
+      }
       window.location.assign(payload.route);
-    } catch (loginError) {
-      setError(loginError instanceof Error ? loginError.message : t.wrongPin);
+    } catch {
+      setError(t.serverFailure);
       setPin("");
+      pinInputRef.current?.focus();
     } finally {
       setBusy(false);
     }
   };
-
-  useEffect(() => {
-    if (!selected) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (/^\d$/.test(event.key)) pressDigit(event.key);
-      else if (event.key === "Backspace") removeDigit();
-      else if (event.key === "Enter" && pin.length >= 4) void submit();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  });
 
   const pinSlots = Math.max(4, pin.length);
 
@@ -386,7 +450,7 @@ export function FamilyEntrance({
                     )}
                     <div className="min-w-0">
                       <h2 className="truncate text-xl font-extrabold sm:text-2xl">{selected?.name ?? t.pinTitle}</h2>
-                      <p className="mt-1 text-sm text-[#687c76]">{selected ? t.pinHint : t.choose}</p>
+                      <p className="mt-1 text-sm text-[#687c76]">{selected ? t.pinActionHint : t.choose}</p>
                     </div>
                   </div>
                   <Button type="button" size="icon" variant="outline" className="size-12 shrink-0 rounded-2xl border-[#cce3dc]" onClick={speak} aria-label={t.listen} title={t.listen}>
@@ -394,27 +458,57 @@ export function FamilyEntrance({
                   </Button>
                 </div>
 
-                <form className="mt-6 flex flex-1 flex-col" onSubmit={(event) => void submit(event)}>
-                  <div className="flex min-h-12 flex-wrap items-center justify-center gap-3" aria-label={`${pin.length} chiffres saisis`}>
+                <form className="mt-6 flex flex-1 flex-col lg:mt-4" onSubmit={(event) => void submit(event)}>
+                  <div className="space-y-2">
+                    <Label htmlFor="family-pin-input" className="block text-base font-bold text-[#17342d]">
+                      {t.pinLabel}
+                    </Label>
+                    <Input
+                      ref={pinInputRef}
+                      id="family-pin-input"
+                      name="family-pin"
+                      type="password"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      autoCapitalize="none"
+                      enterKeyHint="go"
+                      spellCheck={false}
+                      maxLength={MAX_FAMILY_PIN_LENGTH}
+                      value={pin}
+                      disabled={!selected || busy}
+                      aria-describedby={`family-pin-help family-pin-count${error ? " family-pin-error" : ""}`}
+                      aria-invalid={Boolean(error)}
+                      onChange={(event) => {
+                        setError("");
+                        setPin(normalizeFamilyPin(event.target.value));
+                      }}
+                      className="h-14 rounded-2xl border-[#b9d7ce] bg-[#f7fbf9] px-4 text-center text-2xl font-black tracking-[0.35em] text-[#073f34] focus-visible:border-[#008d70] focus-visible:ring-4 focus-visible:ring-[#79d8bf]/35 lg:h-12"
+                    />
+                    <p id="family-pin-help" className="text-sm leading-5 text-[#5d706b]">{t.pinHint}</p>
+                    <p id="family-pin-count" className="sr-only" aria-live="polite">{t.pinCount(pin.length)}</p>
+                  </div>
+
+                  <div className="mt-4 flex min-h-8 flex-wrap items-center justify-center gap-2.5 lg:mt-2" aria-hidden="true">
                     {Array.from({ length: pinSlots }, (_, index) => (
                       <span
                         key={index}
                         className={cn(
-                          "size-5 rounded-full border-2 sm:size-6",
+                          "size-4 rounded-full border-2 sm:size-5",
                           index < pin.length ? "border-[#007b61] bg-[#007b61]" : "border-[#bdd5ce] bg-[#f4f8f6]",
                         )}
                       />
                     ))}
                   </div>
 
-                  <div className="mx-auto mt-6 grid w-full max-w-sm grid-cols-3 gap-2.5 sm:gap-3">
+                  <div className="mx-auto mt-4 grid w-full max-w-sm grid-cols-3 gap-2.5 sm:gap-3 lg:mt-2 lg:gap-2">
                     {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
                       <button
                         key={digit}
                         type="button"
                         disabled={!selected || busy}
                         onClick={() => pressDigit(digit)}
-                        className="h-16 rounded-2xl border border-[#cce3dc] bg-[#eaf8f1] text-3xl font-black text-[#073f34] shadow-sm transition-transform hover:-translate-y-0.5 hover:bg-[#dcf4eb] active:translate-y-0 disabled:opacity-45 sm:h-[4.5rem]"
+                        className="h-16 rounded-2xl border border-[#cce3dc] bg-[#eaf8f1] text-3xl font-black text-[#073f34] shadow-sm transition-transform hover:-translate-y-0.5 hover:bg-[#dcf4eb] active:translate-y-0 disabled:opacity-45 sm:h-[4.5rem] lg:h-14"
                       >
                         {digit}
                       </button>
@@ -423,7 +517,7 @@ export function FamilyEntrance({
                       type="button"
                       disabled={!selected || busy}
                       onClick={speak}
-                      className="grid h-16 place-items-center rounded-2xl border border-[#cce3dc] bg-[#f7fbf9] text-[#008d70] disabled:opacity-45 sm:h-[4.5rem]"
+                      className="grid h-16 place-items-center rounded-2xl border border-[#cce3dc] bg-[#f7fbf9] text-[#008d70] disabled:opacity-45 sm:h-[4.5rem] lg:h-14"
                       aria-label={t.listen}
                     >
                       <Volume2 className="size-7" />
@@ -432,7 +526,7 @@ export function FamilyEntrance({
                       type="button"
                       disabled={!selected || busy}
                       onClick={() => pressDigit("0")}
-                      className="h-16 rounded-2xl border border-[#cce3dc] bg-[#eaf8f1] text-3xl font-black text-[#073f34] shadow-sm disabled:opacity-45 sm:h-[4.5rem]"
+                      className="h-16 rounded-2xl border border-[#cce3dc] bg-[#eaf8f1] text-3xl font-black text-[#073f34] shadow-sm disabled:opacity-45 sm:h-[4.5rem] lg:h-14"
                     >
                       0
                     </button>
@@ -440,31 +534,48 @@ export function FamilyEntrance({
                       type="button"
                       disabled={!selected || busy || !pin}
                       onClick={removeDigit}
-                      className="grid h-16 place-items-center rounded-2xl border border-[#cce3dc] bg-[#f7fbf9] text-[#073f34] disabled:opacity-45 sm:h-[4.5rem]"
-                      aria-label="Effacer un chiffre"
+                      className="grid h-16 place-items-center rounded-2xl border border-[#cce3dc] bg-[#f7fbf9] text-[#073f34] disabled:opacity-45 sm:h-[4.5rem] lg:h-14"
+                      aria-label={t.deleteDigit}
                     >
                       <Delete className="size-7" />
                     </button>
                   </div>
 
                   {error && (
-                    <p role="alert" className="mt-4 flex items-center justify-center gap-2 rounded-2xl border border-[#f2bcbc] bg-[#fff1f1] px-4 py-3 text-center text-sm font-semibold text-[#a52626]">
+                    <p id="family-pin-error" role="alert" aria-live="assertive" className="mt-4 flex items-center justify-center gap-2 rounded-2xl border border-[#f2bcbc] bg-[#fff1f1] px-4 py-3 text-center text-sm font-semibold text-[#a52626]">
                       <AlertCircle className="size-5 shrink-0" /> {error}
                     </p>
                   )}
 
-                  <div className="mt-auto pt-5">
+                  <button
+                    type="button"
+                    aria-expanded={recoveryOpen}
+                    aria-controls="family-pin-recovery"
+                    onClick={() => setRecoveryOpen((current) => !current)}
+                    className="mx-auto mt-3 min-h-11 rounded-xl px-4 text-sm font-bold text-[#00775f] underline decoration-[#7bcdb7] underline-offset-4 hover:bg-[#eef8f4] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#79d8bf]/45"
+                  >
+                    {recoveryOpen ? t.closeRecovery : t.forgot}
+                  </button>
+                  {recoveryOpen && (
+                    <div id="family-pin-recovery" className="mt-2 rounded-2xl border border-[#cce3dc] bg-[#f5faf8] p-4 text-sm leading-6 text-[#3f5f56]">
+                      <p className="font-bold text-[#17342d]">{t.recoveryTitle}</p>
+                      <p className="mt-1">{t.recoveryMember}</p>
+                      <p className="mt-2">{t.recoveryAdmin}</p>
+                    </div>
+                  )}
+
+                  <div className="mt-auto pt-5 lg:mt-0 lg:pt-3">
                     <Button
                       type="submit"
-                      disabled={!selected || busy || !(/^(?:\d{4}|\d{6,12})$/).test(pin)}
-                      className="h-14 w-full rounded-2xl bg-[#008d70] text-base font-bold text-white shadow-lg shadow-[#008d70]/20 hover:bg-[#00775f]"
+                      disabled={!selected || busy}
+                      className="h-14 w-full rounded-2xl bg-[#008d70] text-base font-bold text-white shadow-lg shadow-[#008d70]/20 hover:bg-[#00775f] lg:h-12"
                     >
                       {busy ? <Loader2 className="animate-spin" /> : <LockKeyhole />}
                       {t.enter}
                       {direction === "rtl" ? <ArrowLeft /> : <ArrowRight />}
                     </Button>
                     {selected && (
-                      <button type="button" onClick={() => { setSelected(null); setPin(""); setError(""); }} className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold text-[#5d706b] hover:bg-[#eef6f2]">
+                      <button type="button" onClick={() => { setSelected(null); setPin(""); setError(""); setRecoveryOpen(false); }} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold text-[#5d706b] hover:bg-[#eef6f2] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#79d8bf]/45">
                         {direction === "rtl" ? <ArrowRight className="size-4" /> : <ArrowLeft className="size-4" />} {t.back}
                       </button>
                     )}
