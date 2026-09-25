@@ -316,7 +316,7 @@ export function LoginForm({
               <Image src="/icons/icon-192.png" alt="" fill sizes="44px" className="object-cover" priority />
             </span>
             <div>
-              <p className="font-semibold">Dépenses famille</p>
+              <p className="font-semibold">DarnaFlow</p>
               <p className="text-sm text-sidebar-foreground/65">Courses de la maison</p>
             </div>
           </div>
@@ -365,7 +365,7 @@ export function LoginForm({
               <span className="relative size-10 shrink-0 overflow-hidden rounded-2xl shadow-md shadow-primary/15">
                 <Image src="/icons/icon-192.png" alt="" fill sizes="40px" className="object-cover" priority />
               </span>
-              <span className="text-sm font-semibold">Dépenses famille</span>
+              <span className="text-sm font-semibold">DarnaFlow</span>
             </div>
             <div className="ms-auto flex items-center gap-2">
               <Button

@@ -557,7 +557,7 @@ type AppData = {
 
 const words = {
   fr: {
-    brand: "Dépenses famille",
+    brand: "DarnaFlow",
     catalog: "Catalogue",
     carts: "Mes paniers",
     hello: "Bonjour",
@@ -766,7 +766,7 @@ const words = {
     negativeBalance: "Montant à remettre au livreur",
   },
   ar: {
-    brand: "مصاريف العائلة",
+    brand: "DarnaFlow",
     catalog: "المنتجات",
     carts: "سلّاتي",
     hello: "مرحبا",
@@ -975,7 +975,7 @@ const words = {
     negativeBalance: "المبلغ الواجب تسليمه للمكلّف بالشراء",
   },
   en: {
-    brand: "Family expenses",
+    brand: "DarnaFlow",
     catalog: "Catalog",
     carts: "My carts",
     hello: "Hello",
