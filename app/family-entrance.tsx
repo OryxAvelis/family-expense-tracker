@@ -347,8 +347,8 @@ export function FamilyEntrance({
 
   return (
     <main dir={direction} className="min-h-[100svh] overflow-x-clip bg-background text-foreground">
-      <div className="mx-auto flex min-h-[100svh] w-full max-w-6xl flex-col px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
+      <div className="mx-auto flex min-h-[100svh] w-full max-w-6xl flex-col px-4 py-4 sm:px-6 sm:py-6 lg:px-6 lg:py-3">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4 lg:pb-3">
           <div className="flex min-w-0 items-center gap-3 max-[419px]:w-full">
             <span className="relative size-11 shrink-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:size-12">
               <Image src="/icons/icon-192.png" alt="" fill sizes="48px" className="object-cover" priority />
@@ -400,22 +400,22 @@ export function FamilyEntrance({
             </Button>
           </div>
         ) : (
-          <div className="my-auto grid gap-4 py-5 sm:py-7 lg:grid-cols-[1.04fr_0.96fr] lg:items-start lg:gap-6">
+          <div className="my-auto grid gap-4 py-5 sm:py-7 lg:grid-cols-[1.04fr_0.96fr] lg:items-start lg:gap-4 lg:py-3">
             <section
               aria-labelledby="family-profile-heading"
               className={cn(
-                "rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-6",
+                "rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-6 lg:p-4",
                 selected && "hidden lg:block",
               )}
             >
               <div>
-                <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary">DarnaFlow</p>
-                <h1 id="family-profile-heading" className="mt-1 text-2xl font-extrabold tracking-[-0.035em] sm:text-3xl">{t.title}</h1>
-                <p className="mt-1 text-sm text-muted-foreground sm:text-base">{t.hint}</p>
+                <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary lg:text-xs">DarnaFlow</p>
+                <h1 id="family-profile-heading" className="mt-1 text-2xl font-extrabold tracking-[-0.035em] sm:text-3xl lg:text-2xl">{t.title}</h1>
+                <p className="mt-1 text-sm text-muted-foreground sm:text-base lg:text-sm">{t.hint}</p>
               </div>
 
               {directory.members.length ? (
-                <div className="mt-5 grid grid-cols-1 gap-2.5 min-[360px]:grid-cols-2 sm:gap-3">
+                <div className="mt-5 grid grid-cols-1 gap-2.5 min-[360px]:grid-cols-2 sm:gap-3 lg:mt-3 lg:gap-2">
                   {directory.members.map((member) => {
                     const active = selected?.id === member.id;
                     return (
@@ -424,15 +424,15 @@ export function FamilyEntrance({
                         type="button"
                         onClick={() => chooseMember(member)}
                         className={cn(
-                          "relative flex min-h-20 min-w-0 items-center gap-3 rounded-2xl border bg-background/50 p-3 text-start shadow-xs transition-colors hover:border-primary/45 hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                          "relative flex min-h-20 min-w-0 items-center gap-3 rounded-2xl border bg-background/50 p-3 text-start shadow-xs transition-colors hover:border-primary/45 hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 lg:min-h-14 lg:gap-2 lg:p-2",
                           active && "border-primary bg-primary/10 ring-1 ring-primary/20",
                         )}
                         aria-pressed={active}
                       >
-                        <span className="size-13 shrink-0 rounded-2xl sm:size-14">
+                        <span className="size-13 shrink-0 rounded-2xl sm:size-14 lg:size-11 lg:rounded-xl">
                           <MemberPortrait member={member} familyCode={familyCode} />
                         </span>
-                        <span title={member.name} className="min-w-0 flex-1 break-words text-sm font-bold leading-tight min-[480px]:text-base sm:text-lg">{member.name}</span>
+                        <span title={member.name} className="min-w-0 flex-1 break-words text-sm font-bold leading-tight min-[480px]:text-base sm:text-lg lg:text-base">{member.name}</span>
                         {active && (
                           <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground" aria-hidden="true">
                             <Check className="size-4" strokeWidth={3} />
@@ -455,7 +455,7 @@ export function FamilyEntrance({
               ref={pinPanelRef}
               aria-labelledby="family-pin-heading"
               className={cn(
-                "rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-6 lg:sticky lg:top-6 lg:max-h-[calc(100svh-3rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:scrollbar-thin lg:scrollbar-gutter-stable",
+                "rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-6 lg:sticky lg:top-3 lg:self-start lg:p-4",
                 selected ? "ring-1 ring-primary/15" : "hidden lg:block",
               )}
             >
@@ -463,17 +463,17 @@ export function FamilyEntrance({
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
                     {selected ? (
-                      <span className="size-13 shrink-0 rounded-2xl sm:size-14">
+                      <span className="size-13 shrink-0 rounded-2xl sm:size-14 lg:size-11 lg:rounded-xl">
                         <MemberPortrait member={selected} familyCode={familyCode} />
                       </span>
                     ) : (
-                      <span className="grid size-13 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary sm:size-14">
+                      <span className="grid size-13 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary sm:size-14 lg:size-11 lg:rounded-xl">
                         <HouseHeart className="size-7" />
                       </span>
                     )}
                     <div className="min-w-0">
-                      <h2 id="family-pin-heading" className="break-words text-xl font-extrabold tracking-[-0.025em] sm:text-2xl">{selected?.name ?? t.pinTitle}</h2>
-                      <p className="mt-0.5 text-sm text-muted-foreground">{selected ? t.pinActionHint : t.choose}</p>
+                      <h2 id="family-pin-heading" className="break-words text-xl font-extrabold tracking-[-0.025em] sm:text-2xl lg:text-xl">{selected?.name ?? t.pinTitle}</h2>
+                      <p className="mt-0.5 text-sm text-muted-foreground lg:text-xs">{selected ? t.pinActionHint : t.choose}</p>
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center justify-end gap-1">
@@ -495,45 +495,46 @@ export function FamilyEntrance({
                   </div>
                 </div>
 
-                <form className="mt-5 flex flex-1 flex-col" onSubmit={(event) => void submit(event)}>
-                  <div className="space-y-2">
-                    <Label htmlFor="family-pin-input" className="block text-base font-bold">
-                      {t.pinLabel}
-                    </Label>
-                    <Input
-                      ref={pinInputRef}
-                      id="family-pin-input"
-                      name="family-pin"
-                      type="password"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      autoComplete="off"
-                      autoCapitalize="none"
-                      enterKeyHint="go"
-                      spellCheck={false}
-                      maxLength={MAX_FAMILY_PIN_LENGTH}
-                      value={pin}
-                      disabled={!selected || busy}
-                      aria-describedby={`family-pin-help family-pin-count${error ? " family-pin-error" : ""}`}
-                      aria-invalid={Boolean(error)}
-                      onChange={(event) => {
-                        setError("");
-                        setPin(normalizeFamilyPin(event.target.value));
-                      }}
-                      className="h-14 rounded-2xl bg-background px-4 text-center text-2xl font-black tracking-[0.35em] focus-visible:ring-3 focus-visible:ring-ring/50"
-                    />
-                    <p id="family-pin-help" className="text-sm leading-5 text-muted-foreground">{t.pinHint}</p>
-                    <p id="family-pin-count" className="sr-only" aria-live="polite">{t.pinCount(pin.length)}</p>
-                  </div>
+                <form className="mt-5 flex flex-1 flex-col lg:mt-3" onSubmit={(event) => void submit(event)}>
+                  <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(12rem,0.82fr)] lg:items-start lg:gap-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="family-pin-input" className="block text-base font-bold lg:text-sm">
+                        {t.pinLabel}
+                      </Label>
+                      <Input
+                        ref={pinInputRef}
+                        id="family-pin-input"
+                        name="family-pin"
+                        type="password"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        autoComplete="off"
+                        autoCapitalize="none"
+                        enterKeyHint="go"
+                        spellCheck={false}
+                        maxLength={MAX_FAMILY_PIN_LENGTH}
+                        value={pin}
+                        disabled={!selected || busy}
+                        aria-describedby={`family-pin-help family-pin-count${error ? " family-pin-error" : ""}`}
+                        aria-invalid={Boolean(error)}
+                        onChange={(event) => {
+                          setError("");
+                          setPin(normalizeFamilyPin(event.target.value));
+                        }}
+                        className="h-14 rounded-2xl bg-background px-4 text-center text-2xl font-black tracking-[0.35em] focus-visible:ring-3 focus-visible:ring-ring/50 lg:h-11 lg:rounded-xl"
+                      />
+                      <p id="family-pin-help" className="text-sm leading-5 text-muted-foreground lg:text-xs lg:leading-4">{t.pinHint}</p>
+                      <p id="family-pin-count" className="sr-only" aria-live="polite">{t.pinCount(pin.length)}</p>
+                    </div>
 
-                  <div aria-label={t.keypad} className="mx-auto mt-4 grid w-full max-w-sm grid-cols-3 gap-2">
+                    <div aria-label={t.keypad} className="mx-auto mt-4 grid w-full max-w-sm grid-cols-3 gap-2 lg:mt-0 lg:gap-1.5">
                     {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
                       <button
                         key={digit}
                         type="button"
                         disabled={!selected || busy}
                         onClick={() => pressDigit(digit)}
-                        className="h-13 rounded-2xl border border-border bg-secondary text-2xl font-extrabold text-secondary-foreground shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-45 sm:h-14"
+                        className="h-13 rounded-2xl border border-border bg-secondary text-2xl font-extrabold text-secondary-foreground shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-45 sm:h-14 lg:h-11 lg:rounded-xl lg:text-xl"
                       >
                         {digit}
                       </button>
@@ -542,7 +543,7 @@ export function FamilyEntrance({
                       type="button"
                       disabled={!selected || busy}
                       onClick={speak}
-                      className="grid h-13 place-items-center rounded-2xl border border-border bg-background text-primary shadow-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-45 sm:h-14"
+                      className="grid h-13 place-items-center rounded-2xl border border-border bg-background text-primary shadow-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-45 sm:h-14 lg:h-11 lg:rounded-xl"
                       aria-label={t.listen}
                     >
                       <Volume2 className="size-6" />
@@ -551,7 +552,7 @@ export function FamilyEntrance({
                       type="button"
                       disabled={!selected || busy}
                       onClick={() => pressDigit("0")}
-                      className="h-13 rounded-2xl border border-border bg-secondary text-2xl font-extrabold text-secondary-foreground shadow-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-45 sm:h-14"
+                      className="h-13 rounded-2xl border border-border bg-secondary text-2xl font-extrabold text-secondary-foreground shadow-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-45 sm:h-14 lg:h-11 lg:rounded-xl lg:text-xl"
                     >
                       0
                     </button>
@@ -559,11 +560,12 @@ export function FamilyEntrance({
                       type="button"
                       disabled={!selected || busy || !pin}
                       onClick={removeDigit}
-                      className="grid h-13 place-items-center rounded-2xl border border-border bg-background text-foreground shadow-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-45 sm:h-14"
+                      className="grid h-13 place-items-center rounded-2xl border border-border bg-background text-foreground shadow-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-45 sm:h-14 lg:h-11 lg:rounded-xl"
                       aria-label={t.deleteDigit}
                     >
                       <Delete className="size-6" />
                     </button>
+                    </div>
                   </div>
 
                   {error && (
@@ -572,7 +574,7 @@ export function FamilyEntrance({
                     </p>
                   )}
 
-                  <Button type="submit" disabled={!selected || busy} className="mt-4 h-13 w-full rounded-2xl text-base font-bold shadow-sm sm:h-14">
+                  <Button type="submit" disabled={!selected || busy} className="mt-4 h-13 w-full rounded-2xl text-base font-bold shadow-sm sm:h-14 lg:mt-3 lg:h-11 lg:rounded-xl">
                     {busy ? <Loader2 className="animate-spin" /> : <LockKeyhole />}
                     {t.enter}
                     {direction === "rtl" ? <ArrowLeft /> : <ArrowRight />}
@@ -583,7 +585,7 @@ export function FamilyEntrance({
                     aria-expanded={recoveryOpen}
                     aria-controls="family-pin-recovery"
                     onClick={() => setRecoveryOpen((current) => !current)}
-                    className="mx-auto mt-2 min-h-11 rounded-xl px-4 text-sm font-semibold text-primary underline decoration-primary/35 underline-offset-4 hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                    className="mx-auto mt-2 min-h-11 rounded-xl px-4 text-sm font-semibold text-primary underline decoration-primary/35 underline-offset-4 hover:bg-accent focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 lg:mt-1"
                   >
                     {recoveryOpen ? t.closeRecovery : t.forgot}
                   </button>
