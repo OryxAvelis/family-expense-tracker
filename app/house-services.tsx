@@ -191,10 +191,10 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
           </div>
         </div>
         <Tabs value={filter} onValueChange={setFilter} className="w-full xl:w-auto">
-          <TabsList className="grid h-[3.25rem] w-full grid-cols-3 rounded-xl p-1 xl:min-w-[22rem]">
-            <TabsTrigger value="active" className="min-h-11 rounded-lg px-2 sm:px-4">{t.active}</TabsTrigger>
-            <TabsTrigger value="completed" className="min-h-11 rounded-lg px-2 sm:px-4">{t.completed}</TabsTrigger>
-            <TabsTrigger value="cancelled" className="min-h-11 rounded-lg px-2 sm:px-4">{t.cancelled}</TabsTrigger>
+          <TabsList className="grid h-auto w-full grid-cols-3 gap-2 rounded-none bg-transparent p-0 xl:min-w-[22rem]">
+            <TabsTrigger value="active" className="h-11 min-h-11 rounded-xl border border-border bg-card px-2 text-foreground shadow-none hover:border-primary/50 hover:bg-primary/5 data-[state=active]:border-primary data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none dark:data-[state=active]:border-primary dark:data-[state=active]:bg-primary/15 dark:data-[state=active]:text-primary sm:px-4">{t.active}</TabsTrigger>
+            <TabsTrigger value="completed" className="h-11 min-h-11 rounded-xl border border-border bg-card px-2 text-foreground shadow-none hover:border-primary/50 hover:bg-primary/5 data-[state=active]:border-primary data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none dark:data-[state=active]:border-primary dark:data-[state=active]:bg-primary/15 dark:data-[state=active]:text-primary sm:px-4">{t.completed}</TabsTrigger>
+            <TabsTrigger value="cancelled" className="h-11 min-h-11 rounded-xl border border-border bg-card px-2 text-foreground shadow-none hover:border-primary/50 hover:bg-primary/5 data-[state=active]:border-primary data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none dark:data-[state=active]:border-primary dark:data-[state=active]:bg-primary/15 dark:data-[state=active]:text-primary sm:px-4">{t.cancelled}</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
