@@ -180,19 +180,21 @@ export function HouseServices({ currentUser }: { currentUser: FamilySessionUser 
 
   const missionBoard = (
     <section id="missions" aria-labelledby="missions-title" className="scroll-mt-24">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-[0.12em] text-primary">{t.pageEyebrow}</p>
-          <div className="mt-0.5 flex items-baseline gap-2">
-            <h2 id="missions-title" className="text-2xl font-black tracking-tight">{isBuyer ? t.nextActions : t.requests}</h2>
-            <span className="text-sm text-muted-foreground">{visible.length} {visible.length === 1 ? t.missionSingular : t.missionPlural}</span>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <h2 id="missions-title" className="text-2xl font-black leading-tight tracking-tight">{isBuyer ? t.nextActions : t.requests}</h2>
+            <Badge variant="secondary" className="h-7 rounded-full px-2.5 text-xs font-medium text-muted-foreground">
+              {visible.length} {visible.length === 1 ? t.missionSingular : t.missionPlural}
+            </Badge>
           </div>
         </div>
-        <Tabs value={filter} onValueChange={setFilter}>
-          <TabsList className="grid h-14 w-full grid-cols-3 rounded-xl p-1 sm:w-auto">
-            <TabsTrigger value="active" className="min-h-12 rounded-lg px-3">{t.active}</TabsTrigger>
-            <TabsTrigger value="completed" className="min-h-12 rounded-lg px-3">{t.completed}</TabsTrigger>
-            <TabsTrigger value="cancelled" className="min-h-12 rounded-lg px-3">{t.cancelled}</TabsTrigger>
+        <Tabs value={filter} onValueChange={setFilter} className="w-full xl:w-auto">
+          <TabsList className="grid h-[3.25rem] w-full grid-cols-3 rounded-xl p-1 xl:min-w-[22rem]">
+            <TabsTrigger value="active" className="min-h-11 rounded-lg px-2 sm:px-4">{t.active}</TabsTrigger>
+            <TabsTrigger value="completed" className="min-h-11 rounded-lg px-2 sm:px-4">{t.completed}</TabsTrigger>
+            <TabsTrigger value="cancelled" className="min-h-11 rounded-lg px-2 sm:px-4">{t.cancelled}</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
