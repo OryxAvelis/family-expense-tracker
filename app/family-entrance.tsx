@@ -348,8 +348,8 @@ export function FamilyEntrance({
   return (
     <main dir={direction} className="min-h-[100svh] overflow-x-clip bg-background text-foreground">
       <div className="mx-auto flex min-h-[100svh] w-full max-w-6xl flex-col px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
-        <header className="flex items-center justify-between gap-3 border-b border-border pb-4">
-          <div className="flex min-w-0 items-center gap-3">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
+          <div className="flex min-w-0 items-center gap-3 max-[359px]:w-full">
             <span className="relative size-11 shrink-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:size-12">
               <Image src="/icons/icon-192.png" alt="" fill sizes="48px" className="object-cover" priority />
             </span>
@@ -359,7 +359,7 @@ export function FamilyEntrance({
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2 max-[359px]:w-full max-[359px]:justify-end">
             <Button
               type="button"
               size="icon"
@@ -460,7 +460,7 @@ export function FamilyEntrance({
               )}
             >
               <div className="flex min-h-full flex-col">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
                     {selected ? (
                       <span className="size-13 shrink-0 rounded-2xl sm:size-14">
@@ -476,7 +476,7 @@ export function FamilyEntrance({
                       <p className="mt-0.5 text-sm text-muted-foreground">{selected ? t.pinActionHint : t.choose}</p>
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
+                  <div className="flex shrink-0 items-center justify-end gap-1">
                     <Button type="button" size="icon" variant="outline" className="size-11 rounded-2xl" onClick={speak} aria-label={t.listen} title={t.listen}>
                       <Volume2 className="size-5 text-primary" />
                     </Button>
