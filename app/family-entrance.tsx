@@ -372,7 +372,7 @@ export function FamilyEntrance({
               {theme === "dark" ? <Sun className="size-5" /> : <Moon className="size-5" />}
             </Button>
             <Select value={language} onValueChange={(value) => setLanguage(value as EntranceLanguage)}>
-              <SelectTrigger className="h-11 w-36 rounded-2xl bg-card px-3" aria-label={t.language}>
+              <SelectTrigger className="h-11 w-36 rounded-2xl bg-card px-3 data-[size=default]:h-11" aria-label={t.language}>
                 <Languages className="size-5 text-primary" />
                 <SelectValue />
               </SelectTrigger>
