@@ -11,11 +11,20 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Toaster } from "@/components/ui/sonner";
 import { useFamilyTheme } from "@/hooks/use-family-theme";
 import type { FamilySessionUser } from "@/lib/family-auth";
 import type { SavingsInsights } from "@/lib/savings-insights";
+import {
+  buildFamilyContributionRequest,
+  contributionFieldCopy,
+  normalizeSubscriptionLanguage,
+  parseContributionAmount,
+  type ContributionAmountError,
+  type SubscriptionLanguage,
+} from "@/lib/subscription-contribution";
 
 type Plan = "free" | "plus" | "pro";
 type Payment = { id: string; user_id: number; user_name: string; scope: "family" | "personal"; plan: "plus" | "pro"; amount_cents: number; status: "pending" | "confirmed" | "rejected"; request_type?: "payment" | "trial"; created_at: string; proof_key?: string | null; proof_name?: string | null };
@@ -49,6 +58,20 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
   const [celebrate, setCelebrate] = useState(false);
   const [referenceTime, setReferenceTime] = useState(0);
   const [proofBusy, setProofBusy] = useState("");
+  const [language, setLanguage] = useState<SubscriptionLanguage>("fr");
+  const [amountError, setAmountError] = useState<ContributionAmountError | null>(null);
+
+  useEffect(() => {
+    const syncLanguage = (value = window.localStorage.getItem("family-expense-language")) => {
+      setLanguage(normalizeSubscriptionLanguage(value));
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === "family-expense-language") syncLanguage(event.newValue);
+    };
+    syncLanguage();
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -115,6 +138,18 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
     finally { setBusy(""); }
   };
 
+  const submitFamilyContribution = () => {
+    const request = buildFamilyContributionRequest(amount, targetPlan);
+    if (!request.ok) {
+      setAmountError(request.error);
+      return;
+    }
+    setAmountError(null);
+    void act(request.body, "Contribution envoyée au propriétaire de la famille.");
+  };
+
+  const contributionCopy = contributionFieldCopy[language];
+
   const goal = planPrice[targetPlan];
   const progress = data ? Math.min(100, Math.round((data.familyFundCents / goal) * 100)) : 0;
   const confirmedContributions = useMemo(() => data?.payments.filter((item) => item.scope === "family" && item.status === "confirmed") ?? [], [data]);
@@ -171,7 +206,50 @@ export function SubscriptionPlans({ currentUser }: { currentUser: FamilySessionU
             <div className="flex items-start gap-4"><span className="grid size-12 place-items-center rounded-2xl bg-primary/12 text-primary"><Users/></span><div><h2 className="text-2xl font-black">Pot d’abonnement familial</h2><p className="mt-1 text-sm text-muted-foreground">Chacun donne ce qu’il peut. Le propriétaire de la famille confirme l’argent reçu.</p></div></div>
             <div className="mt-7 rounded-2xl bg-muted/45 p-5"><div className="flex items-end justify-between"><div><p className="text-xs text-muted-foreground">Collecté pour {targetPlan === "pro" ? "Pro" : "Plus"}</p><p className="mt-1 text-3xl font-black">{money(data.familyFundCents)}</p></div><strong>{progress}%</strong></div><Progress value={progress} className="mt-4 h-3"/><p className="mt-2 text-xs text-muted-foreground">Reste {money(Math.max(0, goal - data.familyFundCents))}. Le surplus reste pour le mois prochain.</p></div>
             <div className="mt-5 grid grid-cols-2 gap-3"><Button variant={targetPlan === "plus" ? "default" : "outline"} className="h-auto rounded-xl py-3" onClick={() => { setTargetPlan("plus"); void act({ action: "vote_plan", plan: "plus" }, "Vote Plus enregistré."); }}><span><strong className="block">Plus · 15 DH</strong><small>{votes.plus} vote(s)</small></span></Button><Button variant={targetPlan === "pro" ? "default" : "outline"} className="h-auto rounded-xl py-3" onClick={() => { setTargetPlan("pro"); void act({ action: "vote_plan", plan: "pro" }, "Vote Pro enregistré."); }}><span><strong className="block">Pro · 29 DH</strong><small>{votes.pro} vote(s)</small></span></Button></div>
-            <div className="mt-5 flex gap-2"><div className="relative flex-1"><PiggyBank className="absolute start-3 top-3.5 size-5 text-muted-foreground"/><Input type="number" min="1" step="1" value={amount} onChange={(event) => setAmount(event.target.value)} className="h-12 rounded-xl ps-10 pe-12"/><span className="absolute end-3 top-3.5 text-sm font-bold">DH</span></div><Button className="h-12 rounded-xl px-5" disabled={Boolean(busy) || Number(amount) <= 0} onClick={() => void act({ action: "contribute_family", plan: targetPlan, amountCents: Math.round(Number(amount) * 100) }, "Contribution envoyée au propriétaire de la famille.")}>Participer</Button></div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" dir={language === "ar" ? "rtl" : "ltr"}>
+              <div className="min-w-0">
+                <Label htmlFor="family-contribution-amount" className="mb-2 block text-sm font-semibold">
+                  {contributionCopy.label}
+                </Label>
+                <div className="relative">
+                  <PiggyBank className="pointer-events-none absolute start-3 top-3.5 size-5 text-muted-foreground" aria-hidden="true" />
+                  <Input
+                    id="family-contribution-amount"
+                    name="familyContributionAmount"
+                    type="number"
+                    inputMode="decimal"
+                    min="0.01"
+                    max="1000"
+                    step="0.01"
+                    value={amount}
+                    onChange={(event) => {
+                      const nextAmount = event.target.value;
+                      setAmount(nextAmount);
+                      if (amountError) {
+                        const nextValidation = parseContributionAmount(nextAmount);
+                        setAmountError(nextValidation.ok ? null : nextValidation.error);
+                      }
+                    }}
+                    onBlur={() => {
+                      const validation = parseContributionAmount(amount);
+                      setAmountError(validation.ok ? null : validation.error);
+                    }}
+                    aria-describedby={`family-contribution-currency family-contribution-guidance${amountError ? " family-contribution-error" : ""}`}
+                    aria-errormessage={amountError ? "family-contribution-error" : undefined}
+                    aria-invalid={Boolean(amountError)}
+                    className="h-12 rounded-xl ps-10 pe-12"
+                  />
+                  <span id="family-contribution-currency" className="pointer-events-none absolute end-3 top-3.5 text-sm font-bold">DH</span>
+                </div>
+                <p id="family-contribution-guidance" className="mt-2 text-xs leading-5 text-muted-foreground">
+                  {contributionCopy.guidance}
+                </p>
+                {amountError && <p id="family-contribution-error" role="alert" className="mt-1 text-xs font-medium text-destructive">
+                  {contributionCopy.errors[amountError]}
+                </p>}
+              </div>
+              <Button className="h-12 w-full rounded-xl px-5 sm:w-auto" disabled={Boolean(busy)} onClick={submitFamilyContribution}>Participer</Button>
+            </div>
             <div className="mt-6"><h3 className="text-sm font-bold">Contributions confirmées</h3><div className="mt-3 space-y-2">{confirmedContributions.slice(0, 8).map((payment) => <div key={payment.id} className="flex items-center gap-3 rounded-xl bg-muted/45 px-3 py-2"><span className="grid size-8 place-items-center rounded-full bg-primary/12 text-xs font-black text-primary">{payment.user_name.slice(0,2).toUpperCase()}</span><span className="min-w-0 flex-1 truncate text-sm">{payment.user_name}</span><strong className="text-primary">+{money(payment.amount_cents)}</strong></div>)}{!confirmedContributions.length && <p className="rounded-xl border border-dashed border-border p-4 text-center text-sm text-muted-foreground">Aucune contribution confirmée.</p>}</div></div>
           </article>
 
