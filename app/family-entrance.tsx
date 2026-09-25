@@ -349,7 +349,7 @@ export function FamilyEntrance({
     <main dir={direction} className="min-h-[100svh] overflow-x-clip bg-background text-foreground">
       <div className="mx-auto flex min-h-[100svh] w-full max-w-6xl flex-col px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
-          <div className="flex min-w-0 items-center gap-3 max-[359px]:w-full">
+          <div className="flex min-w-0 items-center gap-3 max-[419px]:w-full">
             <span className="relative size-11 shrink-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm sm:size-12">
               <Image src="/icons/icon-192.png" alt="" fill sizes="48px" className="object-cover" priority />
             </span>
@@ -359,7 +359,7 @@ export function FamilyEntrance({
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2 max-[359px]:w-full max-[359px]:justify-end">
+          <div className="flex shrink-0 items-center gap-2 max-[419px]:w-full max-[419px]:justify-end">
             <Button
               type="button"
               size="icon"
@@ -372,7 +372,7 @@ export function FamilyEntrance({
               {theme === "dark" ? <Sun className="size-5" /> : <Moon className="size-5" />}
             </Button>
             <Select value={language} onValueChange={(value) => setLanguage(value as EntranceLanguage)}>
-              <SelectTrigger className="h-11 max-w-32 rounded-2xl bg-card px-3 sm:max-w-40" aria-label={t.language}>
+              <SelectTrigger className="h-11 w-36 rounded-2xl bg-card px-3" aria-label={t.language}>
                 <Languages className="size-5 text-primary" />
                 <SelectValue />
               </SelectTrigger>
