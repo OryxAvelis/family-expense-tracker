@@ -325,7 +325,7 @@ export function FamilyEntrance({
   const pinSlots = Math.max(4, pin.length);
 
   return (
-    <main dir={direction} className="relative min-h-[100svh] overflow-hidden bg-[#fffdf8] text-[#0a2b23]">
+    <main dir={direction} className="relative min-h-[100svh] overflow-x-clip bg-[#fffdf8] text-[#0a2b23]">
       <Image
         src="/assets/family-entry-decoration.png"
         alt=""
@@ -376,7 +376,7 @@ export function FamilyEntrance({
             </Button>
           </div>
         ) : (
-          <div className="my-auto grid gap-5 py-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-stretch lg:gap-7 lg:py-10">
+          <div className="my-auto grid gap-5 py-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-start lg:gap-7 lg:py-10">
             <section className={cn(
               "rounded-[2rem] border border-[#d8e8e2] bg-white/95 p-5 shadow-[0_22px_60px_rgba(6,76,61,0.10)] sm:p-7",
               selected && "hidden lg:block",
@@ -431,7 +431,7 @@ export function FamilyEntrance({
             <section
               ref={pinPanelRef}
               className={cn(
-                "rounded-[2rem] border bg-white/95 p-5 shadow-[0_22px_60px_rgba(6,76,61,0.10)] transition-colors sm:p-7",
+                "rounded-[2rem] border bg-white/95 p-5 shadow-[0_22px_60px_rgba(6,76,61,0.10)] transition-colors sm:p-7 lg:sticky lg:top-6 lg:max-h-[calc(100svh-3rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:scrollbar-thin lg:scrollbar-gutter-stable",
                 selected ? "border-[#9bd7c7]" : "border-[#d8e8e2]",
                 !selected && "hidden lg:block",
               )}
